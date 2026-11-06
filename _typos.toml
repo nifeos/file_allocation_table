@@ -9,6 +9,11 @@
 [default]
 locale = "en-us"
 
+[default.extend-words]
+# "Struc" is how Microsoft spells the field FSI_StrucSig in the FAT specification's file system
+# information sector layout; the crate quotes the field by that name.
+Struc = "Struc"
+
 [files]
 # Generated and captured files are not prose anybody wrote.
 extend-exclude = ["*.lock", "target/"]

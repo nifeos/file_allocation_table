@@ -58,18 +58,16 @@
 //!   name is stored as a long name, since the crate writes no lower-case flag.
 //! - A directory slot is found by walking from the directory's first cluster each time, so creating
 //!   in a directory of n clusters costs n chain steps per slot read.
-//! - FAT stores no time zone. A clock is expected to supply UTC; the crate stores
-//!   what its clock reports, cannot check that it is UTC, and refuses a time outside 1980 to 2107.
-//!   A reader that treats FAT times as local time, such as Windows, shows UTC values as local.
+//! - FAT stores no time zone. The crate stores what its clock reports, expected to be UTC, and
+//!   refuses a time outside 1980 to 2107. A reader that treats FAT times as local shows UTC values.
 //! - A file's bytes are read by cluster chain only; there is no cache above the sector and a
 //!   backwards seek walks the chain again from its start.
 //! - Names compare by simple Unicode upper-casing, not the volume's code page or upcase table, and
 //!   a short name's bytes above 0x7F (an Original Equipment Manufacturer (OEM) code page) match
 //!   only themselves.
 //! - The Master Boot Record (MBR) reader does not follow extended partitions, and reads no Globally
-//!   Unique Identifier (GUID) partition table.
-//! - Partition sectors are in the device's own sectors, which is 512 bytes for the tools that wrote
-//!   the tables this was tested against.
+//!   Unique Identifier (GUID) partition table. Partition sectors are in the device's own sectors,
+//!   which is 512 bytes for the tools that wrote the tables this was tested against.
 //! - A long name is compared by its UTF-16 code units as stored; a lone surrogate is not an error.
 //! - A directory read follows only the table the reader picks (FAT32's live table, or the first),
 //!   and never compares the mirrors.

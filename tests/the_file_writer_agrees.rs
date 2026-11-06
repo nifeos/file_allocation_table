@@ -1,7 +1,7 @@
 //! **rust-fatfs and `fsck` agree with the files this crate writes.**
 //!
 //! On FAT12, FAT16 and FAT32 volumes rust-fatfs formatted, this crate creates files, writes them
-//! in odd chunks across clusters, overwrites and appends, sets lengths both ways and deletes. After
+//! in odd chunks across clusters, overwrites and appends, sets lengths larger and smaller and deletes. After
 //! each stage rust-fatfs must list the same names and read the same bytes, count the same free
 //! clusters, and the host's `fsck -n` must accept the volume. The dirty bit is set while the crate
 //! changes the volume and clear after `mark_clean`.
