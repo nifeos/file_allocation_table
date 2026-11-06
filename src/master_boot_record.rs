@@ -15,7 +15,7 @@
 use crate::sector::{SectorDevice, SectorSize};
 
 /// The byte offset of the first partition entry in sector 0.
-const TABLE_OFFSET: usize = 446;
+const TABLE_START_BYTE: usize = 446;
 /// The bytes of one partition entry.
 const ENTRY_BYTES: usize = 16;
 /// The partition entries in the table.
@@ -122,7 +122,7 @@ impl MasterBootRecord {
         }
         let mut partitions = [None; ENTRIES];
         for (index, slot) in partitions.iter_mut().enumerate() {
-            let at = TABLE_OFFSET + index * ENTRY_BYTES;
+            let at = TABLE_START_BYTE + index * ENTRY_BYTES;
             let entry = &sector[at..at + ENTRY_BYTES];
             let kind = entry[4];
             if kind == 0 {

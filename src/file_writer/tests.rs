@@ -133,9 +133,13 @@ fn a_removed_file_frees_its_slots_and_clusters_and_a_new_file_takes_the_slot() {
 fn a_directory_or_label_is_not_a_file_to_write_or_remove() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     let entry = volume.create_file(0, "X.BIN").unwrap();
-    let dir = NamedEntry::created(ShortEntry::new(*b"DIR        ", 0x10, 0, 0), entry.place());
-    assert_eq!(volume.open_file_writer(&dir).err(), Some(FileOpenError));
-    assert_eq!(volume.remove_file(&dir), Err(WriteError::NotAFile));
+    let directory =
+        NamedEntry::created(ShortEntry::new(*b"DIR        ", 0x10, 0, 0), entry.place());
+    assert_eq!(
+        volume.open_file_writer(&directory).err(),
+        Some(FileOpenError)
+    );
+    assert_eq!(volume.remove_file(&directory), Err(WriteError::NotAFile));
 }
 
 #[test]

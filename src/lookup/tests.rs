@@ -138,9 +138,9 @@ fn paths_walk_into_subdirectories_by_long_or_short_name() {
     }
     // The subdirectory holds no entry called "Sub Dir".
     assert_eq!(volume.lookup("Sub Dir/Sub Dir"), Err(LookupError::NotFound));
-    let dir = volume.lookup("sub dir").unwrap();
-    assert!(dir.is_directory());
-    assert_eq!(dir.first_cluster(), 20);
+    let directory = volume.lookup("sub dir").unwrap();
+    assert!(directory.is_directory());
+    assert_eq!(directory.first_cluster(), 20);
     assert_eq!(
         volume
             .find_in_directory(20, "inner file.dat")

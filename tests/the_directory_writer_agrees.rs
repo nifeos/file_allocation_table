@@ -106,9 +106,9 @@ fn check_with_fsck(image: &[u8], label: &str) {
     );
 }
 
-/// Every entry under `dir` according to rust-fatfs: (path, is directory, bytes of a file).
+/// Every entry under `directory` according to rust-fatfs: (path, is directory, bytes of a file).
 fn walk(
-    dir: &lamfat::Dir<
+    directory: &lamfat::Dir<
         '_,
         lamfat::StdIoWrapper<Cursor<Vec<u8>>>,
         lamfat::DefaultTimeProvider,
@@ -117,7 +117,7 @@ fn walk(
     prefix: &str,
     out: &mut Vec<(String, bool, Vec<u8>)>,
 ) {
-    for entry in dir.iter() {
+    for entry in directory.iter() {
         let entry = entry.unwrap();
         let name = entry.file_name();
         if name == "." || name == ".." {

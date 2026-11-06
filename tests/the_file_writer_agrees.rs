@@ -432,12 +432,12 @@ fn files_in_a_subdirectory_write_and_the_subdirectory_grows() {
             fs.unmount().unwrap();
         }
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
-        let dir = volume.lookup("Sub Directory").unwrap().first_cluster();
+        let directory = volume.lookup("Sub Directory").unwrap().first_cluster();
         let cluster = volume.boot_sector().bytes_per_cluster() as usize;
         // Slot 0 and 1 are `.` and `..`; this many files fill the first cluster and spill over.
         let count = cluster / 32 + 5;
         for i in 0..count {
-            let entry = volume.create_file(dir, &format!("F{i}.DAT")).unwrap();
+            let entry = volume.create_file(directory, &format!("F{i}.DAT")).unwrap();
             let mut writer = volume.open_file_writer(&entry).unwrap();
             writer.write(format!("file number {i}").as_bytes()).unwrap();
         }

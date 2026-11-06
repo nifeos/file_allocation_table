@@ -130,8 +130,8 @@ fn read_back(path: &str, body: &[u8]) {
         .or_else(|| line.find("/tmp"))
         .unwrap()..];
     let checked = std::panic::catch_unwind(|| {
-        let dir = Path::new(mount.trim()).join("EFI/BOOT");
-        let names: Vec<String> = std::fs::read_dir(&dir)
+        let directory = Path::new(mount.trim()).join("EFI/BOOT");
+        let names: Vec<String> = std::fs::read_dir(&directory)
             .expect("list EFI/BOOT")
             .map(|e| {
                 e.expect("an entry")
@@ -140,9 +140,15 @@ fn read_back(path: &str, body: &[u8]) {
                     .into_owned()
             })
             .collect();
-        eprintln!("the host's driver lists {names:?} in {}", dir.display());
+        eprintln!(
+            "the host's driver lists {names:?} in {}",
+            directory.display()
+        );
         assert_eq!(names, [NAME], "the long name, not the alias");
-        assert_eq!(std::fs::read(dir.join(NAME)).expect("read the file"), body);
+        assert_eq!(
+            std::fs::read(directory.join(NAME)).expect("read the file"),
+            body
+        );
     });
     let detached = Command::new("hdiutil").args(["detach", &device]).status();
     assert!(

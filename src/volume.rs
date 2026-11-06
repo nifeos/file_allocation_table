@@ -27,7 +27,7 @@ const ATTR_VOLUME_ID: u8 = 0x08;
 const ATTR_ARCHIVE: u8 = 0x20;
 
 /// One directory entry, in bytes.
-const DIR_ENTRY: usize = 32;
+const DIRECTORY_ENTRY_BYTES: usize = 32;
 
 /// Why a volume could not be laid out. Every one of these is a refusal before any byte is written,
 /// which is the only kind of refusal worth making about a disk.
@@ -269,7 +269,7 @@ impl VolumeLayout {
                 ..self.cluster_first_sector(FILE_CLUSTER))
                 .contains(&i) =>
             {
-                self.boot_dir_sector(i - self.cluster_first_sector(BOOT_CLUSTER), out);
+                self.boot_directory_sector(i - self.cluster_first_sector(BOOT_CLUSTER), out);
             }
             // Reserved sectors with nothing in them, and the second and later sectors of the root
             // and `EFI`: zero, which is what `out.fill(0)` above already made them.
@@ -325,8 +325,8 @@ impl VolumeLayout {
 
     /// The root directory: the volume label, then `EFI`.
     fn root_cluster(&self, out: &mut [u8]) {
-        dir_entry(out, 0, &self.label, ATTR_VOLUME_ID, 0, 0, &self.stamp);
-        dir_entry(
+        directory_entry(out, 0, &self.label, ATTR_VOLUME_ID, 0, 0, &self.stamp);
+        directory_entry(
             out,
             1,
             b"EFI        ",
@@ -340,7 +340,7 @@ impl VolumeLayout {
     /// `EFI`: the two dot entries the specification requires of every non-root directory, then
     /// `BOOT`.
     fn efi_cluster(&self, out: &mut [u8]) {
-        dir_entry(
+        directory_entry(
             out,
             0,
             b".          ",
@@ -351,8 +351,8 @@ impl VolumeLayout {
         );
         // `..` of a directory whose parent is the root names cluster **zero**, not the root's own
         // cluster number. The specification is explicit and drivers check it.
-        dir_entry(out, 1, b"..         ", ATTR_DIRECTORY, 0, 0, &self.stamp);
-        dir_entry(
+        directory_entry(out, 1, b"..         ", ATTR_DIRECTORY, 0, 0, &self.stamp);
+        directory_entry(
             out,
             2,
             b"BOOT       ",
@@ -369,13 +369,13 @@ impl VolumeLayout {
     /// A 255-unit name is twenty long-name entries, so with the dot entries and the short entry
     /// the directory is 23 slots and reaches into its second sector. Every slot past those is
     /// zero, which a driver reads as the end of the directory.
-    fn boot_dir_sector(&self, within: u64, out: &mut [u8]) {
-        let per_sector = BYTES_PER_SECTOR / DIR_ENTRY;
+    fn boot_directory_sector(&self, within: u64, out: &mut [u8]) {
+        let per_sector = BYTES_PER_SECTOR / DIRECTORY_ENTRY_BYTES;
         let first = within as usize * per_sector;
         let run = self.long_name.map_or(0, |n| n.entries());
         for at in 0..per_sector {
             match first + at {
-                0 => dir_entry(
+                0 => directory_entry(
                     out,
                     at,
                     b".          ",
@@ -384,7 +384,7 @@ impl VolumeLayout {
                     0,
                     &self.stamp,
                 ),
-                1 => dir_entry(
+                1 => directory_entry(
                     out,
                     at,
                     b"..         ",
@@ -395,11 +395,12 @@ impl VolumeLayout {
                 ),
                 slot if slot < 2 + run => {
                     if let Some(long) = &self.long_name {
-                        let entry = &mut out[at * DIR_ENTRY..(at + 1) * DIR_ENTRY];
+                        let entry =
+                            &mut out[at * DIRECTORY_ENTRY_BYTES..(at + 1) * DIRECTORY_ENTRY_BYTES];
                         long.entry(slot - 2, long_name::checksum(&self.name), entry);
                     }
                 }
-                slot if slot == 2 + run => dir_entry(
+                slot if slot == 2 + run => directory_entry(
                     out,
                     at,
                     &self.name,
@@ -415,7 +416,7 @@ impl VolumeLayout {
 }
 
 /// Write one 32-byte directory entry at slot `slot` of a directory cluster's first sector.
-fn dir_entry(
+fn directory_entry(
     out: &mut [u8],
     slot: usize,
     name: &[u8; 11],
@@ -424,7 +425,7 @@ fn dir_entry(
     size: u32,
     stamp: &Stamp,
 ) {
-    let at = slot * DIR_ENTRY;
+    let at = slot * DIRECTORY_ENTRY_BYTES;
     out[at..at + 11].copy_from_slice(name);
     out[at + 11] = attr;
     // 12..20: reserved, creation time and tenths, last access date. All zero; see BUGS.
@@ -432,7 +433,7 @@ fn dir_entry(
     // 22..26: write time and date, zero.
     put16(out, at + 26, cluster as u16); // DIR_FstClusLO
     put32(out, at + 28, size); // DIR_FileSize, zero for a directory
-    stamp.write_new(&mut out[at..at + DIR_ENTRY]);
+    stamp.write_new(&mut out[at..at + DIRECTORY_ENTRY_BYTES]);
 }
 
 /// **Turn `name` into the eleven-byte short form**, or `None` when it needs a long name.
@@ -489,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn a_512_mib_volume_has_enough_clusters_to_be_fat32() {
+    fn a_512_mebibyte_volume_has_enough_clusters_to_be_fat32() {
         let v = volume();
         assert!(
             v.clusters() >= MINIMUM_FAT32_CLUSTERS,
@@ -638,7 +639,7 @@ mod tests {
         let v = volume();
         let entry_at = |cluster: u32, slot: usize| -> ([u8; 11], u8, u32, u32) {
             let s = sector(&v, v.cluster_first_sector(cluster));
-            let at = slot * DIR_ENTRY;
+            let at = slot * DIRECTORY_ENTRY_BYTES;
             let mut name = [0u8; 11];
             name.copy_from_slice(&s[at..at + 11]);
             let first = u32::from(u16::from_le_bytes([s[at + 26], s[at + 27]]))
@@ -681,8 +682,8 @@ mod tests {
     fn the_data_area_begins_on_a_cluster_boundary() {
         // A range of sizes, because the alignment depends on the table's length and the table's
         // length depends on the size.
-        for mib in [300u64, 301, 400, 512, 700, 1024, 4096] {
-            let sectors = mib * 1024 * 2;
+        for mebibytes in [300u64, 301, 400, 512, 700, 1024, 4096] {
+            let sectors = mebibytes * 1024 * 2;
             let v = VolumeLayout::new(
                 sectors,
                 2048,
@@ -692,11 +693,11 @@ mod tests {
                 "BOOTX64.EFI",
                 &mut NoClock,
             )
-            .unwrap_or_else(|e| panic!("{mib} MiB: {e:?}"));
+            .unwrap_or_else(|e| panic!("{mebibytes} MiB: {e:?}"));
             assert_eq!(
                 v.first_data_sector() % u64::from(SECTORS_PER_CLUSTER),
                 0,
-                "{mib} MiB: data area at sector {}",
+                "{mebibytes} MiB: data area at sector {}",
                 v.first_data_sector()
             );
             assert_eq!(v.file_first_sector() % u64::from(SECTORS_PER_CLUSTER), 0);
@@ -782,11 +783,15 @@ mod tests {
     }
 
     /// The slots of `EFI\BOOT`, as 32-byte entries read out of its first two sectors.
-    fn boot_dir_slots(v: &VolumeLayout) -> [[u8; DIR_ENTRY]; 2 * BYTES_PER_SECTOR / DIR_ENTRY] {
+    fn boot_directory_slots(
+        v: &VolumeLayout,
+    ) -> [[u8; DIRECTORY_ENTRY_BYTES]; 2 * BYTES_PER_SECTOR / DIRECTORY_ENTRY_BYTES] {
         let first = v.cluster_first_sector(BOOT_CLUSTER);
-        let mut slots = [[0; DIR_ENTRY]; 2 * BYTES_PER_SECTOR / DIR_ENTRY];
+        let mut slots = [[0; DIRECTORY_ENTRY_BYTES]; 2 * BYTES_PER_SECTOR / DIRECTORY_ENTRY_BYTES];
         let both = [sector(v, first), sector(v, first + 1)];
-        let entries = both.iter().flat_map(|s| s.as_chunks::<DIR_ENTRY>().0);
+        let entries = both
+            .iter()
+            .flat_map(|s| s.as_chunks::<DIRECTORY_ENTRY_BYTES>().0);
         for (slot, entry) in slots.iter_mut().zip(entries) {
             *slot = *entry;
         }
@@ -808,7 +813,7 @@ mod tests {
             &mut NoClock,
         )
         .expect("a volume");
-        let slots = boot_dir_slots(&v);
+        let slots = boot_directory_slots(&v);
         assert_eq!(&slots[0][..11], b".          ");
         assert_eq!(&slots[1][..11], b"..         ");
         assert_eq!([slots[2][0], slots[3][0]], [0x42, 0x01]);
@@ -825,7 +830,7 @@ mod tests {
             assert_eq!(entry[13], sum);
         }
         assert_eq!(
-            slots[5], [0; DIR_ENTRY],
+            slots[5], [0; DIRECTORY_ENTRY_BYTES],
             "the directory ends after the file"
         );
     }
@@ -845,11 +850,11 @@ mod tests {
             &mut NoClock,
         )
         .expect("a volume");
-        let slots = boot_dir_slots(&v);
+        let slots = boot_directory_slots(&v);
         assert_eq!(slots[2][0], 0x40 | 20);
         assert_eq!(slots[21][0], 1);
         assert_eq!(&slots[22][..11], b"NNNNNN~1EFI");
-        assert_eq!(slots[23], [0; DIR_ENTRY]);
+        assert_eq!(slots[23], [0; DIRECTORY_ENTRY_BYTES]);
         let third = v.cluster_first_sector(BOOT_CLUSTER) + 2;
         assert_eq!(sector(&v, third), [0; BYTES_PER_SECTOR]);
     }
@@ -919,7 +924,7 @@ mod tests {
     #[test]
     fn a_directory_entry_splits_its_first_cluster_into_halves() {
         let mut out = [0u8; BYTES_PER_SECTOR];
-        dir_entry(
+        directory_entry(
             &mut out,
             1,
             b"NAME       ",

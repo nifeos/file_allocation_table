@@ -40,10 +40,12 @@ fn a_file_and_a_directory_take_attributes_and_the_entry_reads_them_back() {
         .unwrap();
     assert_eq!(hidden.user_attributes().bits(), 0x06);
     assert_eq!(hidden.place(), file.place());
-    let dir = volume.create_directory(0, "D").unwrap();
-    let dir = volume.set_attributes(&dir, Attributes::HIDDEN).unwrap();
-    assert!(dir.is_directory());
-    assert_eq!(dir.attributes(), 0x12);
+    let directory = volume.create_directory(0, "D").unwrap();
+    let directory = volume
+        .set_attributes(&directory, Attributes::HIDDEN)
+        .unwrap();
+    assert!(directory.is_directory());
+    assert_eq!(directory.attributes(), 0x12);
     assert_eq!(
         volume.lookup("F.TXT").unwrap().user_attributes().bits(),
         0x06
@@ -74,9 +76,9 @@ fn a_read_only_file_refuses_a_write_a_resize_and_a_remove_until_the_bit_clears()
 #[test]
 fn the_label_dots_and_a_stale_entry_are_refused() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let dir = volume.create_directory(0, "D").unwrap();
+    let directory = volume.create_directory(0, "D").unwrap();
     let dot = volume
-        .named_entries(dir.first_cluster())
+        .named_entries(directory.first_cluster())
         .map(|e| e.unwrap())
         .find(NamedEntry::is_dot_entry)
         .unwrap();

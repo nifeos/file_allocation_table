@@ -119,16 +119,16 @@ fn write_tree(image: &mut Vec<u8>, fat_type: lamfat::FatType, sector: u16) {
     fs.unmount().expect("rust-fatfs unmounts");
 }
 
-/// Everything rust-fatfs lists under `dir`, recursively, `.` and `..` left out.
+/// Everything rust-fatfs lists under `directory`, recursively, `.` and `..` left out.
 fn lamfat_records<
     IO: lamfat::ReadWriteSeek,
     TP: lamfat::TimeProvider,
     OCC: lamfat::OemCpConverter,
 >(
-    dir: &lamfat::Dir<'_, IO, TP, OCC>,
+    directory: &lamfat::Dir<'_, IO, TP, OCC>,
 ) -> Vec<Record> {
     let mut out = Vec::new();
-    for entry in dir.iter() {
+    for entry in directory.iter() {
         let entry = entry.expect("rust-fatfs lists the directory");
         let short = String::from_utf8(entry.short_file_name_as_bytes().to_vec()).unwrap();
         if short == "." || short == ".." {

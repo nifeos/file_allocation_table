@@ -189,15 +189,15 @@ fn a_directory_and_its_dot_entries_carry_the_creation_time() {
         },
     )
     .unwrap();
-    let dir = volume.create_directory(0, "D").unwrap();
+    let directory = volume.create_directory(0, "D").unwrap();
     assert_eq!(readings.get(), 1);
-    let cluster = dir.first_cluster() as usize;
+    let cluster = directory.first_cluster() as usize;
     let image = volume.into_device();
     let want = packed(time.get());
     assert_eq!(fields(&image.bytes, ROOT), want);
-    let dir_sector = (6 + cluster - 2) * 512;
-    assert_eq!(fields(&image.bytes, dir_sector), want, "`.`");
-    assert_eq!(fields(&image.bytes, dir_sector + 32), want, "`..`");
+    let directory_sector = (6 + cluster - 2) * 512;
+    assert_eq!(fields(&image.bytes, directory_sector), want, "`.`");
+    assert_eq!(fields(&image.bytes, directory_sector + 32), want, "`..`");
 }
 
 #[test]

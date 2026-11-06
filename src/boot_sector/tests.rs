@@ -120,7 +120,7 @@ fn a_floppy_mkfs_fat_formatted_is_fat12_with_its_root_region() {
 }
 
 #[test]
-fn a_32_mib_volume_mkfs_fat_formatted_is_fat16() {
+fn a_32_mebibyte_volume_mkfs_fat_formatted_is_fat16() {
     let boot = parse(FAT16_32M).unwrap();
     assert_eq!(
         boot.file_allocation_table_type(),
@@ -144,7 +144,7 @@ fn a_32_mib_volume_mkfs_fat_formatted_is_fat16() {
 }
 
 #[test]
-fn a_64_mib_volume_mkfs_fat_formatted_is_fat32_with_its_reserved_pointers() {
+fn a_64_mebibyte_volume_mkfs_fat_formatted_is_fat32_with_its_reserved_pointers() {
     let boot = parse(FAT32_64M).unwrap();
     assert_eq!(
         boot.file_allocation_table_type(),
@@ -161,7 +161,7 @@ fn a_64_mib_volume_mkfs_fat_formatted_is_fat32_with_its_reserved_pointers() {
 }
 
 #[test]
-fn four_kib_sectors_parse_at_their_own_size() {
+fn four_kibibyte_sectors_parse_at_their_own_size() {
     let fat16 = parse(FAT16_4K).unwrap();
     assert_eq!(fat16.sector_size(), SectorSize::Bytes4096);
     assert_eq!(
