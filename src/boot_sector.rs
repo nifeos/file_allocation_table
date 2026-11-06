@@ -1,5 +1,5 @@
-//! **The boot sector and its BIOS parameter block**, parsed from hostile bytes, and the FAT type
-//! the volume's cluster count makes it.
+//! **The boot sector and its parameter block** (`BPB` in the specification), parsed from hostile
+//! bytes, and the FAT type the volume's cluster count makes it.
 //!
 //! Every field a later read depends on is checked here, once, so that what [`BootSector::parse`]
 //! accepts describes a volume whose regions lie in order inside its own sector count and whose
@@ -18,15 +18,15 @@ const FAT32_MINIMUM_CLUSTERS: u32 = 65_525;
 /// below the bad-cluster marker `0x0FFF_FFF7` with the specification's margin.
 const FAT32_MAXIMUM_CLUSTERS: u32 = 0x0FFF_FFF5 - 1;
 
-/// The bytes of a sector the parse reads: the BPB at the start and the signature at 510.
+/// The bytes of a sector the parse reads: the `BPB` at the start and the signature at 510.
 const PARSED: usize = 512;
 
 /// **The FAT type** (file allocation table type, "FAT: General Overview of On-Disk Format" version
-/// 1.03, section 3, Boot Sector and BPB), decided by the count of data clusters and by nothing
+/// 1.03, section 3, Boot Sector and `BPB`), decided by the count of data clusters and by nothing
 /// else. The variants keep the specification's spelling, `Fat12`, `Fat16` and `Fat32`, each named
 /// for the width of one table entry in bits.
 ///
-/// The type string at `BS_FilSysType` is informational and never read. A volume whose BPB layout
+/// The type string at `BS_FilSysType` is informational and never read. A volume whose `BPB` layout
 /// disagrees with its cluster count is refused (see [`ParseError::LayoutContradictsClusterCount`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FileAllocationTableType {
@@ -110,9 +110,9 @@ pub enum ParseError {
     MetadataPastEnd,
     /// The data region holds no whole cluster.
     NoClusters,
-    /// The BPB is laid out for one FAT type and the cluster count makes the volume another: a FAT32
-    /// layout (`BPB_FATSz16` and `BPB_RootEntCnt` zero) under 65525 clusters, or a FAT12 or FAT16
-    /// layout at or over it. Drivers disagree about such a volume, so this crate reads none.
+    /// The `BPB` is laid out for one FAT type and the cluster count makes the volume another: a
+    /// FAT32 layout (`BPB_FATSz16` and `BPB_RootEntCnt` zero) under 65525 clusters, or a FAT12 or
+    /// FAT16 layout at or over it. Drivers disagree about such a volume, so this crate reads none.
     LayoutContradictsClusterCount,
     /// More clusters than FAT32 can number.
     TooManyClusters,
@@ -138,7 +138,7 @@ pub enum ReadError<E> {
     SectorSizeMismatch {
         /// What the device reports.
         device: SectorSize,
-        /// What the volume's BPB states.
+        /// What the volume's `BPB` states.
         volume: SectorSize,
     },
 }
@@ -194,7 +194,7 @@ fn get32(sector: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([sector[at], sector[at + 1], sector[at + 2], sector[at + 3]])
 }
 
-/// Whether the BPB's layout agrees with the type the cluster count gives: FAT32 has no 16-bit
+/// Whether the `BPB`'s layout agrees with the type the cluster count gives: FAT32 has no 16-bit
 /// table size and no fixed root region, and FAT12 and FAT16 have both.
 fn layout_agrees(kind: FileAllocationTableType, table_sectors_16: u16, root_entries: u16) -> bool {
     match kind {
@@ -205,7 +205,7 @@ fn layout_agrees(kind: FileAllocationTableType, table_sectors_16: u16, root_entr
     }
 }
 
-/// A reserved-region sector number from FAT32's BPB, or `None` when it names no sector the
+/// A reserved-region sector number from FAT32's `BPB`, or `None` when it names no sector the
 /// reserved region holds: 0 and `0xFFFF` mean "none", and a number at or past the region is
 /// ignored rather than followed.
 fn reserved_pointer(value: u16, reserved_sectors: u16) -> Option<u16> {
@@ -320,7 +320,7 @@ impl BootSector {
         Ok(boot)
     }
 
-    /// The fields only FAT32's extended BPB carries, at offsets 36 to 89.
+    /// The fields only FAT32's extended `BPB` carries, at offsets 36 to 89.
     fn parse_fat32(&mut self, sector: &[u8]) -> Result<(), ParseError> {
         if get16(sector, 42) != 0 {
             return Err(ParseError::Version);
@@ -449,7 +449,7 @@ impl BootSector {
 
     /// **FAT32 file system information sector** ("FAT: General Overview of On-Disk Format" version
     /// 1.03, section 5, "FAT32 `FSInfo` Sector Structure and Backup Boot Sector"): the sector
-    /// holding the free-cluster hints, or `None` when the BPB names none inside the reserved
+    /// holding the free-cluster hints, or `None` when the `BPB` names none inside the reserved
     /// region.
     #[doc(alias = "file system information sector")]
     #[doc(alias = "FSInfo")]
@@ -457,7 +457,7 @@ impl BootSector {
         self.file_system_information_sector
     }
 
-    /// FAT32's backup boot sector, or `None` when the BPB names none inside the reserved region.
+    /// FAT32's backup boot sector, or `None` when the `BPB` names none inside the reserved region.
     pub const fn backup_boot_sector(&self) -> Option<u16> {
         self.backup_boot_sector
     }

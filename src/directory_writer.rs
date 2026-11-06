@@ -283,10 +283,10 @@ impl<D: WritableSectorDevice> Volume<D> {
     /// (0 for the root), and return its entry.
     ///
     /// A name that is a legal upper-case 8.3 name is written as a short entry alone. Any other
-    /// legal name (up to 255 UCS-2 units, mixed case, spaces inside, several dots) gets long-name
-    /// slots ahead of a short alias numbered against the directory. The entry has the archive
-    /// attribute, no clusters, size 0 and zero timestamps. A full directory grows by a cluster
-    /// unless it is the fixed root of a FAT12 or FAT16 volume.
+    /// legal name (up to 255 Universal Character Set (UCS) 2 units, mixed case, spaces inside,
+    /// several dots) gets long-name slots ahead of a short alias numbered against the directory.
+    /// The entry has the archive attribute, no clusters, size 0 and zero timestamps. A full
+    /// directory grows by a cluster unless it is the fixed root of a FAT12 or FAT16 volume.
     pub(crate) fn create_file(
         &mut self,
         directory: u32,

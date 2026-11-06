@@ -35,7 +35,7 @@ const DIR_ENTRY: usize = 32;
 #[non_exhaustive]
 pub enum LayoutError {
     /// **Not FAT32** (the 32-bit file allocation table, "FAT: General Overview of On-Disk Format"
-    /// version 1.03, section 3, Boot Sector and BPB, which types a volume by its clusters): the
+    /// version 1.03, section 3, Boot Sector and `BPB`, which types a volume by its clusters): the
     /// partition holds fewer than
     /// [`MINIMUM_FAT32_CLUSTERS`](crate::efi_system_partition::MINIMUM_FAT32_CLUSTERS) data
     /// clusters, so it is not a FAT32 volume however its boot sector is filled in. With 4096-byte
@@ -64,8 +64,8 @@ pub enum LayoutError {
 ///
 /// # Examples
 ///
-/// A 512 MiB EFI system partition at LBA 2048 holding a 9 MB boot file, written through anything
-/// that can put 512 bytes at an LBA:
+/// A 512 MiB EFI system partition at logical block address (LBA) 2048 holding a 9 megabyte boot
+/// file, written through anything that can put 512 bytes at an LBA:
 ///
 /// ```
 /// use file_allocation_table::efi_system_partition::BYTES_PER_SECTOR;
@@ -278,7 +278,7 @@ impl VolumeLayout {
         true
     }
 
-    /// The BPB and the boot signature, written by the general format's builder.
+    /// The `BPB` and the boot signature, written by the general format's builder.
     fn boot_sector(&self, out: &mut [u8]) {
         self.geometry
             .write_boot_sector(self.volume_id, &self.label, self.hidden_sectors, out);

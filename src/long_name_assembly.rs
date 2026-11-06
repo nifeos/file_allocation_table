@@ -41,7 +41,8 @@ impl LongFileName {
         &self.units[..self.len]
     }
 
-    /// The name's characters, with U+FFFD for a surrogate that has no partner.
+    /// The name's characters, with the Unicode replacement character, `U+FFFD`, for a surrogate
+    /// that has no partner.
     pub fn chars(&self) -> impl Iterator<Item = char> + '_ {
         char::decode_utf16(self.code_units().iter().copied())
             .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))

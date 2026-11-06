@@ -3,10 +3,10 @@
 //!
 //! One piece of arithmetic sizes every volume, [`Geometry`], and one pair of builders writes its
 //! boot sector and file system information sector; the one-file EFI volume of
-//! [`crate::VolumeLayout`] uses both, so the BPB is written in one place. Sizing is Microsoft's own
-//! (`fatgen103`, "Determining FAT type"), which over-sizes the table slightly rather than solve the
-//! circular dependency, so the number it gives is the number every other tool gives; the data area
-//! is then rounded up to start on a cluster boundary.
+//! [`crate::VolumeLayout`] uses both, so the `BPB` is written in one place. Sizing is Microsoft's
+//! own (`fatgen103`, "Determining FAT type"), which over-sizes the table slightly rather than solve
+//! the circular dependency, so the number it gives is the number every other tool gives; the data
+//! area is then rounded up to start on a cluster boundary.
 
 use crate::boot_sector::FileAllocationTableType;
 use crate::long_name::is_short_byte;

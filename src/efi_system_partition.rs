@@ -1,7 +1,7 @@
-//! **The one volume shape [`crate::VolumeLayout`] lays out**: an EFI (Extensible Firmware
-//! Interface) system partition (ESP, the FAT volume UEFI 2.10 section 13.3.1, System Partition,
-//! boots from) of 512-byte sectors and 4096-byte clusters, whose root holds `EFI`, which holds
-//! `BOOT`, which holds one boot file.
+//! **The one volume shape [`crate::VolumeLayout`] lays out**: an Extensible Firmware Interface
+//! (EFI) system partition, the FAT volume that Unified Extensible Firmware Interface (UEFI) 2.10
+//! section 13.3.1, System Partition, boots from, of 512-byte sectors and 4096-byte clusters, whose
+//! root holds `EFI`, which holds `BOOT`, which holds one boot file.
 //!
 //! The constants here describe that shape alone. The reader, [`crate::FormatPlan`] and
 //! [`crate::WritableVolume`] take any sector size from 512 to 4096 bytes and any cluster size the

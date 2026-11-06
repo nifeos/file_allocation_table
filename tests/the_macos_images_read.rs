@@ -3,10 +3,10 @@
 //! `fixtures/macos/` holds a bare FAT32 volume and the same files inside an MBR partition, both
 //! compressed (see its README for provenance). The bare volume opens as a volume. The other image
 //! opens through its partition table, the way a whole-disk image does. Every file is then found by
-//! walking the directories with this crate, read through `open_file_reader`, and hashed with a SHA-256
-//! written here, so the hashes come from nothing this crate computed. Each expected hash is of the
-//! bytes `fixtures/macos/make-images.sh` writes into that file. Path lookup finds each file too, by
-//! its long name and its short name.
+//! walking the directories with this crate, read through `open_file_reader`, and hashed with a
+//! SHA-256 written here, so the hashes come from nothing this crate computed. Each expected hash is
+//! of the bytes `fixtures/macos/make-images.sh` writes into that file. Path lookup finds each file
+//! too, by its long name and its short name.
 
 // Not under Miri: reading both recorded images whole took over an hour in the interpreter, and
 // the crate has no `unsafe`; the library's unit tests walk the same reader.
@@ -190,8 +190,8 @@ fn the_volume_inside_the_partition_table_reads_to_its_recorded_hashes() {
     check(&mut volume);
 }
 
-/// SHA-256 as lower-case hex (FIPS 180-4), so the expected hashes are checked by code that is
-/// not this crate's.
+/// SHA-256 as lower-case hex, as Federal Information Processing Standards (FIPS) 180-4 defines it,
+/// so the expected hashes are checked by code that is not this crate's.
 fn sha256(data: &[u8]) -> String {
     const K: [u32; 64] = [
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
