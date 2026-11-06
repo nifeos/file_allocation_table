@@ -1,0 +1,29 @@
+name: Bug report
+description: Something the crate does that it should not.
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A report that names the behavior is one somebody can act on. If you can, include the
+        smallest input that shows it.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: A code snippet, a command, or a test that fails.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The crate version, and the toolchain if it matters.
+    validations:
+      required: true

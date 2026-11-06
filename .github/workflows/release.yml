@@ -1,0 +1,26 @@
+name: release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to release, matching the manifest (e.g. 0.1.0).
+        required: true
+        type: string
+      dry-run:
+        description: Rehearse without tagging or publishing.
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  release:
+    permissions:
+      contents: read
+      id-token: write
+    uses: nifeos/crate-workflows/.github/workflows/release.yml@35122172c842a6e3ad1b0dd6e4b6a2e52d337e94
+    with:
+      version: ${{ inputs.version }}
+      dry-run: ${{ inputs.dry-run }}
+    secrets:
+      NIFE_SMELTER_APP_ID: ${{ secrets.NIFE_SMELTER_APP_ID }}
+      NIFE_SMELTER_PRIVATE_KEY: ${{ secrets.NIFE_SMELTER_PRIVATE_KEY }}

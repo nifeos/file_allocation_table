@@ -1,0 +1,14 @@
+# Spell checking for the crate's prose and source, run by the `check / standalone` typos step. The
+# house spelling is American, so the locale is fixed here, and the
+# gate refuses a file whose locale is anything else.
+#
+# Add a word under [default.extend-words] only when it is a real name in a real document (a register
+# mnemonic, a vendor, a quoted source), with the reason on the line above it. Do not add a
+# misspelling to make a finding pass; fix the text.
+
+[default]
+locale = "en-us"
+
+[files]
+# Generated and captured files are not prose anybody wrote.
+extend-exclude = ["*.lock", "target/"]

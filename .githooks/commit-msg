@@ -1,0 +1,19 @@
+#!/bin/sh
+# The commit-msg hook: every commit an agent writes ends with a Co-Authored-By: trailer naming its
+# model, because attribution is the rule everywhere this organization writes. Install with:
+#   git config core.hooksPath .githooks
+
+set -eu
+
+file="$1"
+
+grep -qi '^Co-Authored-By:' "$file" && exit 0
+
+# The hook may be running under an editor-prepared message; only fail when the commit is real
+# enough to have a subject.
+if head -1 "$file" | grep -qve '^$'; then
+	echo "commit-msg: no Co-Authored-By: trailer." >&2
+	echo "commit-msg: an agent's commit names its model; add a line like:" >&2
+	echo 'commit-msg:   Co-Authored-By: <model name> <noreply@domain>' >&2
+	exit 1
+fi

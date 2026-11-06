@@ -1,0 +1,10 @@
+name: architect label
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  label:
+    uses: nifeos/crate-workflows/.github/workflows/label.yml@35122172c842a6e3ad1b0dd6e4b6a2e52d337e94

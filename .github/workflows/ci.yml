@@ -1,0 +1,22 @@
+name: check
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  # The push on main is what the release gate reads. A pull request's runs are recorded at the
+  # pull request's head SHA, never at the merge commit a release dispatches at, so without this
+  # trigger no release can pass the gate.
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  check:
+    permissions:
+      contents: read
+      security-events: write
+    uses: nifeos/crate-workflows/.github/workflows/check.yml@35122172c842a6e3ad1b0dd6e4b6a2e52d337e94
+    with:
+      # Bare-metal targets the crate builds for, space-separated; empty for a host-only crate.
+      targets: aarch64-unknown-none-softfloat riscv64imac-unknown-none-elf x86_64-unknown-none
+      # The soak publishes nothing, so the manifest carries publish = false on purpose.
+      allow-unpublished: true

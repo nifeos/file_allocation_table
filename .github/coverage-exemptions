@@ -1,0 +1,4 @@
+# A file the coverage run cannot execute on the host goes here, one path per line, with the reason:
+#   src/boot.rs # runs on bare metal only; the host build never links it
+# An exemption is a marked exception. A path no longer reported by lcov is reported as a finding,
+# so this list can only shrink.

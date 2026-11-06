@@ -1,0 +1,3 @@
+# The stable rustfmt subset. Two options (group_imports, imports_granularity) need nightly; a
+# standalone crate builds on stable, so they are not here, and the standalone job refuses them if
+# they appear. Wrap_comments and format_code_in_doc_comments stay absent for the same reason.

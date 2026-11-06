@@ -1,0 +1,13 @@
+name: ruled clears hold
+on:
+  pull_request:
+    types: [labeled, unlabeled]
+permissions:
+  pull-requests: write
+  actions: write
+jobs:
+  ruled:
+    permissions:
+      pull-requests: write
+      actions: write
+    uses: nifeos/crate-workflows/.github/workflows/ruled.yml@35122172c842a6e3ad1b0dd6e4b6a2e52d337e94

@@ -1,0 +1,7 @@
+# A mutant that survives goes here, one per line, with the reason it is equivalent behavior:
+#   src/lib.rs:4 # swapping the operand order is the same arithmetic
+# A line without a reason is refused, and a line naming a survivor that no longer exists is
+# refused too, so this list can only shrink by a diff that says why.
+
+# Mutation census row carried from the source tree, as counts: caught 137, missed 0, timeout 0, unviable 0.
+# No mutant was missed, so no line is expected below.

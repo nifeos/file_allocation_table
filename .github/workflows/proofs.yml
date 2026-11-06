@@ -1,0 +1,14 @@
+name: proofs
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  # The push on main is what the release gate reads. A pull request's runs are recorded at the
+  # pull request's head SHA, never at the merge commit a release dispatches at, so without this
+  # trigger no release can pass the gate.
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  proofs:
+    uses: nifeos/crate-workflows/.github/workflows/proofs.yml@35122172c842a6e3ad1b0dd6e4b6a2e52d337e94

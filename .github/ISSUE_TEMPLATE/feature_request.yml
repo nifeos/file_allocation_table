@@ -1,0 +1,17 @@
+name: Feature request
+description: Something the crate should do that it does not.
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem, not the solution; the solution is yours to propose and ours to weigh.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+    validations:
+      required: false
