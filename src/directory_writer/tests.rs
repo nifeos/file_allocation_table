@@ -77,24 +77,24 @@ fn a_long_run_fits_a_gap_of_deleted_slots_and_not_a_shorter_one() {
 fn a_directory_holds_dot_entries_and_is_removed_only_when_empty() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     let free = volume.count_free_clusters().unwrap();
-    let dir = volume.create_directory(0, "Sub Directory").unwrap();
-    assert!(dir.is_directory());
+    let directory = volume.create_directory(0, "Sub Directory").unwrap();
+    assert!(directory.is_directory());
     assert_eq!(volume.count_free_clusters().unwrap(), free - 1);
     let names: usize = volume
-        .named_entries(dir.first_cluster())
+        .named_entries(directory.first_cluster())
         .map(|e| e.unwrap())
         .filter(|e| e.is_dot_entry())
         .count();
     assert_eq!(names, 2);
     let inner = volume
-        .create_file(dir.first_cluster(), "inner.txt")
+        .create_file(directory.first_cluster(), "inner.txt")
         .unwrap();
     assert_eq!(
-        volume.remove_directory(&dir),
+        volume.remove_directory(&directory),
         Err(WriteError::DirectoryNotEmpty)
     );
     volume.remove_file(&inner).unwrap();
-    volume.remove_directory(&dir).unwrap();
+    volume.remove_directory(&directory).unwrap();
     assert_eq!(volume.count_free_clusters().unwrap(), free);
     assert!(volume.lookup("Sub Directory").is_err());
     let file = volume.create_file(0, "F.TXT").unwrap();
@@ -210,10 +210,10 @@ fn a_rename_that_only_changes_case_keeps_one_entry() {
 #[test]
 fn a_stale_entry_is_refused_by_a_directory_remove_and_a_rename() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let dir = volume.create_directory(0, "D").unwrap();
+    let directory = volume.create_directory(0, "D").unwrap();
     let file = volume.create_file(0, "F.TXT").unwrap();
     // The directory's slot becomes a long-name piece; the file's slot is freed and reused.
-    let slot = dir.place().short_slot as usize;
+    let slot = directory.place().short_slot as usize;
     volume.remove_file(&file).unwrap();
     assert_eq!(
         volume.rename(&file, 0, "G.TXT"),
@@ -222,8 +222,14 @@ fn a_stale_entry_is_refused_by_a_directory_remove_and_a_rename() {
     let mut image = volume.into_device();
     image.bytes[5 * 512 + slot * 32 + 11] = 0x0F;
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    assert_eq!(volume.remove_directory(&dir), Err(WriteError::EntryChanged));
-    assert_eq!(volume.rename(&dir, 0, "E"), Err(WriteError::EntryChanged));
+    assert_eq!(
+        volume.remove_directory(&directory),
+        Err(WriteError::EntryChanged)
+    );
+    assert_eq!(
+        volume.rename(&directory, 0, "E"),
+        Err(WriteError::EntryChanged)
+    );
 }
 
 #[test]

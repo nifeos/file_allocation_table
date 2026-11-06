@@ -7,10 +7,11 @@
 
 use super::*;
 
-/// Falsification: replayable `falsifications/boot_sector.verification.what_the_parse_accepts_lies_inside_the_volume.patch`
-/// **No sector panics the parse, and what it accepts has its regions in order inside the
-/// volume.** The reserved sectors, the tables, the root region and the data clusters follow one
-/// another without overlap and end at or before the last sector, and at least one cluster exists.
+/// Falsification: replayable
+/// `falsifications/boot_sector.verification.what_the_parse_accepts_lies_inside_the_volume.patch`
+/// **No sector panics the parse, and what it accepts has its regions in order inside the volume.**
+/// The reserved sectors, the tables, the root region and the data clusters follow one another
+/// without overlap and end at or before the last sector, and at least one cluster exists.
 #[kani::proof]
 fn what_the_parse_accepts_lies_inside_the_volume() {
     let sector: [u8; 512] = kani::any();
@@ -38,9 +39,10 @@ fn what_the_parse_accepts_lies_inside_the_volume() {
     assert!(data_end <= total);
 }
 
-/// Falsification: replayable `falsifications/boot_sector.verification.the_fat_type_is_the_cluster_counts.patch`
-/// **The FAT type is the cluster count's, by the specification's two thresholds**, and the BPB
-/// layout agrees with it: FAT32 has a cluster root and FAT12 and FAT16 a fixed region.
+/// Falsification: replayable
+/// `falsifications/boot_sector.verification.the_fat_type_is_the_cluster_counts.patch` **The FAT
+/// type is the cluster count's, by the specification's two thresholds**, and the `BPB` layout
+/// agrees with it: FAT32 has a cluster root and FAT12 and FAT16 a fixed region.
 #[kani::proof]
 fn the_fat_type_is_the_cluster_counts() {
     let sector: [u8; 512] = kani::any();
@@ -60,10 +62,11 @@ fn the_fat_type_is_the_cluster_counts() {
     );
 }
 
-/// Falsification: replayable `falsifications/boot_sector.verification.the_table_has_an_entry_for_every_cluster.patch`
-/// **One table holds an entry for every cluster**, the two reserved entries included, at the
-/// width the FAT type gives it. A chain walk indexes the table by cluster number, so this is what
-/// keeps every such index inside the table.
+/// Falsification: replayable
+/// `falsifications/boot_sector.verification.the_table_has_an_entry_for_every_cluster.patch` **One
+/// table holds an entry for every cluster**, the two reserved entries included, at the width the
+/// FAT type gives it. A chain walk indexes the table by cluster number, so this is what keeps every
+/// such index inside the table.
 #[kani::proof]
 fn the_table_has_an_entry_for_every_cluster() {
     let sector: [u8; 512] = kani::any();
@@ -79,11 +82,11 @@ fn the_table_has_an_entry_for_every_cluster() {
     assert!((u64::from(boot.clusters()) + 2) * bits <= held);
 }
 
-/// Falsification: replayable `falsifications/boot_sector.verification.only_a_data_cluster_has_sectors.patch`
-/// **Every data cluster maps to sectors inside the data region, and no other number maps at
-/// all.** For any accepted sector and any cluster number, [`BootSector::cluster_first_sector`]
-/// answers exactly for 2 to `clusters + 1`, and the whole cluster it names ends at or before the
-/// volume's last sector.
+/// Falsification: replayable
+/// `falsifications/boot_sector.verification.only_a_data_cluster_has_sectors.patch` **Every data
+/// cluster maps to sectors inside the data region, and no other number maps at all.** For any
+/// accepted sector and any cluster number, [`BootSector::cluster_first_sector`] answers exactly for
+/// 2 to `clusters + 1`, and the whole cluster it names ends at or before the volume's last sector.
 #[kani::proof]
 fn only_a_data_cluster_has_sectors() {
     let sector: [u8; 512] = kani::any();

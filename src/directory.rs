@@ -62,7 +62,7 @@ pub struct ShortEntry {
     name: [u8; 11],
     attributes: u8,
     first_cluster: u32,
-    size: u32,
+    size_bytes: u32,
 }
 
 /// **One piece of a long file name.**
@@ -116,7 +116,7 @@ impl Slot {
             name,
             attributes,
             first_cluster: (high << 16) | low,
-            size: u32::from_le_bytes([slot[28], slot[29], slot[30], slot[31]]),
+            size_bytes: u32::from_le_bytes([slot[28], slot[29], slot[30], slot[31]]),
         }))
     }
 }
@@ -134,7 +134,7 @@ impl ShortEntry {
             name,
             attributes,
             first_cluster,
-            size,
+            size_bytes: size,
         }
     }
 
@@ -167,7 +167,7 @@ impl ShortEntry {
 
     /// The file's length in bytes; 0 for a directory.
     pub const fn size_bytes(&self) -> u32 {
-        self.size
+        self.size_bytes
     }
 }
 

@@ -38,7 +38,7 @@ pub(crate) struct RunFinder {
     count: u32,
     at: u32,
     start: u32,
-    len: u32,
+    length_slots: u32,
 }
 
 impl RunFinder {
@@ -48,7 +48,7 @@ impl RunFinder {
             count,
             at: 0,
             start: 0,
-            len: 0,
+            length_slots: 0,
         }
     }
 
@@ -60,15 +60,15 @@ impl RunFinder {
         self.at += 1;
         match kind {
             SlotKind::Used => {
-                self.len = 0;
+                self.length_slots = 0;
                 None
             }
             SlotKind::Free | SlotKind::End => {
-                if self.len == 0 {
+                if self.length_slots == 0 {
                     self.start = index;
                 }
-                self.len += 1;
-                (kind == SlotKind::End || self.len == self.count).then_some(self.start)
+                self.length_slots += 1;
+                (kind == SlotKind::End || self.length_slots == self.count).then_some(self.start)
             }
         }
     }
@@ -82,7 +82,7 @@ struct NewEntry<'a> {
     name: &'a str,
     attributes: u8,
     first_cluster: u32,
-    size: u32,
+    size_bytes: u32,
     except: Option<EntryPlace>,
     times: Option<[u8; SLOT_BYTES]>,
 }
@@ -210,7 +210,7 @@ impl<D: WritableSectorDevice> Volume<D> {
             name,
             attributes,
             first_cluster,
-            size,
+            size_bytes: size,
             except,
             times,
         } = *new;
@@ -283,10 +283,10 @@ impl<D: WritableSectorDevice> Volume<D> {
     /// (0 for the root), and return its entry.
     ///
     /// A name that is a legal upper-case 8.3 name is written as a short entry alone. Any other
-    /// legal name (up to 255 UCS-2 units, mixed case, spaces inside, several dots) gets long-name
-    /// slots ahead of a short alias numbered against the directory. The entry has the archive
-    /// attribute, no clusters, size 0 and zero timestamps. A full directory grows by a cluster
-    /// unless it is the fixed root of a FAT12 or FAT16 volume.
+    /// legal name (up to 255 Universal Character Set (UCS) 2 units, mixed case, spaces inside,
+    /// several dots) gets long-name slots ahead of a short alias numbered against the directory.
+    /// The entry has the archive attribute, no clusters, size 0 and zero timestamps. A full
+    /// directory grows by a cluster unless it is the fixed root of a FAT12 or FAT16 volume.
     pub(crate) fn create_file(
         &mut self,
         directory: u32,
@@ -298,7 +298,7 @@ impl<D: WritableSectorDevice> Volume<D> {
                 name,
                 attributes: ARCHIVE,
                 first_cluster: 0,
-                size: 0,
+                size_bytes: 0,
                 except: None,
                 times: None,
             },
@@ -323,7 +323,7 @@ impl<D: WritableSectorDevice> Volume<D> {
                     name,
                     attributes: DIRECTORY,
                     first_cluster: cluster,
-                    size: 0,
+                    size_bytes: 0,
                     except: None,
                     times: None,
                 },
@@ -469,7 +469,7 @@ impl<D: WritableSectorDevice> Volume<D> {
                 name: new_name,
                 attributes: entry.attributes(),
                 first_cluster: entry.first_cluster(),
-                size: entry.size_bytes(),
+                size_bytes: entry.size_bytes(),
                 except: Some(entry.place()),
                 times: Some(old_slot),
             },

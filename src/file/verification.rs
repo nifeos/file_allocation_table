@@ -44,10 +44,10 @@ fn a_file_read_stays_inside_its_size_and_its_clusters() {
         match cursor.next_span(&mut table, &boot, want) {
             Ok(Some(span)) => {
                 assert!(!failed);
-                assert!(span.len >= 1 && span.len <= want);
-                assert!(span.offset + span.len <= 512);
+                assert!(span.length_bytes >= 1 && span.length_bytes <= want);
+                assert!(span.offset + span.length_bytes <= 512);
                 assert!(span.sector >= first_data && span.sector < first_data + data_sectors);
-                assert_eq!(cursor.position(), before + span.len as u32);
+                assert_eq!(cursor.position(), before + span.length_bytes as u32);
                 assert!(cursor.position() <= size);
             }
             Ok(None) => {

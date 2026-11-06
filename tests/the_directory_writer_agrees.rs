@@ -23,14 +23,14 @@ use lamfat::FatType;
 /// A volume held in memory, read and written one sector at a time.
 struct Memory {
     bytes: Vec<u8>,
-    size: SectorSize,
+    bytes_per_sector: SectorSize,
 }
 
 impl SectorDevice for Memory {
     type Error = u64;
 
     fn sector_size(&self) -> SectorSize {
-        self.size
+        self.bytes_per_sector
     }
 
     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
@@ -65,7 +65,7 @@ fn formatted(mebibytes: usize, fat_type: lamfat::FatType, sector: u16) -> Memory
     .expect("rust-fatfs formats the volume");
     Memory {
         bytes: image,
-        size: SectorSize::from_bytes(sector).expect("a permitted sector size"),
+        bytes_per_sector: SectorSize::from_bytes(sector).expect("a permitted sector size"),
     }
 }
 
@@ -106,9 +106,9 @@ fn check_with_fsck(image: &[u8], label: &str) {
     );
 }
 
-/// Every entry under `dir` according to rust-fatfs: (path, is directory, bytes of a file).
+/// Every entry under `directory` according to rust-fatfs: (path, is directory, bytes of a file).
 fn walk(
-    dir: &lamfat::Dir<
+    directory: &lamfat::Dir<
         '_,
         lamfat::StdIoWrapper<Cursor<Vec<u8>>>,
         lamfat::DefaultTimeProvider,
@@ -117,7 +117,7 @@ fn walk(
     prefix: &str,
     out: &mut Vec<(String, bool, Vec<u8>)>,
 ) {
-    for entry in dir.iter() {
+    for entry in directory.iter() {
         let entry = entry.unwrap();
         let name = entry.file_name();
         if name == "." || name == ".." {
@@ -394,7 +394,7 @@ fn a_new_directory_in_a_multi_sector_cluster_is_zeroed_past_its_dots() {
     // FAT32 needs 65,525 clusters, which at 2048 bytes each is 134 MB.
     let mut image = Memory {
         bytes: vec![0u8; 150 << 20],
-        size: SectorSize::Bytes512,
+        bytes_per_sector: SectorSize::Bytes512,
     };
     let mut cursor = Cursor::new(&mut image.bytes);
     lamfat::format_volume(
@@ -407,7 +407,7 @@ fn a_new_directory_in_a_multi_sector_cluster_is_zeroed_past_its_dots() {
     let boot = *WritableVolume::open(
         Memory {
             bytes: image.bytes.clone(),
-            size: image.size,
+            bytes_per_sector: image.bytes_per_sector,
         },
         NoClock,
     )

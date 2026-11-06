@@ -239,7 +239,7 @@ fn a_table_that_microsofts_formula_undersizes_grows_by_a_sector() {
 }
 
 #[test]
-fn fat32_stops_at_the_last_cluster_it_addresses() {
+fn fat32_stops_at_the_last_cluster_the_table_can_number() {
     // With eight-sector clusters the count crosses FAT32's ceiling before a device's 2^32 sectors
     // run out. Find the largest device that still formats, by bisection (the count only grows).
     let (mut low, mut high) = (65_536u32 * 8, u32::MAX);

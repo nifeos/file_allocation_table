@@ -309,7 +309,12 @@ fn spans(
     let mut out = [(0, 0, 0, 0); 12];
     let mut count = 0;
     while let Some(span) = cursor.next_span(volume, &boot, want).unwrap() {
-        out[count] = (span.sector, span.offset, span.len, cursor.position());
+        out[count] = (
+            span.sector,
+            span.offset,
+            span.length_bytes,
+            cursor.position(),
+        );
         count += 1;
     }
     assert_eq!(cursor.next_span(volume, &boot, want).unwrap(), None);
@@ -377,7 +382,10 @@ fn a_cursor_at_the_end_returns_nothing_and_a_zero_request_returns_nothing() {
     assert_eq!(cursor.next_span(&mut volume, &boot, 0), Ok(None));
     assert_eq!(cursor.position(), 0);
     let span = cursor.next_span(&mut volume, &boot, 100).unwrap().unwrap();
-    assert_eq!((span.offset, span.len, cursor.position()), (0, 100, 100));
+    assert_eq!(
+        (span.offset, span.length_bytes, cursor.position()),
+        (0, 100, 100)
+    );
     assert_eq!(cursor.next_span(&mut volume, &boot, 100), Ok(None));
     assert_eq!(cursor.position(), 100);
 }

@@ -118,7 +118,7 @@ fn a_write_extends_the_chain_to_the_size_and_stays_inside_it() {
         state.write(&mut volume, &boot, &zeros[..first], &mut scratch),
         Ok(first)
     );
-    assert_eq!(state.size as usize, first);
+    assert_eq!(state.size_bytes as usize, first);
 
     let at: usize = kani::any();
     kani::assume(at <= first);
@@ -130,7 +130,7 @@ fn a_write_extends_the_chain_to_the_size_and_stays_inside_it() {
         Ok(second)
     );
     let size = first.max(at + second);
-    assert_eq!(state.size as usize, size);
+    assert_eq!(state.size_bytes as usize, size);
     assert_eq!(state.position as usize, at + second);
 
     let needed = size.div_ceil(512) as u32;

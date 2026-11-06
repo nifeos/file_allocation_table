@@ -27,7 +27,7 @@ use file_allocation_table::{NoClock, VolumeLayout};
 
 /// The file the volume carries. Not a round number, so a length the writer got wrong by a cluster
 /// cannot pass by accident.
-const FILE_LEN: u64 = 3_000_000;
+const FILE_LENGTH_BYTES: u64 = 3_000_000;
 
 /// 700 MiB, in 512-byte sectors: comfortably over the FAT32 cluster floor and small enough that a
 /// sparse file costs nothing.
@@ -58,7 +58,7 @@ fn write_image(path: &Path) -> Vec<u8> {
     let volume = VolumeLayout::new(
         TOTAL_SECTORS,
         0,
-        FILE_LEN,
+        FILE_LENGTH_BYTES,
         0x1234_5678,
         "EFI SYSTEM",
         NAME,
@@ -77,9 +77,9 @@ fn write_image(path: &Path) -> Vec<u8> {
 
     // A pattern with a prime stride, so a copy that is off by a cluster or that duplicates one
     // reads back wrong everywhere rather than in one place.
-    let body: Vec<u8> = (0..FILE_LEN).map(|i| (i % 251) as u8).collect();
+    let body: Vec<u8> = (0..FILE_LENGTH_BYTES).map(|i| (i % 251) as u8).collect();
     image.write_all(&body).expect("write the file");
-    let tail = volume.file_sectors() * BYTES_PER_SECTOR as u64 - FILE_LEN;
+    let tail = volume.file_sectors() * BYTES_PER_SECTOR as u64 - FILE_LENGTH_BYTES;
     image
         .write_all(&vec![0u8; tail as usize])
         .expect("pad the last cluster");
@@ -130,8 +130,8 @@ fn read_back(path: &str, body: &[u8]) {
         .or_else(|| line.find("/tmp"))
         .unwrap()..];
     let checked = std::panic::catch_unwind(|| {
-        let dir = Path::new(mount.trim()).join("EFI/BOOT");
-        let names: Vec<String> = std::fs::read_dir(&dir)
+        let directory = Path::new(mount.trim()).join("EFI/BOOT");
+        let names: Vec<String> = std::fs::read_dir(&directory)
             .expect("list EFI/BOOT")
             .map(|e| {
                 e.expect("an entry")
@@ -140,9 +140,15 @@ fn read_back(path: &str, body: &[u8]) {
                     .into_owned()
             })
             .collect();
-        eprintln!("the host's driver lists {names:?} in {}", dir.display());
+        eprintln!(
+            "the host's driver lists {names:?} in {}",
+            directory.display()
+        );
         assert_eq!(names, [NAME], "the long name, not the alias");
-        assert_eq!(std::fs::read(dir.join(NAME)).expect("read the file"), body);
+        assert_eq!(
+            std::fs::read(directory.join(NAME)).expect("read the file"),
+            body
+        );
     });
     let detached = Command::new("hdiutil").args(["detach", &device]).status();
     assert!(

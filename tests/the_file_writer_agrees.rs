@@ -1,7 +1,7 @@
 //! **rust-fatfs and `fsck` agree with the files this crate writes.**
 //!
 //! On FAT12, FAT16 and FAT32 volumes rust-fatfs formatted, this crate creates files, writes them
-//! in odd chunks across clusters, overwrites and appends, sets lengths both ways and deletes. After
+//! in odd chunks across clusters, overwrites and appends, sets lengths larger and smaller and deletes. After
 //! each stage rust-fatfs must list the same names and read the same bytes, count the same free
 //! clusters, and the host's `fsck -n` must accept the volume. The dirty bit is set while the crate
 //! changes the volume and clear after `mark_clean`.
@@ -23,14 +23,14 @@ use lamfat::FatType;
 /// A volume held in memory, read and written one sector at a time.
 struct Memory {
     bytes: Vec<u8>,
-    size: SectorSize,
+    bytes_per_sector: SectorSize,
 }
 
 impl SectorDevice for Memory {
     type Error = u64;
 
     fn sector_size(&self) -> SectorSize {
-        self.size
+        self.bytes_per_sector
     }
 
     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
@@ -65,7 +65,7 @@ fn formatted(mebibytes: usize, fat_type: lamfat::FatType, sector: u16) -> Memory
     .expect("rust-fatfs formats the volume");
     Memory {
         bytes: image,
-        size: SectorSize::from_bytes(sector).expect("a permitted sector size"),
+        bytes_per_sector: SectorSize::from_bytes(sector).expect("a permitted sector size"),
     }
 }
 
@@ -397,7 +397,7 @@ fn a_volume_found_dirty_stays_dirty_after_a_sync() {
         let boot = WritableVolume::open(
             Memory {
                 bytes: image.bytes.clone(),
-                size: image.size,
+                bytes_per_sector: image.bytes_per_sector,
             },
             NoClock,
         )
@@ -432,12 +432,12 @@ fn files_in_a_subdirectory_write_and_the_subdirectory_grows() {
             fs.unmount().unwrap();
         }
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
-        let dir = volume.lookup("Sub Directory").unwrap().first_cluster();
+        let directory = volume.lookup("Sub Directory").unwrap().first_cluster();
         let cluster = volume.boot_sector().bytes_per_cluster() as usize;
         // Slot 0 and 1 are `.` and `..`; this many files fill the first cluster and spill over.
         let count = cluster / 32 + 5;
         for i in 0..count {
-            let entry = volume.create_file(dir, &format!("F{i}.DAT")).unwrap();
+            let entry = volume.create_file(directory, &format!("F{i}.DAT")).unwrap();
             let mut writer = volume.open_file_writer(&entry).unwrap();
             writer.write(format!("file number {i}").as_bytes()).unwrap();
         }
@@ -507,7 +507,7 @@ fn a_directory_that_grows_into_a_multi_sector_cluster_zeroes_all_of_it() {
     // FAT32 needs 65,525 clusters, which at 2048 bytes each is 134 MB.
     let mut image = Memory {
         bytes: vec![0u8; 150 << 20],
-        size: SectorSize::Bytes512,
+        bytes_per_sector: SectorSize::Bytes512,
     };
     let mut cursor = Cursor::new(&mut image.bytes);
     lamfat::format_volume(
@@ -520,7 +520,7 @@ fn a_directory_that_grows_into_a_multi_sector_cluster_zeroes_all_of_it() {
     let probe = WritableVolume::open(
         Memory {
             bytes: image.bytes.clone(),
-            size: image.size,
+            bytes_per_sector: image.bytes_per_sector,
         },
         NoClock,
     )

@@ -24,14 +24,14 @@ use lamfat::{FatType, FileAttributes};
 /// A volume held in memory, read and written one sector at a time.
 struct Memory {
     bytes: Vec<u8>,
-    size: SectorSize,
+    bytes_per_sector: SectorSize,
 }
 
 impl SectorDevice for Memory {
     type Error = u64;
 
     fn sector_size(&self) -> SectorSize {
-        self.size
+        self.bytes_per_sector
     }
 
     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
@@ -66,7 +66,7 @@ fn formatted(mebibytes: usize, fat_type: lamfat::FatType, sector: u16) -> Memory
     .expect("rust-fatfs formats the volume");
     Memory {
         bytes: image,
-        size: SectorSize::from_bytes(sector).expect("a permitted sector size"),
+        bytes_per_sector: SectorSize::from_bytes(sector).expect("a permitted sector size"),
     }
 }
 
@@ -134,7 +134,7 @@ fn lamfat_label(image: &[u8]) -> String {
 fn attributes_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     let mut volume = WritableVolume::open(formatted(mebibytes, fat_type, 512), NoClock).unwrap();
     let file = volume.create_file(0, "Attribute Test File.txt").unwrap();
-    let dir = volume.create_directory(0, "Attribute Dir").unwrap();
+    let directory = volume.create_directory(0, "Attribute Dir").unwrap();
     let sets = [
         (Attributes::EMPTY, FileAttributes::empty()),
         (Attributes::READ_ONLY, FileAttributes::READ_ONLY),
@@ -155,8 +155,8 @@ fn attributes_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     for (ours, theirs) in sets {
         let file = volume.set_attributes(&file, ours).unwrap();
         assert_eq!(file.user_attributes(), ours, "{label}");
-        let dir = volume.set_attributes(&dir, ours).unwrap();
-        assert!(dir.is_directory(), "{label}");
+        let directory = volume.set_attributes(&directory, ours).unwrap();
+        assert!(directory.is_directory(), "{label}");
         volume.mark_clean().unwrap();
         let image = volume.into_device();
         assert_eq!(
@@ -240,7 +240,7 @@ fn labels_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     let mut volume = WritableVolume::open(
         Memory {
             bytes: image.bytes.clone(),
-            size: image.size,
+            bytes_per_sector: image.bytes_per_sector,
         },
         NoClock,
     )
@@ -286,7 +286,7 @@ fn a_label_the_format_wrote_reads_back_and_changes() {
         let format = FormatPlan::new(options, &mut NoClock).unwrap();
         let mut image = Memory {
             bytes: vec![0u8; sectors as usize * 512],
-            size: SectorSize::Bytes512,
+            bytes_per_sector: SectorSize::Bytes512,
         };
         format.write_to(&mut image).unwrap();
         assert_eq!(lamfat_label(&image.bytes), "FORMATTED");
@@ -328,7 +328,7 @@ fn a_label_mkfs_fat_wrote_reads_back_and_changes() {
     let mut volume = WritableVolume::open(
         Memory {
             bytes,
-            size: SectorSize::Bytes512,
+            bytes_per_sector: SectorSize::Bytes512,
         },
         NoClock,
     )

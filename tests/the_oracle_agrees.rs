@@ -30,14 +30,14 @@ use lamfat::{Read, Write};
 /// A volume held in memory, served one sector at a time.
 struct Memory<'a> {
     bytes: &'a [u8],
-    size: SectorSize,
+    bytes_per_sector: SectorSize,
 }
 
 impl SectorDevice for Memory<'_> {
     type Error = u64;
 
     fn sector_size(&self) -> SectorSize {
-        self.size
+        self.bytes_per_sector
     }
 
     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
@@ -54,7 +54,7 @@ struct Record {
     short: String,
     long: Option<Vec<u16>>,
     directory: bool,
-    size: u64,
+    size_bytes: u64,
     /// A file's bytes, or the records of a directory's entries.
     bytes: Vec<u8>,
     children: Vec<Record>,
@@ -119,16 +119,16 @@ fn write_tree(image: &mut Vec<u8>, fat_type: lamfat::FatType, sector: u16) {
     fs.unmount().expect("rust-fatfs unmounts");
 }
 
-/// Everything rust-fatfs lists under `dir`, recursively, `.` and `..` left out.
+/// Everything rust-fatfs lists under `directory`, recursively, `.` and `..` left out.
 fn lamfat_records<
     IO: lamfat::ReadWriteSeek,
     TP: lamfat::TimeProvider,
     OCC: lamfat::OemCpConverter,
 >(
-    dir: &lamfat::Dir<'_, IO, TP, OCC>,
+    directory: &lamfat::Dir<'_, IO, TP, OCC>,
 ) -> Vec<Record> {
     let mut out = Vec::new();
-    for entry in dir.iter() {
+    for entry in directory.iter() {
         let entry = entry.expect("rust-fatfs lists the directory");
         let short = String::from_utf8(entry.short_file_name_as_bytes().to_vec()).unwrap();
         if short == "." || short == ".." {
@@ -138,7 +138,7 @@ fn lamfat_records<
             short,
             long: entry.long_file_name_as_ucs2_units().map(<[u16]>::to_vec),
             directory: entry.is_dir(),
-            size: if entry.is_dir() { 0 } else { entry.len() },
+            size_bytes: if entry.is_dir() { 0 } else { entry.len() },
             bytes: Vec::new(),
             children: Vec::new(),
         };
@@ -237,16 +237,16 @@ fn our_records(volume: &mut Volume<Memory<'_>>, image: &[u8], first: u32) -> Vec
             short: name,
             long,
             directory: short.is_directory(),
-            size: u64::from(short.size_bytes()),
+            size_bytes: u64::from(short.size_bytes()),
             bytes: Vec::new(),
             children: Vec::new(),
         };
         if short.is_directory() {
             record.children = our_records(volume, image, short.first_cluster());
         } else {
-            let raw = read_file(volume, image, short.first_cluster(), record.size);
+            let raw = read_file(volume, image, short.first_cluster(), record.size_bytes);
             let mut file = volume.open_file_reader(&entry).expect("a file opens");
-            let mut bytes = vec![0u8; record.size as usize];
+            let mut bytes = vec![0u8; record.size_bytes as usize];
             assert_eq!(file.read(&mut bytes).expect("the file reads"), bytes.len());
             assert!(matches!(file.read(&mut [0u8; 1]), Ok(0)));
             assert_eq!(
@@ -290,7 +290,7 @@ fn check_lookups(
             assert_eq!(entry.is_directory(), record.directory, "{label}: {path}");
             assert_eq!(
                 u64::from(entry.size_bytes()),
-                record.size,
+                record.size_bytes,
                 "{label}: {path}"
             );
         }
@@ -360,7 +360,7 @@ fn agree(label: &str, mebibytes: usize, fat_type: lamfat::FatType, sector: u16) 
     let size = SectorSize::from_bytes(sector).unwrap();
     let mut volume = Volume::open(Memory {
         bytes: &image,
-        size,
+        bytes_per_sector: size,
     })
     .expect("this crate opens rust-fatfs's volume");
     let ours = our_records(&mut volume, &image, 0);
@@ -403,7 +403,10 @@ fn agree(label: &str, mebibytes: usize, fat_type: lamfat::FatType, sector: u16) 
     if sector == 512 {
         // An MBR holds sector numbers in 512-byte units here; a 4096-byte-sector image is read
         // bare above, and its partition arithmetic is the same.
-        let mut device = Memory { bytes: &disk, size };
+        let mut device = Memory {
+            bytes: &disk,
+            bytes_per_sector: size,
+        };
         let table = MasterBootRecord::read(&mut device).expect("the table parses");
         let partition = table.partition(0).expect("one partition");
         assert!(partition.has_file_allocation_table_type());
@@ -455,12 +458,12 @@ fn this_crate_reads_what_rust_fatfs_wrote_on_fat32() {
 
 #[test]
 fn rust_fatfs_reads_what_this_crate_wrote() {
-    const FILE_LEN: usize = 100_000;
+    const FILE_LENGTH_BYTES: usize = 100_000;
     let total = 70_000 * 8 + 2_000;
     let layout = VolumeLayout::new(
         total,
         0,
-        FILE_LEN as u64,
+        FILE_LENGTH_BYTES as u64,
         0x1234_5678,
         "EFI SYSTEM",
         "BOOTRISCV64.EFI",
@@ -472,9 +475,9 @@ fn rust_fatfs_reads_what_this_crate_wrote() {
         let at = index as usize * BYTES_PER_SECTOR;
         assert!(layout.fill_sector(index, &mut image[at..at + BYTES_PER_SECTOR]));
     }
-    let body: Vec<u8> = (0..FILE_LEN).map(|i| (i % 251) as u8).collect();
+    let body: Vec<u8> = (0..FILE_LENGTH_BYTES).map(|i| (i % 251) as u8).collect();
     let at = layout.file_first_sector() as usize * BYTES_PER_SECTOR;
-    image[at..at + FILE_LEN].copy_from_slice(&body);
+    image[at..at + FILE_LENGTH_BYTES].copy_from_slice(&body);
     check_with_fsck(&image, "writer");
 
     let fs = lamfat::FileSystem::new(
@@ -493,7 +496,7 @@ fn rust_fatfs_reads_what_this_crate_wrote() {
 
     let mut volume = Volume::open(Memory {
         bytes: &image,
-        size: SectorSize::Bytes512,
+        bytes_per_sector: SectorSize::Bytes512,
     })
     .unwrap();
     let records = our_records(&mut volume, &image, 0);
@@ -511,10 +514,10 @@ fn rust_fatfs_reads_what_this_crate_wrote() {
     let entry = volume
         .lookup("/efi/boot/bootriscv64.efi")
         .expect("the long name is found");
-    assert_eq!(entry.size_bytes() as usize, FILE_LEN);
+    assert_eq!(entry.size_bytes() as usize, FILE_LENGTH_BYTES);
     let mut reader = volume.open_file_reader(&entry).unwrap();
-    let mut read_back = vec![0u8; FILE_LEN];
-    assert_eq!(reader.read(&mut read_back).unwrap(), FILE_LEN);
+    let mut read_back = vec![0u8; FILE_LENGTH_BYTES];
+    assert_eq!(reader.read(&mut read_back).unwrap(), FILE_LENGTH_BYTES);
     assert_eq!(read_back, body);
     let by_alias = volume
         .lookup("EFI\\BOOT\\BOOTRI~1.EFI")

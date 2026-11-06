@@ -92,7 +92,7 @@ pub(crate) fn merge_partial(buffer: &mut [u8], kept: usize, offset: usize, bytes
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct WriteState {
     pub(crate) first_cluster: u32,
-    pub(crate) size: u32,
+    pub(crate) size_bytes: u32,
     pub(crate) position: u32,
     /// The index in the chain and the number of the cluster the last call reached.
     reached: Option<(u32, u32)>,
@@ -103,7 +103,7 @@ impl WriteState {
     pub(crate) const fn new(first_cluster: u32, size: u32) -> WriteState {
         WriteState {
             first_cluster,
-            size,
+            size_bytes: size,
             position: 0,
             reached: None,
         }
@@ -111,7 +111,7 @@ impl WriteState {
 
     /// Move to `position`, or to the end when it is past it.
     pub(crate) fn seek(&mut self, position: u32) {
-        self.position = position.min(self.size);
+        self.position = position.min(self.size_bytes);
     }
 
     /// Forget the cursor: the chain behind it changed.
@@ -144,7 +144,7 @@ impl WriteState {
             }
             _ => {
                 // An empty file: only a size of 0 agrees with having no chain.
-                if self.size != 0 {
+                if self.size_bytes != 0 {
                     return Err(WriteError::ShorterThanItsSize);
                 }
                 let Some(first) = medium.append(None)? else {
@@ -164,7 +164,7 @@ impl WriteState {
                 TableEntry::Next(next) if is_data(clusters, next) => cluster = next,
                 TableEntry::EndOfChain => {
                     // The chain may grow only past the clusters the size already needs.
-                    if u64::from(self.size) > (u64::from(at) + 1) * per_cluster {
+                    if u64::from(self.size_bytes) > (u64::from(at) + 1) * per_cluster {
                         return Err(WriteError::ShorterThanItsSize);
                     }
                     let Some(next) = medium.append(Some(cluster))? else {
@@ -225,18 +225,18 @@ impl WriteState {
             } else {
                 let buffer = &mut scratch[..sector_bytes];
                 let sector_start = self.position - offset as u32;
-                let kept = if sector_start >= self.size {
+                let kept = if sector_start >= self.size_bytes {
                     0
                 } else {
                     medium.read_data(sector, buffer)?;
-                    ((self.size - sector_start) as usize).min(sector_bytes)
+                    ((self.size_bytes - sector_start) as usize).min(sector_bytes)
                 };
                 medium.merge(buffer, kept, offset, &data[done..done + len]);
                 medium.write_data(sector, buffer)?;
             }
             self.position += len as u32;
             done += len;
-            self.size = self.size.max(self.position);
+            self.size_bytes = self.size_bytes.max(self.position);
         }
         Ok(done)
     }

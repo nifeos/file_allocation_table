@@ -73,11 +73,11 @@ fn a_short_entry_reads_its_fields() {
     assert_eq!(entry.first_cluster(), 5);
     assert_eq!(entry.size_bytes(), 1234);
 
-    let dir = short_of(Slot::parse(
+    let directory = short_of(Slot::parse(
         &short(b"SUB        ", 0x10, 0, 9, 0),
         FileAllocationTableType::Fat12,
     ));
-    assert!(dir.is_directory());
+    assert!(directory.is_directory());
     let label = short_of(Slot::parse(
         &short(b"FATTEST    ", 0x08, 0, 0, 0),
         FileAllocationTableType::Fat12,

@@ -81,9 +81,9 @@ fn populated(sectors: u32) -> Vec<u8> {
     let mut device = Memory(vec![0; sectors as usize * 512]);
     format.write_to(&mut device).unwrap();
     let mut volume = WritableVolume::open(device, NoClock).unwrap();
-    let dir = volume.create_directory(0, "Some Directory").unwrap();
+    let directory = volume.create_directory(0, "Some Directory").unwrap();
     let file = volume
-        .create_file(dir.first_cluster(), "A file with a long name.txt")
+        .create_file(directory.first_cluster(), "A file with a long name.txt")
         .unwrap();
     volume
         .open_file_writer(&file)

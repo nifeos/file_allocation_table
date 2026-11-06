@@ -2,9 +2,9 @@
 //!
 //! The digests below cover every metadata sector of a set of volumes formatted with `NoClock`, the
 //! zero timestamp a format with no clock writes. A volume formatted the same way must still match
-//! them, so a caller that builds a reproducible image gets the same bytes from every release.
-//! The digest is FNV-1a over the sectors in order; it detects a change and is not a security
-//! claim.
+//! them, so a caller that builds a reproducible image gets the same bytes from every release. The
+//! digest is Fowler-Noll-Vo (FNV) 1a over the sectors in order; it detects a change and is not a
+//! security claim.
 
 // Not under Miri: digesting every metadata sector of each volume took 25 minutes in the
 // interpreter, and the crate has no `unsafe`; the library's unit tests run the same formatter.

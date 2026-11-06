@@ -1,11 +1,11 @@
 //! **The master boot record**: the partition table in sector 0 of a whole-disk image, and a
 //! device that shows one partition as if it were the whole device.
 //!
-//! A USB stick usually arrives with an MBR whose entry says where its FAT volume starts. The table
-//! is four 16-byte entries at byte 446 of the first sector, then the signature `0x55 0xAA`. The
-//! layout is Microsoft's, in "FAT: General Overview of On-Disk Format", version 1.03, and the
-//! conventional one every partitioning tool writes. A parse never panics, and every partition it
-//! accepts lies inside the 32-bit sector numbers an entry can hold.
+//! A Universal Serial Bus (USB) stick usually arrives with an MBR whose entry says where its FAT
+//! volume starts. The table is four 16-byte entries at byte 446 of the first sector, then the
+//! signature `0x55 0xAA`. The layout is Microsoft's, in "FAT: General Overview of On-Disk Format",
+//! version 1.03, and the conventional one every partitioning tool writes. A parse never panics, and
+//! every partition it accepts lies inside the 32-bit sector numbers an entry can hold.
 //!
 //! A bare FAT volume has no MBR. Its sector 0 is a boot sector whose last two bytes are the same
 //! signature, so a caller tries [`BootSector::read`](crate::BootSector::read) first and the
@@ -15,7 +15,7 @@
 use crate::sector::{SectorDevice, SectorSize};
 
 /// The byte offset of the first partition entry in sector 0.
-const TABLE_OFFSET: usize = 446;
+const TABLE_START_BYTE: usize = 446;
 /// The bytes of one partition entry.
 const ENTRY_BYTES: usize = 16;
 /// The partition entries in the table.
@@ -122,7 +122,7 @@ impl MasterBootRecord {
         }
         let mut partitions = [None; ENTRIES];
         for (index, slot) in partitions.iter_mut().enumerate() {
-            let at = TABLE_OFFSET + index * ENTRY_BYTES;
+            let at = TABLE_START_BYTE + index * ENTRY_BYTES;
             let entry = &sector[at..at + ENTRY_BYTES];
             let kind = entry[4];
             if kind == 0 {

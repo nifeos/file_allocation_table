@@ -12,8 +12,8 @@ diff --git a/src/file.rs b/src/file.rs
              .ok_or(wrong_cluster)?;
          let offset = within % sector_bytes;
          let len = (sector_bytes - offset)
--            .min(self.size - self.position)
-+            .min((self.size - self.position).saturating_add(1))
+-            .min(self.size_bytes - self.position)
++            .min((self.size_bytes - self.position).saturating_add(1))
              .min(u32::try_from(want).unwrap_or(u32::MAX));
          self.position += len;
          Ok(Some(Span {

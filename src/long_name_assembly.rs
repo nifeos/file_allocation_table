@@ -32,16 +32,17 @@ pub(crate) type LongNameAssembler = Assembler<MAXIMUM_UNITS>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LongFileName {
     units: [u16; MAXIMUM_CODE_UNITS],
-    len: usize,
+    unit_count: usize,
 }
 
 impl LongFileName {
     /// The name's UTF-16 code units, without the terminator and the padding.
     pub fn code_units(&self) -> &[u16] {
-        &self.units[..self.len]
+        &self.units[..self.unit_count]
     }
 
-    /// The name's characters, with U+FFFD for a surrogate that has no partner.
+    /// The name's characters, with the Unicode replacement character, `U+FFFD`, for a surrogate
+    /// that has no partner.
     pub fn chars(&self) -> impl Iterator<Item = char> + '_ {
         char::decode_utf16(self.code_units().iter().copied())
             .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
@@ -153,7 +154,10 @@ impl<const UNITS: usize> Assembler<UNITS> {
         };
         let mut units = [0u16; MAXIMUM_CODE_UNITS];
         units[..len].copy_from_slice(&self.units[..len]);
-        Ok(Some(LongFileName { units, len }))
+        Ok(Some(LongFileName {
+            units,
+            unit_count: len,
+        }))
     }
 
     /// **Check the run as `finish` does and report the name's length**, leaving its units in

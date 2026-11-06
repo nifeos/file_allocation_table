@@ -3,10 +3,10 @@
 //!
 //! One piece of arithmetic sizes every volume, [`Geometry`], and one pair of builders writes its
 //! boot sector and file system information sector; the one-file EFI volume of
-//! [`crate::VolumeLayout`] uses both, so the BPB is written in one place. Sizing is Microsoft's own
-//! (`fatgen103`, "Determining FAT type"), which over-sizes the table slightly rather than solve the
-//! circular dependency, so the number it gives is the number every other tool gives; the data area
-//! is then rounded up to start on a cluster boundary.
+//! [`crate::VolumeLayout`] uses both, so the `BPB` is written in one place. Sizing is Microsoft's
+//! own (`fatgen103`, "Determining FAT type"), which over-sizes the table slightly rather than solve
+//! the circular dependency, so the number it gives is the number every other tool gives; the data
+//! area is then rounded up to start on a cluster boundary.
 
 use crate::boot_sector::FileAllocationTableType;
 use crate::long_name::is_short_byte;
@@ -49,7 +49,7 @@ pub enum FormatError {
 /// type follows from the count, as the specification has it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormatOptions {
-    sector_size: SectorSize,
+    bytes_per_sector: SectorSize,
     total_sectors: u32,
     file_allocation_table_type: Option<FileAllocationTableType>,
     cluster_sectors: Option<u32>,
@@ -64,7 +64,7 @@ impl FormatOptions {
     /// the format: serial number 0, the label `NO NAME`, no hidden sectors.
     pub const fn new(sector_size: SectorSize, total_sectors: u32) -> FormatOptions {
         FormatOptions {
-            sector_size,
+            bytes_per_sector: sector_size,
             total_sectors,
             file_allocation_table_type: None,
             cluster_sectors: None,
@@ -136,7 +136,7 @@ pub(crate) fn label_from_bytes(bytes: &[u8]) -> Option<[u8; 11]> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Geometry {
     pub(crate) kind: FileAllocationTableType,
-    pub(crate) sector_size: SectorSize,
+    pub(crate) bytes_per_sector: SectorSize,
     pub(crate) cluster_sectors: u32,
     pub(crate) reserved_sectors: u32,
     pub(crate) root_entries: u32,
@@ -221,7 +221,7 @@ impl Geometry {
         }
         Ok(Geometry {
             kind,
-            sector_size,
+            bytes_per_sector: sector_size,
             cluster_sectors,
             reserved_sectors,
             root_entries,
@@ -250,7 +250,7 @@ impl Geometry {
         // A jump every FAT driver expects to find, over the BPB. Nothing executes it here.
         out[0..3].copy_from_slice(&[0xEB, if fat32 { 0x58 } else { 0x3C }, 0x90]);
         out[3..11].copy_from_slice(b"MSWIN4.1"); // BS_OEMName; the spec's own recommendation
-        put16(out, 11, self.sector_size.bytes() as u16); // BPB_BytsPerSec
+        put16(out, 11, self.bytes_per_sector.bytes() as u16); // BPB_BytsPerSec
         out[13] = self.cluster_sectors as u8; // BPB_SecPerClus
         put16(out, 14, self.reserved_sectors as u16); // BPB_RsvdSecCnt
         out[16] = 2; // BPB_NumFATs
@@ -367,7 +367,12 @@ impl FormatPlan {
                 {
                     continue;
                 }
-                match Geometry::new(kind, options.sector_size, sectors, options.total_sectors) {
+                match Geometry::new(
+                    kind,
+                    options.bytes_per_sector,
+                    sectors,
+                    options.total_sectors,
+                ) {
                     Ok(geometry) => {
                         found = Some(geometry);
                         break 'search;
@@ -430,7 +435,7 @@ impl FormatPlan {
     /// clusters beyond are not touched.
     pub fn fill_sector(&self, index: u32, out: &mut [u8]) -> bool {
         let g = &self.geometry;
-        if out.len() != g.sector_size.bytes() || index >= self.metadata_sectors() {
+        if out.len() != g.bytes_per_sector.bytes() || index >= self.metadata_sectors() {
             return false;
         }
         out.fill(0);
@@ -471,7 +476,7 @@ impl FormatPlan {
     /// error. The device must have the sector size the options named.
     pub fn write_to<D: WritableSectorDevice>(&self, device: &mut D) -> Result<(), D::Error> {
         let mut sector = [0u8; SectorSize::MAXIMUM_BYTES];
-        let size = self.geometry.sector_size.bytes();
+        let size = self.geometry.bytes_per_sector.bytes();
         for index in 0..self.metadata_sectors() {
             if self.fill_sector(index, &mut sector[..size]) {
                 device.write_sector(u64::from(index), &sector[..size])?;

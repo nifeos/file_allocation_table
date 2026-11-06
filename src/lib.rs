@@ -4,9 +4,10 @@
 //!
 //! The reader opens a volume through [`SectorDevice`], a trait the caller implements over any
 //! device that reads whole sectors. [`BootSector::read`] reads and checks the boot sector and its
-//! BPB, and types the volume by its cluster count as the specification does (see
-//! `boot_sector.rs`). Every field is treated as hostile: a parse never panics and never reads out
-//! of bounds, and what it accepts has its regions in order inside the volume.
+//! parameter block (`BPB` in the specification), and types the volume by its cluster count as the
+//! specification does (see `boot_sector.rs`). Every field is treated as hostile: a parse never
+//! panics and never reads out of bounds, and what it accepts has its regions in order inside the
+//! volume.
 //!
 //! [`Volume`] holds the device and the boot sector and reads the rest. It decodes the file
 //! allocation table entry by entry ([`TableEntry`]), walks a cluster chain with [`Volume::chain`],
@@ -40,36 +41,39 @@
 
 //! # BUGS
 //!
-//! - [`VolumeLayout`] numbers its boot file's alias `~1`, right only while `EFI\BOOT` holds that one
-//!   file.
+//! - [`VolumeLayout`] numbers its boot file's alias `~1`, right only while `EFI\BOOT` holds that
+//!   one file.
 //! - [`FormatPlan`] and [`VolumeLayout`] write the free-cluster count of the file system
 //!   information sector once. After that only [`WritableVolume::mark_clean`] keeps it; a volume
 //!   dropped without `mark_clean` leaves a stale hint, which the specification lets a driver
 //!   tolerate and `fsck.fat` reports.
 //! - The backup copy of the file system information sector in the backup boot area is never
 //!   updated, as with Linux's driver.
-//! - A newly allocated cluster holds whatever the device held; a caller that needs zeros writes them.
-//! - A write has no barrier: the crate orders its writes and the device decides when each reaches the
-//!   medium. A failure between the writes of one table entry's copies leaves the copies unequal.
+//! - A newly allocated cluster holds whatever the device held; a caller that needs zeros writes
+//!   them.
+//! - A write has no barrier: the crate orders its writes and the device decides when each reaches
+//!   the medium. A failure between the writes of one table entry's copies leaves the copies
+//!   unequal.
 //! - A name with a character outside the Basic Multilingual Plane is refused, and a lower-case 8.3
 //!   name is stored as a long name, since the crate writes no lower-case flag.
 //! - A directory slot is found by walking from the directory's first cluster each time, so creating
 //!   in a directory of n clusters costs n chain steps per slot read.
-//! - FAT stores no time zone. A clock is expected to supply UTC; the crate stores
-//!   what its clock reports, cannot check that it is UTC, and refuses a time outside 1980 to 2107.
-//!   A reader that treats FAT times as local time, such as Windows, shows UTC values as local.
+//! - FAT stores no time zone. The crate stores what its clock reports, expected to be UTC, and
+//!   refuses a time outside 1980 to 2107. A reader that treats FAT times as local shows UTC values.
 //! - A file's bytes are read by cluster chain only; there is no cache above the sector and a
 //!   backwards seek walks the chain again from its start.
 //! - Names compare by simple Unicode upper-casing, not the volume's code page or upcase table, and
-//!   a short name's bytes above 0x7F (an OEM code page) match only themselves.
-//! - The MBR reader does not follow extended partitions, and reads no GUID partition table.
-//! - Partition sectors are in the device's own sectors, which is 512 bytes for the tools that wrote
-//!   the tables this was tested against.
+//!   a short name's bytes above 0x7F (an Original Equipment Manufacturer (OEM) code page) match
+//!   only themselves.
+//! - The Master Boot Record (MBR) reader does not follow extended partitions, and reads no Globally
+//!   Unique Identifier (GUID) partition table. Partition sectors are in the device's own sectors,
+//!   which is 512 bytes for the tools that wrote the tables this was tested against.
 //! - A long name is compared by its UTF-16 code units as stored; a lone surrogate is not an error.
 //! - A directory read follows only the table the reader picks (FAT32's live table, or the first),
 //!   and never compares the mirrors.
 //! - A loop in a hostile table stops a chain walk only at the volume's cluster count: on a FAT32
-//!   volume claiming 268 million clusters, that many table reads, nearly all from the cached sector.
+//!   volume claiming 268 million clusters, that many table reads, nearly all from the cached
+//!   sector.
 //! - A boot sector is checked against itself, never against the device's length, which the
 //!   [`SectorDevice`] trait does not report; a read past the end is the device's error to return.
 //! - A FAT32 layout under 65525 clusters (which `mkfs.fat -F 32` makes with a warning) is refused,

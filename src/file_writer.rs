@@ -301,7 +301,7 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
 
     /// The file's length in bytes.
     pub const fn size_bytes(&self) -> u32 {
-        self.state.size
+        self.state.size_bytes
     }
 
     /// The position of the next byte written.
@@ -327,12 +327,12 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
     /// Rewrite the entry, stamped, when bytes were written or the size or the first cluster
     /// differs from `before`.
     fn settle(&mut self, before: (u32, u32), wrote: bool) -> Result<(), WriteError<D::Error>> {
-        if wrote || (self.state.first_cluster, self.state.size) != before {
+        if wrote || (self.state.first_cluster, self.state.size_bytes) != before {
             self.volume.update_entry(
                 self.place,
                 self.name,
                 self.state.first_cluster,
-                self.state.size,
+                self.state.size_bytes,
                 true,
             )?;
         }
@@ -348,7 +348,7 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
     pub fn write(&mut self, data: &[u8]) -> Result<usize, WriteError<D::Error>> {
         self.check()?;
         self.tick()?;
-        let before = (self.state.first_cluster, self.state.size);
+        let before = (self.state.first_cluster, self.state.size_bytes);
         let boot = self.volume.boot;
         let mut scratch = [0u8; SectorSize::MAXIMUM_BYTES];
         self.volume.begin_change()?;
@@ -377,18 +377,18 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
     }
 
     fn resize(&mut self, length: u32) -> Result<(), WriteError<D::Error>> {
-        let before = (self.state.first_cluster, self.state.size);
+        let before = (self.state.first_cluster, self.state.size_bytes);
         let resume = self.state.position;
-        if length > self.state.size {
+        if length > self.state.size_bytes {
             let boot = self.volume.boot;
             let zeros = [0u8; SectorSize::MAXIMUM_BYTES];
             let mut scratch = [0u8; SectorSize::MAXIMUM_BYTES];
             self.volume.begin_change()?;
             self.state.seek(u32::MAX);
-            let passes = (length - self.state.size) as usize / zeros.len() + 2;
+            let passes = (length - self.state.size_bytes) as usize / zeros.len() + 2;
             let mut outcome = Err(WriteError::VolumeFull);
             for _ in 0..passes {
-                let step = ((length - self.state.size) as usize).min(zeros.len());
+                let step = ((length - self.state.size_bytes) as usize).min(zeros.len());
                 if step == 0 {
                     outcome = Ok(());
                     break;
@@ -409,11 +409,11 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
             outcome?;
             settled?;
             self.state.seek(resume);
-        } else if length < self.state.size {
+        } else if length < self.state.size_bytes {
             let per_cluster = u64::from(self.volume.boot.bytes_per_cluster());
             let keep = u32::try_from(u64::from(length).div_ceil(per_cluster)).unwrap_or(u32::MAX);
             let first = self.state.first_cluster;
-            self.state.size = length;
+            self.state.size_bytes = length;
             self.state.position = self.state.position.min(length);
             if keep == 0 {
                 self.state.first_cluster = 0;
