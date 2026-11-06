@@ -40,7 +40,7 @@ fn every_long_name_run_is_well_formed() {
     kani::assume((1..=MAXIMUM_CODE_UNITS).contains(&len));
     let name = LongName {
         units: kani::any(),
-        len,
+        unit_count: len,
     };
     let checksum: u8 = kani::any();
     let entries = name.entries();
@@ -92,7 +92,10 @@ fn every_alias_is_a_legal_short_name() {
     let mut units = [0u16; MAXIMUM_CODE_UNITS];
     let chosen: [u16; ALIAS_UNITS] = kani::any();
     units[..ALIAS_UNITS].copy_from_slice(&chosen);
-    let name = LongName { units, len };
+    let name = LongName {
+        units,
+        unit_count: len,
+    };
     let Some(alias) = name.alias() else {
         return;
     };
@@ -125,7 +128,10 @@ fn every_numbered_alias_carries_its_number() {
     let mut units = [0u16; MAXIMUM_CODE_UNITS];
     let chosen: [u16; ALIAS_UNITS] = kani::any();
     units[..ALIAS_UNITS].copy_from_slice(&chosen);
-    let name = LongName { units, len };
+    let name = LongName {
+        units,
+        unit_count: len,
+    };
     let number: u32 = kani::any();
     let Some(alias) = name.alias_numbered(number) else {
         return;

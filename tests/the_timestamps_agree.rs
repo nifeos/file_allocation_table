@@ -47,14 +47,14 @@ fn at(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> Option
 /// A volume held in memory, read and written one sector at a time.
 struct Memory {
     bytes: Vec<u8>,
-    size: SectorSize,
+    bytes_per_sector: SectorSize,
 }
 
 impl SectorDevice for Memory {
     type Error = u64;
 
     fn sector_size(&self) -> SectorSize {
-        self.size
+        self.bytes_per_sector
     }
 
     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
@@ -89,7 +89,7 @@ fn formatted(mebibytes: usize, fat_type: lamfat::FatType, sector: u16) -> Memory
     .expect("rust-fatfs formats the volume");
     Memory {
         bytes: image,
-        size: SectorSize::from_bytes(sector).expect("a permitted sector size"),
+        bytes_per_sector: SectorSize::from_bytes(sector).expect("a permitted sector size"),
     }
 }
 
@@ -260,7 +260,7 @@ fn a_time_fat_cannot_store_is_refused_and_the_edges_pass_fsck() {
         let mut volume = WritableVolume::open(
             Memory {
                 bytes: before.bytes.clone(),
-                size: before.size,
+                bytes_per_sector: before.bytes_per_sector,
             },
             Shared(&now),
         )
@@ -317,7 +317,7 @@ fn the_formats_label_and_the_efi_volumes_directories_carry_the_clocks_time() {
     let format = FormatPlan::new(options, &mut Shared(&now)).unwrap();
     let mut image = Memory {
         bytes: vec![0u8; 16 * 1024 * 512],
-        size: SectorSize::Bytes512,
+        bytes_per_sector: SectorSize::Bytes512,
     };
     format.write_to(&mut image).unwrap();
     let root = (1 + 2 * format.table_sectors() as usize) * 512;

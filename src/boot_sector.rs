@@ -166,7 +166,7 @@ pub enum ReadError<E> {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BootSector {
-    sector_size: SectorSize,
+    bytes_per_sector: SectorSize,
     cluster_shift: u32,
     reserved_sectors: u16,
     tables: u8,
@@ -293,7 +293,7 @@ impl BootSector {
         }
 
         let mut boot = BootSector {
-            sector_size,
+            bytes_per_sector: sector_size,
             cluster_shift,
             reserved_sectors,
             tables,
@@ -357,10 +357,10 @@ impl BootSector {
         let buffer = &mut buffer[..size.bytes()];
         device.read_sector(0, buffer).map_err(ReadError::Device)?;
         let boot = BootSector::parse(buffer).map_err(ReadError::Refused)?;
-        if boot.sector_size != size {
+        if boot.bytes_per_sector != size {
             return Err(ReadError::SectorSizeMismatch {
                 device: size,
-                volume: boot.sector_size,
+                volume: boot.bytes_per_sector,
             });
         }
         Ok(boot)
@@ -368,7 +368,7 @@ impl BootSector {
 
     /// The volume's sector size, from `BPB_BytsPerSec`.
     pub const fn sector_size(&self) -> SectorSize {
-        self.sector_size
+        self.bytes_per_sector
     }
 
     /// Sectors per cluster: a power of two from 1 to 128.
@@ -378,7 +378,7 @@ impl BootSector {
 
     /// Bytes per cluster: from 512 to 512 KiB.
     pub const fn bytes_per_cluster(&self) -> u32 {
-        (self.sector_size.bytes() as u32) << self.cluster_shift
+        (self.bytes_per_sector.bytes() as u32) << self.cluster_shift
     }
 
     /// The FAT type, from the cluster count.

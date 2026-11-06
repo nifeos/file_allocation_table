@@ -11,8 +11,8 @@ diff --git a/src/write_cursor.rs b/src/write_cursor.rs
              }
              self.position += len as u32;
              done += len;
--            self.size = self.size.max(self.position);
-+            self.size = self.position;
+-            self.size_bytes = self.size_bytes.max(self.position);
++            self.size_bytes = self.position;
          }
          Ok(done)
      }

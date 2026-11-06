@@ -12,10 +12,10 @@ diff --git a/src/directory_writer.rs b/src/directory_writer.rs
          self.at += 1;
          match kind {
 -            SlotKind::Used => {
--                self.len = 0;
+-                self.length_slots = 0;
 -                None
 -            }
 +            SlotKind::Used => None,
              SlotKind::Free | SlotKind::End => {
-                 if self.len == 0 {
+                 if self.length_slots == 0 {
                      self.start = index;

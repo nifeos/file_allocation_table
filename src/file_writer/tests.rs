@@ -175,7 +175,7 @@ mod heapless_name {
     /// A short name built without an allocator.
     pub(super) struct Name {
         bytes: [u8; 4],
-        len: usize,
+        length_bytes: usize,
     }
 
     impl Name {
@@ -189,7 +189,10 @@ mod heapless_name {
                 bytes[2] = b'0' + (i % 10) as u8;
                 3
             };
-            Name { bytes, len }
+            Name {
+                bytes,
+                length_bytes: len,
+            }
         }
     }
 
@@ -197,7 +200,7 @@ mod heapless_name {
         type Target = str;
 
         fn deref(&self) -> &str {
-            core::str::from_utf8(&self.bytes[..self.len]).unwrap()
+            core::str::from_utf8(&self.bytes[..self.length_bytes]).unwrap()
         }
     }
 }

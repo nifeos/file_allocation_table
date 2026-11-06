@@ -10,7 +10,7 @@ diff --git a/src/long_name.rs b/src/long_name.rs
 --- a/src/long_name.rs
 +++ b/src/long_name.rs
 @@ -179,7 +179,7 @@ impl LongName {
-         } else if position == self.len {
+         } else if position == self.unit_count {
              0x0000
          } else {
 -            0xFFFF

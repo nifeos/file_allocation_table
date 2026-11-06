@@ -22,14 +22,14 @@ use file_allocation_table::{
 /// A volume held in memory, read and written one sector at a time.
 struct Memory {
     bytes: Vec<u8>,
-    size: SectorSize,
+    bytes_per_sector: SectorSize,
 }
 
 impl SectorDevice for Memory {
     type Error = u64;
 
     fn sector_size(&self) -> SectorSize {
-        self.size
+        self.bytes_per_sector
     }
 
     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
@@ -109,7 +109,7 @@ fn formatted_by_this_crate(
     let format = FormatPlan::new(options, &mut NoClock).expect("a legal format");
     let mut image = Memory {
         bytes: vec![0xEEu8; sectors as usize * size.bytes()],
-        size,
+        bytes_per_sector: size,
     };
     format.write_to(&mut image).unwrap();
     (format, image)
@@ -118,8 +118,8 @@ fn formatted_by_this_crate(
 /// The volume parses, rust-fatfs mounts it with our cluster count, `fsck` accepts it, and this
 /// crate's writer fills it and rust-fatfs reads the files back.
 fn check(label: &str, format: &FormatPlan, image: Memory) {
-    let boot =
-        BootSector::parse(&image.bytes[..image.size.bytes()]).expect("our boot sector parses");
+    let boot = BootSector::parse(&image.bytes[..image.bytes_per_sector.bytes()])
+        .expect("our boot sector parses");
     assert_eq!(
         boot.file_allocation_table_type(),
         format.file_allocation_table_type(),
@@ -336,7 +336,7 @@ fn volumes_mkfs_fat_made_take_this_crates_writer() {
         );
         let image = Memory {
             bytes,
-            size: SectorSize::Bytes512,
+            bytes_per_sector: SectorSize::Bytes512,
         };
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
         let entry = volume.create_directory(0, "Written By Us").unwrap();

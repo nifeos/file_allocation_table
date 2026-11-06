@@ -56,7 +56,7 @@ const fn is_short_punctuation(b: u8) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LongName {
     units: [u16; MAXIMUM_CODE_UNITS],
-    len: usize,
+    unit_count: usize,
 }
 
 impl LongName {
@@ -94,7 +94,7 @@ impl LongName {
         }
         let mut name = LongName {
             units: [0; MAXIMUM_CODE_UNITS],
-            len: units.len(),
+            unit_count: units.len(),
         };
         name.units[..units.len()].copy_from_slice(units);
         name.alias()?;
@@ -103,7 +103,7 @@ impl LongName {
 
     /// How many long-name entries the name takes: one per thirteen units, rounded up.
     pub(crate) const fn entries(&self) -> usize {
-        self.len.div_ceil(UNITS_PER_ENTRY)
+        self.unit_count.div_ceil(UNITS_PER_ENTRY)
     }
 
     /// **The short alias written after the run**, numbered 1: what `mkfs` writes, where the volume
@@ -124,7 +124,7 @@ impl LongName {
         if !(1..=999_999).contains(&number) {
             return None;
         }
-        let units = &self.units[..self.len];
+        let units = &self.units[..self.unit_count];
         let start = units.iter().position(|u| *u != 0x2E).unwrap_or(units.len());
         let units = &units[start..];
         let dot = units.iter().rposition(|u| *u == 0x2E);
@@ -172,9 +172,9 @@ impl LongName {
     /// The unit at `position` of the name as stored: the name, one terminating `0x0000`, then
     /// `0xFFFF` padding.
     const fn unit_or_padding(&self, position: usize) -> u16 {
-        if position < self.len {
+        if position < self.unit_count {
             self.units[position]
-        } else if position == self.len {
+        } else if position == self.unit_count {
             0x0000
         } else {
             0xFFFF

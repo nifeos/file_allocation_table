@@ -521,7 +521,7 @@ fn every_data_cluster_has_a_sector_and_no_other_number_does() {
 /// A device over a byte slice, with a sector size of its own and a count of reads.
 struct Image<'a> {
     bytes: &'a [u8],
-    size: SectorSize,
+    bytes_per_sector: SectorSize,
     reads: u32,
 }
 
@@ -529,11 +529,11 @@ impl SectorDevice for Image<'_> {
     type Error = u64;
 
     fn sector_size(&self) -> SectorSize {
-        self.size
+        self.bytes_per_sector
     }
 
     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
-        assert_eq!(buffer.len(), self.size.bytes());
+        assert_eq!(buffer.len(), self.bytes_per_sector.bytes());
         self.reads += 1;
         let start = index as usize * buffer.len();
         let bytes = self.bytes.get(start..start + buffer.len()).ok_or(index)?;
@@ -546,7 +546,7 @@ impl SectorDevice for Image<'_> {
 fn reading_through_a_device_checks_its_sector_size() {
     let mut device = Image {
         bytes: FAT16_32M,
-        size: SectorSize::Bytes512,
+        bytes_per_sector: SectorSize::Bytes512,
         reads: 0,
     };
     assert_eq!(
@@ -559,7 +559,7 @@ fn reading_through_a_device_checks_its_sector_size() {
     four_k[..512].copy_from_slice(FAT32_4K);
     let mut device = Image {
         bytes: &four_k,
-        size: SectorSize::Bytes4096,
+        bytes_per_sector: SectorSize::Bytes4096,
         reads: 0,
     };
     let mut by_reference = &mut device;
@@ -572,7 +572,7 @@ fn reading_through_a_device_checks_its_sector_size() {
 
     let mut device = Image {
         bytes: FAT16_4K,
-        size: SectorSize::Bytes512,
+        bytes_per_sector: SectorSize::Bytes512,
         reads: 0,
     };
     assert_eq!(
@@ -588,14 +588,14 @@ fn reading_through_a_device_checks_its_sector_size() {
 fn a_device_error_and_a_refusal_come_back_as_themselves() {
     let mut device = Image {
         bytes: &FAT16_32M[..100],
-        size: SectorSize::Bytes512,
+        bytes_per_sector: SectorSize::Bytes512,
         reads: 0,
     };
     assert_eq!(BootSector::read(&mut device), Err(ReadError::Device(0)));
     let blank = [0u8; 512];
     let mut device = Image {
         bytes: &blank,
-        size: SectorSize::Bytes512,
+        bytes_per_sector: SectorSize::Bytes512,
         reads: 0,
     };
     assert_eq!(

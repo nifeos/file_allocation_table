@@ -328,7 +328,7 @@ use crate::{SectorDevice, SectorSize, WritableSectorDevice};
 /// A volume held in memory, read and written one sector at a time.
 struct Memory {
     bytes: Vec<u8>,
-    size: SectorSize,
+    bytes_per_sector: SectorSize,
     /// Writes served so far.
     writes: usize,
 }
@@ -338,7 +338,7 @@ impl SectorDevice for Memory {
     type Error = u64;
 
     fn sector_size(&self) -> SectorSize {
-        self.size
+        self.bytes_per_sector
     }
 
     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
@@ -376,7 +376,7 @@ fn formatted(mebibytes: usize, fat_type: lamfat::FatType, sector: u16) -> Memory
     .expect("rust-fatfs formats the volume");
     Memory {
         bytes: image,
-        size: SectorSize::from_bytes(sector).expect("a permitted sector size"),
+        bytes_per_sector: SectorSize::from_bytes(sector).expect("a permitted sector size"),
         writes: 0,
     }
 }
@@ -438,14 +438,14 @@ fn metadata(image: &Memory) -> Vec<u8> {
     let volume = WritableVolume::open(
         Memory {
             bytes: image.bytes.clone(),
-            size: image.size,
+            bytes_per_sector: image.bytes_per_sector,
             writes: 0,
         },
         NoClock,
     )
     .unwrap();
     let boot = *volume.boot_sector();
-    let sector = image.size.bytes();
+    let sector = image.bytes_per_sector.bytes();
     let end = boot.first_data_sector() as usize * sector;
     let mut bytes = image.bytes[..end].to_vec();
     if let Some(info) = boot.file_system_information_sector() {
@@ -511,7 +511,7 @@ fn allocate_extend_cut_and_free(label: &str, mebibytes: usize, fat_type: FatType
     let hints = WritableVolume::open(
         Memory {
             bytes: image.bytes.clone(),
-            size: image.size,
+            bytes_per_sector: image.bytes_per_sector,
             writes: 0,
         },
         NoClock,
@@ -728,7 +728,7 @@ fn raw_fat32_entry(image: &Memory, copy: u8, cluster: u32) -> u32 {
     let volume = WritableVolume::open(
         Memory {
             bytes: image.bytes.clone(),
-            size: image.size,
+            bytes_per_sector: image.bytes_per_sector,
             writes: 0,
         },
         NoClock,

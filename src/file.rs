@@ -38,7 +38,7 @@ pub(crate) struct Span {
     /// The first byte of the span in that sector.
     pub(crate) offset: usize,
     /// How many bytes, at least 1 and not past the sector's end.
-    pub(crate) len: usize,
+    pub(crate) length_bytes: usize,
 }
 
 /// **Where a file read stands**, apart from the volume, so the arithmetic can be proved over a
@@ -46,7 +46,7 @@ pub(crate) struct Span {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FileCursor {
     first_cluster: u32,
-    size: u32,
+    size_bytes: u32,
     position: u32,
     walk: Walk,
     /// The cluster at index `clusters_walked - 1` of the chain.
@@ -60,7 +60,7 @@ impl FileCursor {
     pub(crate) const fn new(first_cluster: u32, size: u32) -> FileCursor {
         FileCursor {
             first_cluster,
-            size,
+            size_bytes: size,
             position: 0,
             walk: Walk::new(first_cluster),
             current: None,
@@ -77,7 +77,7 @@ impl FileCursor {
     /// Move to `position`, or to the end of the file when it is past it. A move backwards past the
     /// cluster at hand starts the chain walk again.
     pub(crate) fn seek(&mut self, boot: &BootSector, position: u32) {
-        let position = position.min(self.size);
+        let position = position.min(self.size_bytes);
         let needed = position / boot.bytes_per_cluster();
         if self.clusters_walked > needed + 1 {
             self.walk = Walk::new(self.first_cluster);
@@ -114,7 +114,7 @@ impl FileCursor {
         boot: &BootSector,
         want: usize,
     ) -> Result<Option<Span>, FileReadError<L::Error>> {
-        if self.position >= self.size || want == 0 {
+        if self.position >= self.size_bytes || want == 0 {
             return Ok(None);
         }
         let per_cluster = boot.bytes_per_cluster();
@@ -141,13 +141,13 @@ impl FileCursor {
             .ok_or(wrong_cluster)?;
         let offset = within % sector_bytes;
         let len = (sector_bytes - offset)
-            .min(self.size - self.position)
+            .min(self.size_bytes - self.position)
             .min(u32::try_from(want).unwrap_or(u32::MAX));
         self.position += len;
         Ok(Some(Span {
             sector,
             offset: offset as usize,
-            len: len as usize,
+            length_bytes: len as usize,
         }))
     }
 }
@@ -179,7 +179,7 @@ impl<'v, D: SectorDevice> FileReader<'v, D> {
 
     /// The file's length in bytes, as its directory entry states.
     pub const fn size_bytes(&self) -> u32 {
-        self.cursor.size
+        self.cursor.size_bytes
     }
 
     /// The position of the next byte read.
@@ -215,7 +215,7 @@ impl<'v, D: SectorDevice> FileReader<'v, D> {
             else {
                 break;
             };
-            let read = if span.offset == 0 && span.len == sector_bytes {
+            let read = if span.offset == 0 && span.length_bytes == sector_bytes {
                 // A whole sector goes straight into the caller's buffer.
                 self.volume
                     .read_sector(span.sector, &mut buffer[filled..filled + sector_bytes])
@@ -227,11 +227,11 @@ impl<'v, D: SectorDevice> FileReader<'v, D> {
                 self.cursor.failed = true;
                 return Err(FileReadError::Chain(error));
             }
-            if !(span.offset == 0 && span.len == sector_bytes) {
-                buffer[filled..filled + span.len]
-                    .copy_from_slice(&self.buffer[span.offset..span.offset + span.len]);
+            if !(span.offset == 0 && span.length_bytes == sector_bytes) {
+                buffer[filled..filled + span.length_bytes]
+                    .copy_from_slice(&self.buffer[span.offset..span.offset + span.length_bytes]);
             }
-            filled += span.len;
+            filled += span.length_bytes;
         }
         Ok(filled)
     }
