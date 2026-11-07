@@ -139,8 +139,10 @@ harness; the whole run takes 10 to 20 minutes, and `cargo kani --harness <name>`
   cluster. A cut keeps exactly the head of the chain. A partial sector write keeps the head, zeroes
   the slack and lands the bytes. A write extends the chain to the size it needs.
 - Names. The long-name checksum equals the specification's loop for every short name. Every
-  long-name run is well formed. Every alias is a legal short name that carries its number. The
-  finder takes the first run of free slots.
+  long-name run is well formed. Every alias is a legal short name that carries its number, and
+  reads back to that number, which is how one read of a directory finds every number taken. The
+  first free number of an alias window is the least one not marked. The finder takes the first
+  run of free slots.
 - Format. A geometry the format computes parses back as the same type, clusters, table size
   and data start.
 - Attributes and labels. Setting attributes changes the four user bits and nothing else, and
@@ -187,8 +189,28 @@ runs both for a bounded time.
 - The crate refuses a name with a character outside the Basic Multilingual Plane. It stores a
   lower-case 8.3 name as a long name, since it writes no lower-case flag.
 - Names compare by simple Unicode upper-casing, not the volume's code page or upcase table.
-- The crate finds a directory slot by walking from the directory's first cluster each time, so a
-  directory of thousands of clusters is slow.
+- A create, a rename or a new directory reads the whole directory it writes into once: one pass
+  checks the name, numbers the alias and finds the free slots. Filling one directory with n
+  entries therefore costs on the order of n squared sector reads, as it does in rust-fatfs. The
+  figures below count the sectors read and written on a 128 MiB FAT32 volume held in memory, at
+  the default cluster of one sector. A real device adds its own time to every sector, and the
+  crate keeps no cache of directory sectors. Each pair is this writer, then the writer that read
+  the directory once per candidate alias and once per slot.
+  - 1,000 short (8.3) names in one directory: 34,000 reads, against 569,000.
+  - 1,000 long names with distinct first characters: 133,000 reads, against 3.3 million.
+  - 1,000 long names that share their first six characters, so that every alias collides:
+    101,000 reads and 0.3 seconds, against 33.8 million reads and 24 seconds. rust-fatfs takes
+    1.7 seconds for the same names on the same host. A test holds 500 such names to 34,000
+    reads; they take 25,000, against 4.4 million.
+  - An alias numbered past 1,024 costs one more read of the directory for each further 1,024
+    numbers.
+- Sequential writes. A new cluster's end mark and the link to it share one write to each of the
+  two table copies when they sit in one table sector. A 4 MiB file written in 64 KiB pieces takes
+  3.0 sector writes per data sector at one sector to the cluster, and 1.26 at eight. With the end
+  mark and the link as separate writes it took 5.0 and 1.51. A test holds the first figure to
+  3.1. Every `write` call also reads and rewrites the file's directory entry, so small calls cost
+  more: 4 MiB in 100-byte calls takes 11.5 writes and 15.6 reads per data sector, against 11.7
+  and 15.9. Pass whole sectors where you can.
 - The reader does not follow extended partitions and reads no Globally Unique Identifier (GUID)
   partition table.
 - exFAT is out of scope; it is a sibling crate's job.

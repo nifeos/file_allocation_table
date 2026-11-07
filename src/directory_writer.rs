@@ -7,6 +7,11 @@
 //! no entry in the directory holds it. The run and its short entry go down in directory order,
 //! the short entry last, so a crash leaves orphan pieces that no reader joins and never a short
 //! entry with a wrong name. [`RunFinder`] picks the slots; `verification.rs` proves it first-fit.
+//!
+//! One read of the directory serves a whole create: it refuses a name already there, finds the
+//! first run of free slots, and marks in an [`AliasWindow`] every alias number of the new name's
+//! basis that an entry holds, so the alias is the window's first free number. Only an alias past
+//! the first [`ALIAS_WINDOW`] numbers reads the directory again.
 
 use crate::boot_sector::FileAllocationTableType;
 use crate::directory::{DirectoryEntry, SLOT_BYTES, ShortEntry, Slot};
