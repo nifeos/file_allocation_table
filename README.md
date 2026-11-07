@@ -111,7 +111,10 @@ from `fill_sector`, then the file's bytes from `file_first_sector()` on, `file_s
 choose the label, such as `"EFI SYSTEM"`.
 
 Every error enum is `#[non_exhaustive]`, so a match on one needs a wildcard arm, and a later
-release can add a variant without breaking your code.
+release can add a variant without breaking your code. Every error type implements `Display` and
+`core::error::Error`, with no allocator. A message names its own level only, and `source()` returns
+the error it wraps. A type generic over your device's error displays for any error, and is an
+`Error`, so `?` takes it into a boxed error, when your device's error is one.
 
 ## What is proven
 

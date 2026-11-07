@@ -91,6 +91,7 @@ mod directory;
 mod directory_writer;
 #[doc(alias = "extensible firmware interface system partition")]
 pub mod efi_system_partition;
+mod error_display;
 mod file;
 mod file_system_information;
 mod file_writer;
