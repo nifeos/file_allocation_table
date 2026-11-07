@@ -60,13 +60,25 @@ pub(crate) fn allocate<L: LinksMut>(
     links: &mut L,
     hint: u32,
 ) -> Result<Option<u32>, ChainError<L::Error>> {
+    let Some(cluster) = find_free(links, hint)? else {
+        return Ok(None);
+    };
+    links.set_table_entry(cluster, TableEntry::EndOfChain)?;
+    Ok(Some(cluster))
+}
+
+/// **Find a free cluster and change nothing**: the search [`allocate`] makes, from `hint`, wrapping
+/// once and reading each data cluster's entry at most once. `Ok(None)` means no cluster is free.
+pub(crate) fn find_free<L: Links>(
+    links: &mut L,
+    hint: u32,
+) -> Result<Option<u32>, ChainError<L::Error>> {
     let clusters = links.clusters();
     let start = if is_data(clusters, hint) { hint - 2 } else { 0 };
     for step in 0..clusters {
         // `start < clusters` and `step < clusters`, so the sum cannot reach 2 * clusters + 2.
         let cluster = 2 + (start + step) % clusters;
         if links.table_entry(cluster)? == TableEntry::Free {
-            links.set_table_entry(cluster, TableEntry::EndOfChain)?;
             return Ok(Some(cluster));
         }
     }
@@ -204,13 +216,16 @@ impl<D: WritableSectorDevice> Volume<D> {
             .map_err(ChainError::Device)
     }
 
-    /// Write the volume's own buffer to volume-relative `sector`.
+    /// Write the volume's own buffer to volume-relative `sector`. Once the write succeeds the
+    /// buffer is that sector's bytes, so the cache holds it.
     fn write_buffer(&mut self, sector: u32) -> Result<(), ChainError<D::Error>> {
         let size = self.boot.sector_size().bytes();
         self.cached = None;
         self.device
             .write_sector(u64::from(sector), &self.buffer[..size])
-            .map_err(ChainError::Device)
+            .map_err(ChainError::Device)?;
+        self.cached = Some(sector);
+        Ok(())
     }
 
     /// Store `entry` for `cluster` in every live copy of the table, read-modify-write one sector
@@ -233,28 +248,75 @@ impl<D: WritableSectorDevice> Volume<D> {
         let file_allocation_table_type = boot.file_allocation_table_type();
         let wanted = table::entry_bytes(file_allocation_table_type);
         let size = boot.sector_size().bytes();
-        let live = match boot.active_table() {
-            Some(only) => only..only + 1,
-            None => 0..boot.table_count(),
-        };
-        for copy in live {
+        for copy in self.live_tables() {
             let (sector, within) = table::raw_position_in(&boot, cluster, copy)
                 .ok_or(ChainError::NotADataCluster(cluster))?;
             let here = wanted.min(size - within);
             let mut bytes = [0u8; 4];
-            self.read_into_buffer(sector)?;
+            self.load(sector)?;
             bytes[..here].copy_from_slice(&self.buffer[within..within + here]);
             if here < wanted {
-                self.read_into_buffer(sector + 1)?;
+                self.load(sector + 1)?;
                 bytes[here..wanted].copy_from_slice(&self.buffer[..wanted - here]);
             }
             table::store(file_allocation_table_type, cluster, &mut bytes, raw);
             if here < wanted {
+                self.cached = None;
                 self.buffer[..wanted - here].copy_from_slice(&bytes[here..wanted]);
                 self.write_buffer(sector + 1)?;
-                self.read_into_buffer(sector)?;
+                self.load(sector)?;
             }
+            self.cached = None;
             self.buffer[within..within + here].copy_from_slice(&bytes[..here]);
+            self.write_buffer(sector)?;
+        }
+        Ok(())
+    }
+
+    /// The copies of the table a write keeps live: the active one when mirroring is off, else all.
+    fn live_tables(&self) -> core::ops::Range<u8> {
+        match self.boot.active_table() {
+            Some(only) => only..only + 1,
+            None => 0..self.boot.table_count(),
+        }
+    }
+
+    /// **Mark `new` end-of-chain and link `last` to it**, in every live copy. When both entries lie
+    /// whole in one sector of every copy, each copy takes one read-modify-write that carries both,
+    /// so no state on the medium links to `new` before it is marked. Otherwise `new` is marked in
+    /// every copy before `last` links to it in any.
+    fn write_link(&mut self, last: u32, new: u32) -> Result<(), ChainError<D::Error>> {
+        let boot = self.boot;
+        let file_allocation_table_type = boot.file_allocation_table_type();
+        let wanted = table::entry_bytes(file_allocation_table_type);
+        let size = boot.sector_size().bytes();
+        let place = |cluster: u32, copy: u8| {
+            table::raw_position_in(&boot, cluster, copy)
+                .filter(|(_, within)| within + wanted <= size)
+        };
+        let shared = self.live_tables().all(|copy| {
+            matches!((place(last, copy), place(new, copy)), (Some((a, _)), Some((b, _))) if a == b)
+        });
+        if !shared {
+            self.write_table_entry(new, TableEntry::EndOfChain)?;
+            return self.write_table_entry(last, TableEntry::Next(new));
+        }
+        let end = TableEntry::EndOfChain.encode(file_allocation_table_type);
+        let link = TableEntry::Next(new).encode(file_allocation_table_type);
+        for copy in self.live_tables() {
+            let (Some((sector, within_new)), Some((_, within_last))) =
+                (place(new, copy), place(last, copy))
+            else {
+                return Err(ChainError::NotADataCluster(new));
+            };
+            self.load(sector)?;
+            self.cached = None;
+            for (cluster, within, raw) in [(new, within_new, end), (last, within_last, link)] {
+                let mut bytes = [0u8; 4];
+                bytes[..wanted].copy_from_slice(&self.buffer[within..within + wanted]);
+                table::store(file_allocation_table_type, cluster, &mut bytes, raw);
+                self.buffer[within..within + wanted].copy_from_slice(&bytes[..wanted]);
+            }
             self.write_buffer(sector)?;
         }
         Ok(())
@@ -319,15 +381,19 @@ impl<D: WritableSectorDevice> Volume<D> {
         }
         let clusters = self.boot.clusters();
         let hint = self.writer.next_free;
-        let cluster = allocate(self, hint)?.ok_or(AllocationError::VolumeFull)?;
-        if let Some(last) = extending
-            && let Err(error) = self.write_table_entry(last, TableEntry::Next(cluster))
-        {
-            // Give the cluster back, so a failed link does not leak it. If this write fails too,
-            // the cluster stays marked and the error that matters is the first.
-            let _ = self.write_table_entry(cluster, TableEntry::Free);
-            return Err(error.into());
-        }
+        let cluster = match extending {
+            None => allocate(self, hint)?.ok_or(AllocationError::VolumeFull)?,
+            Some(last) => {
+                let cluster = find_free(self, hint)?.ok_or(AllocationError::VolumeFull)?;
+                if let Err(error) = self.write_link(last, cluster) {
+                    // Give the cluster back, so a failed link does not leak it. If this write
+                    // fails too, the cluster stays marked and the error that matters is the first.
+                    let _ = self.write_table_entry(cluster, TableEntry::Free);
+                    return Err(error.into());
+                }
+                cluster
+            }
+        };
         self.writer.next_free = if cluster - 2 + 1 < clusters {
             cluster + 1
         } else {

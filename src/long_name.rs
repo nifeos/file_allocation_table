@@ -221,6 +221,31 @@ pub(crate) fn checksum(short: &[u8; 11]) -> u8 {
         .fold(0u8, |sum, b| sum.rotate_right(1).wrapping_add(*b))
 }
 
+/// **The number in a short name's numeric tail**: the digits after the last `~` of the base, up to
+/// the base's space padding, or `None` when the base does not end in `~` and one to six digits.
+///
+/// Every alias [`LongName::alias_numbered`] makes reads back to its own number here, which is how
+/// one read of a directory finds every number a basis name has taken: an entry can hold the alias
+/// numbered `n` only if this returns `n` for it. Leading zeros read as their value, so a caller
+/// compares the alias itself before counting the number taken.
+pub(crate) fn tail_number(short: &[u8; 11]) -> Option<u32> {
+    let base = &short[..8];
+    let end = base.iter().rposition(|b| *b != b' ')? + 1;
+    let tilde = base[..end].iter().rposition(|b| *b == b'~')?;
+    let digits = &base[tilde + 1..end];
+    if digits.is_empty() || digits.len() > 6 {
+        return None;
+    }
+    let mut number = 0u32;
+    for digit in digits {
+        if !digit.is_ascii_digit() {
+            return None;
+        }
+        number = number * 10 + u32::from(digit - b'0');
+    }
+    Some(number)
+}
+
 /// Whether `b` may appear in a short name at all, padding space included.
 pub(crate) fn is_short_byte(b: u8) -> bool {
     b == b' ' || b.is_ascii_uppercase() || b.is_ascii_digit() || is_short_punctuation(b)

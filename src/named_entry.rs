@@ -7,7 +7,7 @@
 //! the run was refused, because a stranger's volume may hold a stale piece and its files remain
 //! reachable by their short names.
 
-use crate::directory::{Directory, DirectoryEntry, ShortEntry};
+use crate::directory::{Directory, DirectoryEntry, ShortEntry, Slot};
 use crate::long_name_assembly::{LongFileName, LongFileNameError, LongNameAssembler};
 use crate::reader::ChainError;
 use crate::sector::SectorDevice;
@@ -135,9 +135,58 @@ impl NamedEntry {
 #[derive(Debug)]
 pub struct NamedEntries<'v, D> {
     directory: Directory<'v, D>,
+    joiner: Joiner,
+}
+
+/// **Joins a directory's used slots into named entries**, one slot at a time: the long-name pieces
+/// since the last short entry, and where the first of them sits. [`NamedEntries`] feeds it every
+/// used slot; the writer copies it where it lays down a new entry, so it can name the entry it
+/// wrote without reading the directory again.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Joiner {
     assembler: LongNameAssembler,
     /// The index of the first long-name piece since the last short entry.
     run_start: Option<u32>,
+}
+
+impl Joiner {
+    /// A joiner at a directory's start.
+    pub(crate) const fn new() -> Joiner {
+        Joiner {
+            assembler: LongNameAssembler::new(),
+            run_start: None,
+        }
+    }
+
+    /// **Take the used slot at `index` of `directory`**, and return the named entry a short slot
+    /// completes. A long-name piece joins the open run and returns `None`.
+    pub(crate) fn take(
+        &mut self,
+        directory: u32,
+        index: u32,
+        entry: DirectoryEntry,
+    ) -> Option<NamedEntry> {
+        match entry {
+            DirectoryEntry::LongName(piece) => {
+                self.run_start.get_or_insert(index);
+                self.assembler.push(&piece);
+                None
+            }
+            DirectoryEntry::Short(short) => {
+                let long_name = self.assembler.finish(&short.name());
+                let place = EntryPlace {
+                    directory,
+                    first_slot: self.run_start.take().unwrap_or(index),
+                    short_slot: index,
+                };
+                Some(NamedEntry {
+                    short,
+                    long_name,
+                    place,
+                })
+            }
+        }
+    }
 }
 
 impl<'v, D> NamedEntries<'v, D> {
@@ -145,9 +194,35 @@ impl<'v, D> NamedEntries<'v, D> {
     pub(crate) const fn new(directory: Directory<'v, D>) -> NamedEntries<'v, D> {
         NamedEntries {
             directory,
-            assembler: LongNameAssembler::new(),
-            run_start: None,
+            joiner: Joiner::new(),
         }
+    }
+
+    /// The joiner as it stands after the slots read so far.
+    pub(crate) const fn joiner(&self) -> Joiner {
+        self.joiner
+    }
+}
+
+/// A slot's index, the slot, and the named entry a short slot completes, or the error that ended
+/// the read.
+pub(crate) type JoinedSlot<E> = Result<(u32, Slot, Option<NamedEntry>), ChainError<E>>;
+
+impl<D: SectorDevice> NamedEntries<'_, D> {
+    /// **The next slot, free and end slots included**, with the named entry a short slot
+    /// completes. It ends as [`Directory::advance_slot`] ends.
+    pub(crate) fn advance_slot(&mut self) -> Option<JoinedSlot<D::Error>> {
+        let (index, slot) = match self.directory.advance_slot()? {
+            Ok(step) => step,
+            Err(error) => return Some(Err(error)),
+        };
+        let named = match slot {
+            Slot::Used(entry) => self
+                .joiner
+                .take(self.directory.first_cluster(), index, entry),
+            Slot::Free | Slot::End => None,
+        };
+        Some(Ok((index, slot, named)))
     }
 }
 
@@ -158,22 +233,11 @@ impl<D: SectorDevice> Iterator for NamedEntries<'_, D> {
         loop {
             match self.directory.advance_indexed()? {
                 Err(error) => return Some(Err(error)),
-                Ok((index, DirectoryEntry::LongName(piece))) => {
-                    self.run_start.get_or_insert(index);
-                    self.assembler.push(&piece);
-                }
-                Ok((index, DirectoryEntry::Short(short))) => {
-                    let long_name = self.assembler.finish(&short.name());
-                    let place = EntryPlace {
-                        directory: self.directory.first_cluster(),
-                        first_slot: self.run_start.take().unwrap_or(index),
-                        short_slot: index,
-                    };
-                    return Some(Ok(NamedEntry {
-                        short,
-                        long_name,
-                        place,
-                    }));
+                Ok((index, entry)) => {
+                    let directory = self.directory.first_cluster();
+                    if let Some(named) = self.joiner.take(directory, index, entry) {
+                        return Some(Ok(named));
+                    }
                 }
             }
         }

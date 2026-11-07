@@ -233,6 +233,9 @@ impl LongNameEntry {
 /// A used slot's index and entry, or the error that ended the read.
 pub(crate) type Indexed<E> = Result<(u32, DirectoryEntry), ChainError<E>>;
 
+/// Any slot's index and what it holds, or the error that ended the read.
+pub(crate) type IndexedSlot<E> = Result<(u32, Slot), ChainError<E>>;
+
 /// What a directory read walks: the fixed root region, or a chain.
 #[derive(Debug, Clone, Copy)]
 enum Source {
@@ -373,38 +376,46 @@ impl<'v, D: SectorDevice> Directory<'v, D> {
     /// The next used slot with its index from the directory's start, counting free slots. After
     /// the end or an error it returns `None`, whichever way it is called.
     pub(crate) fn advance_indexed(&mut self) -> Option<Indexed<D::Error>> {
+        loop {
+            match self.advance_slot()? {
+                Err(error) => return Some(Err(error)),
+                Ok((_, Slot::End)) => return None,
+                Ok((_, Slot::Free)) => {}
+                Ok((index, Slot::Used(entry))) => return Some(Ok((index, entry))),
+            }
+        }
+    }
+
+    /// **The next slot, free and end slots included**, with its index from the directory's start.
+    /// An end slot is the last it yields. After the end slot, the end of the region or chain, or
+    /// an error, it returns `None`, whichever way it is called.
+    pub(crate) fn advance_slot(&mut self) -> Option<IndexedSlot<D::Error>> {
         if self.done {
             return None;
         }
-        let result = self.scan();
-        if !matches!(result, Some(Ok(_))) {
+        let result = self.next_slot();
+        if !matches!(result, Some(Ok((_, Slot::Free | Slot::Used(_))))) {
             self.done = true;
         }
         result
     }
 
-    fn scan(&mut self) -> Option<Indexed<D::Error>> {
+    fn next_slot(&mut self) -> Option<IndexedSlot<D::Error>> {
         let size = self.volume.boot_sector().sector_size().bytes();
         let file_allocation_table_type = self.volume.boot_sector().file_allocation_table_type();
-        loop {
-            if self.at >= size {
-                match self.fill() {
-                    Ok(true) => {}
-                    Ok(false) => return None,
-                    Err(error) => return Some(Err(error)),
-                }
-            }
-            let mut slot = [0u8; SLOT_BYTES];
-            slot.copy_from_slice(&self.buffer[self.at..self.at + SLOT_BYTES]);
-            self.at += SLOT_BYTES;
-            let index = self.index;
-            self.index = self.index.saturating_add(1);
-            match Slot::parse(&slot, file_allocation_table_type) {
-                Slot::End => return None,
-                Slot::Free => {}
-                Slot::Used(entry) => return Some(Ok((index, entry))),
+        if self.at >= size {
+            match self.fill() {
+                Ok(true) => {}
+                Ok(false) => return None,
+                Err(error) => return Some(Err(error)),
             }
         }
+        let mut slot = [0u8; SLOT_BYTES];
+        slot.copy_from_slice(&self.buffer[self.at..self.at + SLOT_BYTES]);
+        self.at += SLOT_BYTES;
+        let index = self.index;
+        self.index = self.index.saturating_add(1);
+        Some(Ok((index, Slot::parse(&slot, file_allocation_table_type))))
     }
 }
 
