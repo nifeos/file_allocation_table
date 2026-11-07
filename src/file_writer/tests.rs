@@ -663,3 +663,20 @@ fn a_file_whose_stored_name_starts_with_0x05_is_written_and_keeps_its_name() {
     image = volume.into_device();
     assert_eq!(image.bytes[5 * 512], FREE);
 }
+
+#[test]
+fn an_update_for_a_name_the_slot_no_longer_holds_is_refused_and_writes_nothing() {
+    // The slot still holds a file, but not the one the caller opened: it was renamed or replaced
+    // by another file between the open and the update.
+    let (volume, entry) = one_written_file();
+    let image = volume.into_device();
+    let before = image.bytes;
+    let mut volume = Volume::open(image).unwrap();
+    let other = *b"OTHER   BIN";
+    assert_ne!(other, entry.short_name());
+    assert_eq!(
+        volume.update_entry(entry.place(), other, 7, 99, true),
+        Err(WriteError::EntryChanged)
+    );
+    assert_eq!(volume.into_device().bytes, before);
+}
