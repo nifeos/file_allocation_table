@@ -11,7 +11,7 @@ from a disk.
 
 - Read. `Volume::open` checks the boot sector, types the volume by its cluster count as the
   specification does, and reads directories, long names, paths and file bytes. A `MasterBootRecord`
-  opens the volume inside a partitioned disk.
+  opens the volume inside a partitioned disk for reading; its `PartitionDevice` has no write path.
 - Write. Open a `WritableVolume` with a `Clock`; a read-only `Volume` has no write methods and
   takes no clock. Create, write, extend, truncate, rename and remove files; make and remove
   directories; set attributes (read-only, hidden, system, archive); read and change the volume
@@ -63,7 +63,8 @@ impl WritableSectorDevice for Memory {
 }
 
 fn main() {
-    // Format 8 MiB. The size makes it FAT12; a bigger device makes FAT16 or FAT32.
+    // Format 8 MiB. The size makes it FAT16; about 2 MiB or less makes FAT12, and about 32.5 MiB or
+    // more makes FAT32, at the default cluster size of one sector.
     let sectors = 16 * 1024;
     let options = FormatOptions::new(SectorSize::Bytes512, sectors)
         .with_label("EXAMPLE")
@@ -122,10 +123,12 @@ the error it wraps. A type generic over your device's error displays for any err
 
 Kani harnesses prove, over every input they can unroll, the properties below.
 
-The proofs need Kani, which `rustup` does not install. Run `cargo install --locked
-kani-verifier --version 0.68.0`, then `cargo kani setup`. The setup step downloads a model
-checker, so it needs network access. CI uses version 0.68.0, and another version may verify
-differently. After that, `cargo kani` from the crate's directory runs every harness.
+`cargo build` builds the crate and `cargo test` runs its unit tests, integration tests and
+documentation tests in well under a minute. The proofs need Kani, which `rustup` does not install.
+Run `cargo install --locked kani-verifier --version 0.68.0`, then `cargo kani setup`. The setup
+step downloads a model checker, so it needs network access. CI uses version 0.68.0, and another
+version may verify differently. After that, `cargo kani` from the crate's directory runs every
+harness; the whole run takes 10 to 20 minutes, and `cargo kani --harness <name>` runs one.
 
 - Hostile input. No parse step panics or reads outside the volume: the boot sector and its
   geometry fields for every 512-byte sector, FAT entries, directory slots, long-name runs, the
@@ -171,6 +174,10 @@ ignored test has the host's own driver read an image (`cargo test -- --ignored`,
   `created`, `modified` and `accessed` read them back: the creation time to the second, the write
   time to two seconds, and the access date at midnight, since FAT keeps no access time of day. The
   zero timestamp reads as `None`.
+- An entry is a copy of its directory slot at the time it was read, and a write does not update it.
+  A write, a resize, a rename, a removal or an attribute change through a stale entry refuses with
+  `EntryChanged`, but a reader opened from one reads the old size with no error: the entry
+  `create_file` returns reads 0 bytes. Call `lookup` again after a write.
 - The crate refuses a name with a character outside the Basic Multilingual Plane. It stores a
   lower-case 8.3 name as a long name, since it writes no lower-case flag.
 - Names compare by simple Unicode upper-casing, not the volume's code page or upcase table.

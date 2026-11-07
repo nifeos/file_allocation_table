@@ -5,7 +5,7 @@
 //! The reader opens a volume through [`SectorDevice`], a trait the caller implements over any
 //! device that reads whole sectors. [`BootSector::read`] reads and checks the boot sector and its
 //! parameter block (`BPB` in the specification), and types the volume by its cluster count as the
-//! specification does (see `boot_sector.rs`). Every field is treated as hostile: a parse never
+//! specification does (see [`FileAllocationTableType`]). Every field is treated as hostile: a parse never
 //! panics and never reads out of bounds, and what it accepts has its regions in order inside the
 //! volume.
 //!

@@ -322,10 +322,13 @@ pub(crate) fn put32(out: &mut [u8], at: usize, value: u32) {
 /// # Examples
 ///
 /// ```
-/// use file_allocation_table::{FormatPlan, FormatOptions, SectorSize, NoClock, Volume};
+/// use file_allocation_table::{
+///     FileAllocationTableType, FormatPlan, FormatOptions, SectorSize, NoClock, Volume,
+/// };
 ///
-/// // 8 MiB of 512-byte sectors: small enough to be FAT12.
+/// // 8 MiB of 512-byte sectors: too many clusters for FAT12, so FAT16.
 /// let format = FormatPlan::new(FormatOptions::new(SectorSize::Bytes512, 16 * 1024), &mut NoClock).unwrap();
+/// assert_eq!(format.file_allocation_table_type(), FileAllocationTableType::Fat16);
 /// let mut boot = [0u8; 512];
 /// assert!(format.fill_sector(0, &mut boot));
 /// let parsed = file_allocation_table::BootSector::parse(&boot).unwrap();
