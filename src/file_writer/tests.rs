@@ -635,3 +635,31 @@ fn a_slot_that_differs_from_the_entry_in_one_field_is_stale() {
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     assert_eq!(volume.open_file_writer(&entry).unwrap().write(b"x"), Ok(1));
 }
+
+#[test]
+fn a_file_whose_stored_name_starts_with_0x05_is_written_and_keeps_its_name() {
+    let (volume, _) = one_written_file();
+    let mut image = volume.into_device();
+    // A first name byte of 0xE5 is stored as 0x05, which the entry reads back as 0xE5.
+    image.bytes[5 * 512] = 0x05;
+    let mut volume = WritableVolume::open(image, NoClock).unwrap();
+    let entry = volume
+        .named_entries(0)
+        .next()
+        .expect("one entry")
+        .expect("it parses");
+    assert_eq!(entry.short_name()[0], FREE);
+    let free = volume.count_free_clusters().unwrap();
+    let mut writer = volume.open_file_writer(&entry).unwrap();
+    assert_eq!(writer.write(b"x"), Ok(1));
+    assert_eq!(volume.count_free_clusters().unwrap(), free);
+    let mut image = volume.into_device();
+    assert_eq!(image.bytes[5 * 512], 0x05);
+    // The write landed in the entry, and the slot is still in use.
+    let mut volume = WritableVolume::open(image, NoClock).unwrap();
+    let entry = volume.named_entries(0).next().unwrap().unwrap();
+    assert_eq!(entry.size_bytes(), 10);
+    assert_eq!(volume.remove_file(&entry), Ok(()));
+    image = volume.into_device();
+    assert_eq!(image.bytes[5 * 512], FREE);
+}

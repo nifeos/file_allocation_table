@@ -8,7 +8,7 @@
 
 use crate::allocation::{AllocationError, LinksMut};
 use crate::boot_sector::RootDirectory;
-use crate::directory::{SLOT_BYTES, ShortEntry};
+use crate::directory::{DirectoryEntry, SLOT_BYTES, ShortEntry, Slot};
 use crate::file::FileOpenError;
 use crate::long_name::is_short_byte;
 use crate::named_entry::{EntryPlace, NamedEntry};
@@ -194,8 +194,11 @@ impl<D: WritableSectorDevice> Volume<D> {
         let mut slot = self
             .read_slot(place.directory, place.short_slot)?
             .ok_or(WriteError::EntryChanged)?;
-        if slot[..11] != name || slot[11] & 0x3F == 0x0F {
-            return Err(WriteError::EntryChanged);
+        // Compare the name as it parses, as `verify_short` does: a stored first byte of `0x05`
+        // reads as `0xE5`, and a free slot is not the entry.
+        match Slot::parse(&slot, self.boot.file_allocation_table_type()) {
+            Slot::Used(DirectoryEntry::Short(stored)) if stored.name() == name => {}
+            _ => return Err(WriteError::EntryChanged),
         }
         slot[11] |= ARCHIVE;
         if self.boot.file_allocation_table_type() == crate::FileAllocationTableType::Fat32 {
