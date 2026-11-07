@@ -1,0 +1,33 @@
+# The cargo-fuzz targets, in a workspace of their own so that `cargo build` and `cargo test` at the
+# root never build them. They need nightly: `cargo +nightly fuzz run <target>`.
+
+[package]
+name = "file_allocation_table-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.file_allocation_table]
+path = ".."
+
+[[bin]]
+name = "file_allocation_table_boot_sector"
+path = "fuzz_targets/file_allocation_table_boot_sector.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "file_allocation_table_writer"
+path = "fuzz_targets/file_allocation_table_writer.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

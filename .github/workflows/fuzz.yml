@@ -10,4 +10,4 @@ jobs:
     uses: nifeos/crate-workflows/.github/workflows/fuzz.yml@4e5b07dd166ac4bae214ad59249d3fed3c92cd66
     with:
       # Crash inputs are public. Set true only for a crate with no unsafe code.
-      public-crash-inputs: false
+      public-crash-inputs: true

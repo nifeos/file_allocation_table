@@ -158,6 +158,12 @@ name and byte for byte. If the host has `fsck.fat` or `fsck_msdos`, every image 
 crate reads two FAT32 images that a macOS host formatted and wrote, to their recorded hashes. An
 ignored test has the host's own driver read an image (`cargo test -- --ignored`, on macOS).
 
+Two cargo-fuzz targets in `fuzz/` reach what the proofs bound. `file_allocation_table_boot_sector`
+reads an arbitrary volume at each sector size and walks its directories, chains and files.
+`file_allocation_table_writer` runs arbitrary writes, renames and removals on a hostile image or on
+a volume the crate formatted. Run one with `cargo +nightly fuzz run <target>`; the weekly fuzz job
+runs both for a bounded time.
+
 ## BUGS
 
 - Not crash-atomic, and there is no journal, since FAT has none. The crate orders its writes so a
@@ -186,8 +192,6 @@ ignored test has the host's own driver read an image (`cargo test -- --ignored`,
 - The reader does not follow extended partitions and reads no Globally Unique Identifier (GUID)
   partition table.
 - exFAT is out of scope; it is a sibling crate's job.
-- The fuzz targets for the boot sector parser and the writer are not in this repository yet, so the
-  weekly fuzz run has nothing to run.
 
 ## Minimum Rust version
 
