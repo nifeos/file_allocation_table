@@ -762,3 +762,99 @@ fn only_the_live_table_is_written_when_mirroring_is_off() {
         assert_eq!(raw_fat32_entry(&image, live, cluster), 0);
     }
 }
+
+#[cfg(not(miri))]
+/// The raw 16-bit entry of `cluster` in table copy `copy` of `image`.
+fn raw_fat16_entry(image: &Memory, copy: u8, cluster: u32) -> u16 {
+    let volume = WritableVolume::open(
+        Memory {
+            bytes: image.bytes.clone(),
+            bytes_per_sector: image.bytes_per_sector,
+            writes: 0,
+        },
+        NoClock,
+    )
+    .unwrap();
+    let boot = volume.boot_sector();
+    let sector = boot.sector_size().bytes();
+    let at = boot.table_first_sector(copy).unwrap() as usize * sector + cluster as usize * 2;
+    u16::from_le_bytes([image.bytes[at], image.bytes[at + 1]])
+}
+
+#[cfg(not(miri))]
+/// A link whose two entries share a table sector costs one write for each copy and carries both
+/// entries; one whose entries sit in two sectors marks the new cluster in every copy first and
+/// then links it, two writes for each copy. FAT16's first table sector holds clusters 0 to 255,
+/// so 255's entry is its last two bytes.
+#[test]
+fn a_link_in_one_table_sector_is_one_write_for_each_copy() {
+    let mut volume = WritableVolume::open(formatted(16, FatType::Fat16, 512), NoClock).unwrap();
+    volume.begin_change().unwrap();
+    volume.load_hints().unwrap();
+    volume
+        .write_table_entry(254, TableEntry::EndOfChain)
+        .unwrap();
+    for (last, new, writes) in [(254, 255, 2), (255, 256, 4)] {
+        volume.writer.next_free = new;
+        let before = volume.device.writes;
+        assert_eq!(volume.allocate_cluster(Some(last)), Ok(new));
+        assert_eq!(
+            volume.device.writes - before,
+            writes,
+            "linking {last} to {new}"
+        );
+    }
+    assert_eq!(volume.table_entry(254), Ok(TableEntry::Next(255)));
+    assert_eq!(volume.table_entry(255), Ok(TableEntry::Next(256)));
+    assert_eq!(volume.table_entry(256), Ok(TableEntry::EndOfChain));
+    let image = volume.into_device();
+    for cluster in [254, 255, 256] {
+        assert_eq!(
+            raw_fat16_entry(&image, 0, cluster),
+            raw_fat16_entry(&image, 1, cluster)
+        );
+    }
+}
+
+#[cfg(not(miri))]
+/// With mirroring off, a link writes only the live table.
+#[test]
+fn a_link_writes_only_the_live_table_when_mirroring_is_off() {
+    for live in [0u8, 1] {
+        let mut image = formatted(64, FatType::Fat32, 512);
+        image.bytes[40] = 0x80 | live;
+        image.bytes[41] = 0;
+        let mut volume = WritableVolume::open(image, NoClock).unwrap();
+        let first = volume.allocate_cluster(None).unwrap();
+        let second = volume.allocate_cluster(Some(first)).unwrap();
+        let image = volume.into_device();
+        assert_eq!(raw_fat32_entry(&image, live, first), second);
+        assert_eq!(raw_fat32_entry(&image, live, second), 0x0FFF_FFFF);
+        assert_eq!(raw_fat32_entry(&image, 1 - live, first), 0);
+        assert_eq!(raw_fat32_entry(&image, 1 - live, second), 0);
+    }
+}
+
+/// FAT12 packs two entries into three bytes. Linking 2 to 3, whose entries share a byte, lands
+/// both; linking 340 to 341, whose entry straddles the table's two sectors, lands both too.
+#[test]
+fn a_link_between_packed_or_straddling_entries_lands_both() {
+    let mut image = Image::fat12();
+    image.set(2, 0xFFF);
+    image.set(340, 0xFFF);
+    let mut volume = WritableVolume::open(image, NoClock).unwrap();
+    for (last, new) in [(2, 3), (340, 341)] {
+        volume.writer.loaded = true;
+        volume.writer.next_free = new;
+        assert_eq!(volume.allocate_cluster(Some(last)), Ok(new));
+    }
+    let image = volume.into_device();
+    for copy in 0..2 {
+        assert_eq!(raw(&image, copy, 2), 3);
+        assert_eq!(raw(&image, copy, 3), 0xFFF);
+        assert_eq!(raw(&image, copy, 340), 341);
+        assert_eq!(raw(&image, copy, 341), 0xFFF);
+        assert_eq!(raw(&image, copy, 339), 0);
+        assert_eq!(raw(&image, copy, 342), 0);
+    }
+}

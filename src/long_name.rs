@@ -221,6 +221,11 @@ pub(crate) fn checksum(short: &[u8; 11]) -> u8 {
         .fold(0u8, |sum, b| sum.rotate_right(1).wrapping_add(*b))
 }
 
+/// Whether `b` may appear in a short name at all, padding space included.
+pub(crate) fn is_short_byte(b: u8) -> bool {
+    b == b' ' || b.is_ascii_uppercase() || b.is_ascii_digit() || is_short_punctuation(b)
+}
+
 /// **The number in a short name's numeric tail**: the digits after the last `~` of the base, up to
 /// the base's space padding, or `None` when the base does not end in `~` and one to six digits.
 ///
@@ -244,11 +249,6 @@ pub(crate) fn tail_number(short: &[u8; 11]) -> Option<u32> {
         number = number * 10 + u32::from(digit - b'0');
     }
     Some(number)
-}
-
-/// Whether `b` may appear in a short name at all, padding space included.
-pub(crate) fn is_short_byte(b: u8) -> bool {
-    b == b' ' || b.is_ascii_uppercase() || b.is_ascii_digit() || is_short_punctuation(b)
 }
 
 #[cfg(kani)]
@@ -345,6 +345,29 @@ mod tests {
         n.entry(0, 0, &mut e);
         assert_eq!(e[0], 0x41);
         assert_eq!(&e[30..32], b"M\0");
+    }
+
+    #[test]
+    fn a_tail_number_is_the_digits_after_the_last_tilde_and_nothing_else() {
+        assert_eq!(tail_number(b"LONGFI~1TXT"), Some(1));
+        assert_eq!(tail_number(b"LONG~100   "), Some(100));
+        assert_eq!(tail_number(b"A~999999TXT"), Some(999_999));
+        assert_eq!(tail_number(b"A~B~12  TXT"), Some(12));
+        assert_eq!(tail_number(b"LONGF~02TXT"), Some(2));
+        // Seven digits, no digits, a letter after the digits, no tilde, and an empty base.
+        assert_eq!(tail_number(b"~1234567TXT"), None);
+        assert_eq!(tail_number(b"ABC~    TXT"), None);
+        assert_eq!(tail_number(b"AB~1X   TXT"), None);
+        assert_eq!(tail_number(b"README  TXT"), None);
+        assert_eq!(tail_number(b"        TXT"), None);
+        // Every alias reads back to its own number.
+        let n = name("A Long Name Number 7.txt");
+        for number in [1, 9, 10, 99, 100, 4_096, 999_999] {
+            assert_eq!(
+                tail_number(&n.alias_numbered(number).unwrap()),
+                Some(number)
+            );
+        }
     }
 
     #[test]
