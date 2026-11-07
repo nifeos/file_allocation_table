@@ -8,7 +8,7 @@
 
 use crate::allocation::{AllocationError, LinksMut};
 use crate::boot_sector::RootDirectory;
-use crate::directory::SLOT_BYTES;
+use crate::directory::{DirectoryEntry, SLOT_BYTES, ShortEntry, Slot};
 use crate::file::FileOpenError;
 use crate::long_name::is_short_byte;
 use crate::named_entry::{EntryPlace, NamedEntry};
@@ -194,8 +194,11 @@ impl<D: WritableSectorDevice> Volume<D> {
         let mut slot = self
             .read_slot(place.directory, place.short_slot)?
             .ok_or(WriteError::EntryChanged)?;
-        if slot[..11] != name || slot[11] & 0x3F == 0x0F {
-            return Err(WriteError::EntryChanged);
+        // Compare the name as it parses, as `verify_short` does: a stored first byte of `0x05`
+        // reads as `0xE5`, and a free slot is not the entry.
+        match Slot::parse(&slot, self.boot.file_allocation_table_type()) {
+            Slot::Used(DirectoryEntry::Short(stored)) if stored.name() == name => {}
+            _ => return Err(WriteError::EntryChanged),
         }
         slot[11] |= ARCHIVE;
         if self.boot.file_allocation_table_type() == crate::FileAllocationTableType::Fat32 {
@@ -222,13 +225,8 @@ impl<D: WritableSectorDevice> Volume<D> {
         {
             return Err(WriteError::ReadOnly);
         }
+        self.verify(entry)?;
         let place = entry.place();
-        let slot = self
-            .read_slot(place.directory, place.short_slot)?
-            .ok_or(WriteError::EntryChanged)?;
-        if slot[..11] != entry.short_name() || slot[11] & 0x3F == 0x0F {
-            return Err(WriteError::EntryChanged);
-        }
         for index in place.first_slot..=place.short_slot {
             let mut slot = self
                 .read_slot(place.directory, index)?
@@ -259,7 +257,12 @@ pub struct FileWriter<'v, D, C> {
     volume: &'v mut Volume<D>,
     clock: &'v mut C,
     place: EntryPlace,
-    name: [u8; 11],
+    /// The short entry the writer was opened from, checked against its slot before the first
+    /// change.
+    opened_from: ShortEntry,
+    /// Whether the slot was found to hold `opened_from`. From then on the writer holds the volume
+    /// and is the only thing that changes the slot.
+    confirmed: bool,
     read_only: bool,
     state: WriteState,
     failed: bool,
@@ -273,14 +276,13 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
         clock: &'v mut C,
         entry: &NamedEntry,
     ) -> Result<FileWriter<'v, D, C>, FileOpenError> {
-        if entry.is_directory() || entry.is_volume_label() {
-            return Err(FileOpenError);
-        }
+        FileOpenError::check(entry)?;
         Ok(FileWriter {
             volume,
             clock,
             place: entry.place(),
-            name: entry.short_name(),
+            opened_from: *entry.short_entry(),
+            confirmed: false,
             read_only: entry
                 .user_attributes()
                 .contains(crate::Attributes::READ_ONLY),
@@ -324,13 +326,23 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
         }
     }
 
+    /// Check, once, that the entry the writer was opened from is the one its slot holds, so a
+    /// stale entry is refused before it replaces the file and leaks the file's chain.
+    fn confirm(&mut self) -> Result<(), WriteError<D::Error>> {
+        if !self.confirmed {
+            self.volume.verify_short(self.place, &self.opened_from)?;
+            self.confirmed = true;
+        }
+        Ok(())
+    }
+
     /// Rewrite the entry, stamped, when bytes were written or the size or the first cluster
     /// differs from `before`.
     fn settle(&mut self, before: (u32, u32), wrote: bool) -> Result<(), WriteError<D::Error>> {
         if wrote || (self.state.first_cluster, self.state.size_bytes) != before {
             self.volume.update_entry(
                 self.place,
-                self.name,
+                self.opened_from.name(),
                 self.state.first_cluster,
                 self.state.size_bytes,
                 true,
@@ -347,6 +359,7 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
     /// trait, and the error type is [`WriteError`].
     pub fn write(&mut self, data: &[u8]) -> Result<usize, WriteError<D::Error>> {
         self.check()?;
+        self.confirm()?;
         self.tick()?;
         let before = (self.state.first_cluster, self.state.size_bytes);
         let boot = self.volume.boot;
@@ -368,6 +381,7 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
     /// past it.
     pub fn set_len(&mut self, size_bytes: u32) -> Result<(), WriteError<D::Error>> {
         self.check()?;
+        self.confirm()?;
         self.tick()?;
         let result = self.resize(size_bytes);
         if result.is_err() {

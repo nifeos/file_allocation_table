@@ -53,3 +53,69 @@ fn any_time_packs_to_legal_fields() {
         now.second
     );
 }
+
+/// Falsification: replayable `falsifications/time.verification.every_stored_time_reads_back_as_legal_fields_or_none.patch`
+/// **Every stored time reads back as legal fields or as no time, and a packed time reads back as
+/// itself.** For every date, time and tenths byte: an unpacked time is one a clock could report
+/// (it packs again), its fields are the stored bits, and it is `None` only when a field is out of
+/// range. For every time a clock reports that packs, the creation time reads back exactly, the
+/// write time to the even second below and the access date at midnight.
+#[kani::proof]
+fn every_stored_time_reads_back_as_legal_fields_or_none() {
+    let stored = Stamp {
+        creation_tenths: kani::any(),
+        creation_time: kani::any(),
+        creation_date: kani::any(),
+        access_date: kani::any(),
+        write_time: kani::any(),
+        write_date: kani::any(),
+    };
+    let date = stored.creation_date;
+    let time = stored.creation_time;
+    let legal = (1..=12).contains(&((date >> 5) & 0xF))
+        && date & 0x1F != 0
+        && time >> 11 <= 23
+        && (time >> 5) & 0x3F <= 59
+        && time & 0x1F <= 29
+        && stored.creation_tenths <= 199;
+    match stored.created() {
+        Some(read) => {
+            assert!(legal);
+            assert!(Stamp::pack(Some(read)).is_ok());
+            assert_eq!(read.year, 1980 + (date >> 9));
+            assert_eq!(u16::from(read.month), (date >> 5) & 0xF);
+            assert_eq!(u16::from(read.day), date & 0x1F);
+            assert_eq!(u16::from(read.hour), time >> 11);
+            assert_eq!(u16::from(read.minute), (time >> 5) & 0x3F);
+            assert_eq!(
+                read.second,
+                (time & 0x1F) as u8 * 2 + stored.creation_tenths / 100
+            );
+        }
+        None => assert!(!legal),
+    }
+
+    let now = CivilDateTime {
+        year: kani::any(),
+        month: kani::any(),
+        day: kani::any(),
+        hour: kani::any(),
+        minute: kani::any(),
+        second: kani::any(),
+    };
+    if let Ok(packed) = Stamp::pack(Some(now)) {
+        assert_eq!(packed.created(), Some(now));
+        let even = CivilDateTime {
+            second: now.second - now.second % 2,
+            ..now
+        };
+        assert_eq!(packed.modified(), Some(even));
+        let midnight = CivilDateTime {
+            hour: 0,
+            minute: 0,
+            second: 0,
+            ..now
+        };
+        assert_eq!(packed.accessed(), Some(midnight));
+    }
+}

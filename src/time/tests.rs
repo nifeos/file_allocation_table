@@ -145,3 +145,67 @@ fn the_last_year_stores_as_itself() {
     let early = pack(at(1980, 6, 15, 12, 0, 0));
     assert_eq!(early.creation_date, (6 << 5) + 15);
 }
+
+#[test]
+fn a_stored_time_unpacks_into_the_fields_it_packed_from() {
+    let stamp = pack(at(2026, 11, 1, 12, 34, 57));
+    assert_eq!(stamp.created(), Some(at(2026, 11, 1, 12, 34, 57)));
+    // The write time keeps two-second resolution; the access date has no time of day.
+    assert_eq!(stamp.modified(), Some(at(2026, 11, 1, 12, 34, 56)));
+    assert_eq!(stamp.accessed(), Some(at(2026, 11, 1, 0, 0, 0)));
+    for edge in [at(1980, 1, 1, 0, 0, 0), at(2107, 12, 31, 23, 59, 59)] {
+        assert_eq!(pack(edge).created(), Some(edge));
+    }
+}
+
+#[test]
+fn the_zero_timestamp_and_each_field_out_of_range_unpack_to_none() {
+    assert_eq!(Stamp::ZERO.created(), None);
+    assert_eq!(Stamp::ZERO.modified(), None);
+    assert_eq!(Stamp::ZERO.accessed(), None);
+    // 2000-01-01 00:00:00 is 20 << 9 | 1 << 5 | 1 with a zero time.
+    let date = (20 << 9) | (1 << 5) | 1;
+    assert_eq!(unpack(date, 0, 0), Some(at(2000, 1, 1, 0, 0, 0)));
+    for (date, time, odd) in [
+        ((20 << 9) | 1, 0, 0),             // month 0
+        ((20 << 9) | (13 << 5) | 1, 0, 0), // month 13
+        ((20 << 9) | (12 << 5), 0, 0),     // day 0
+        (date, 24 << 11, 0),               // hour 24
+        (date, 60 << 5, 0),                // minute 60
+        (date, 30, 0),                     // second 60
+        (date, 29, 2),                     // second 60 by the odd second
+    ] {
+        assert_eq!(unpack(date, time, odd), None, "{date:#x} {time:#x} {odd}");
+    }
+    // The last legal value of each field.
+    assert_eq!(
+        unpack((127 << 9) | (12 << 5) | 31, (23 << 11) | (59 << 5) | 29, 1),
+        Some(at(2107, 12, 31, 23, 59, 59))
+    );
+    // A tenths byte past 199 is not a time, and 199 is its last legal value.
+    let mut stamp = pack(at(2026, 11, 1, 12, 34, 57));
+    stamp.creation_tenths = 199;
+    assert_eq!(stamp.created(), Some(at(2026, 11, 1, 12, 34, 57)));
+    stamp.creation_tenths = 200;
+    assert_eq!(stamp.created(), None);
+}
+
+#[test]
+fn a_slot_reads_into_the_six_fields_at_their_offsets() {
+    let mut slot = [0u8; 32];
+    for (at, byte) in slot.iter_mut().enumerate() {
+        *byte = at as u8;
+    }
+    let stamp = Stamp::read(&slot);
+    assert_eq!(stamp.creation_tenths, 13);
+    assert_eq!(stamp.creation_time, u16::from_le_bytes([14, 15]));
+    assert_eq!(stamp.creation_date, u16::from_le_bytes([16, 17]));
+    assert_eq!(stamp.access_date, u16::from_le_bytes([18, 19]));
+    assert_eq!(stamp.write_time, u16::from_le_bytes([22, 23]));
+    assert_eq!(stamp.write_date, u16::from_le_bytes([24, 25]));
+    // What a new entry writes reads back as itself.
+    let written = pack(at(2026, 11, 1, 12, 34, 57));
+    let mut slot = [0u8; 32];
+    written.write_new(&mut slot);
+    assert_eq!(Stamp::read(&slot), written);
+}

@@ -19,7 +19,9 @@ from a disk.
   The first change clears the clean-shutdown bit, and `WritableVolume::mark_clean` sets it again
   and updates the hints in the FAT32 file system information sector.
 - Format. `FormatPlan` lays out an empty volume of any size and sector size (512 to 4096 bytes),
-  with the cluster size, serial number and label of your choice. `VolumeLayout` lays out the one
+  with the cluster size, serial number and label of your choice. Left to choose, it takes one
+  sector to the cluster, the smallest legal size, up to about 130 GiB of 512-byte sectors, where
+  `mkfs.fat` would take larger clusters. `VolumeLayout` lays out the one
   shape a bootloader needs: a FAT32 Extensible Firmware Interface (EFI) system partition holding one
   boot file, with 512-byte sectors and 4096-byte clusters. The `efi_system_partition` module holds
   that shape's constants.
@@ -112,7 +114,10 @@ from `fill_sector`, then the file's bytes from `file_first_sector()` on, `file_s
 choose the label, such as `"EFI SYSTEM"`.
 
 Every error enum is `#[non_exhaustive]`, so a match on one needs a wildcard arm, and a later
-release can add a variant without breaking your code.
+release can add a variant without breaking your code. Every error type implements `Display` and
+`core::error::Error`, with no allocator. A message names its own level only, and `source()` returns
+the error it wraps. A type generic over your device's error displays for any error, and is an
+`Error`, so `?` takes it into a boxed error, when your device's error is one.
 
 ## What is proven
 
@@ -165,11 +170,14 @@ ignored test has the host's own driver read an image (`cargo test -- --ignored`,
   takes no clock and never writes. A time outside 1980 to 2107, or a field outside its range,
   fails with `TimeOutOfRange` before the crate writes a byte. A clock that cannot report the time
   returns `None` and gets the zero timestamp. A write sets the write and access times, a new
-  entry gets its creation time, a rename keeps the times, and a read stamps nothing.
+  entry gets its creation time, a rename keeps the times, and a read stamps nothing. An entry's
+  `created`, `modified` and `accessed` read them back: the creation time to the second, the write
+  time to two seconds, and the access date at midnight, since FAT keeps no access time of day. The
+  zero timestamp reads as `None`.
 - An entry is a copy of its directory slot at the time it was read, and a write does not update it.
-  The entry `create_file` returns has no cluster and size 0, so after a write through it, call
-  `lookup` again before reusing it. A reader opened from the old entry reads 0 bytes, and a second
-  writer opened from it replaces the file and leaks the file's old chain with no error.
+  A write, a resize, a rename, a removal or an attribute change through a stale entry refuses with
+  `EntryChanged`, but a reader opened from one reads the old size with no error: the entry
+  `create_file` returns reads 0 bytes. Call `lookup` again after a write.
 - The crate refuses a name with a character outside the Basic Multilingual Plane. It stores a
   lower-case 8.3 name as a long name, since it writes no lower-case flag.
 - Names compare by simple Unicode upper-casing, not the volume's code page or upcase table.

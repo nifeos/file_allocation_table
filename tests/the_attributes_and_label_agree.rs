@@ -133,8 +133,8 @@ fn lamfat_label(image: &[u8]) -> String {
 
 fn attributes_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     let mut volume = WritableVolume::open(formatted(mebibytes, fat_type, 512), NoClock).unwrap();
-    let file = volume.create_file(0, "Attribute Test File.txt").unwrap();
-    let directory = volume.create_directory(0, "Attribute Dir").unwrap();
+    let mut file = volume.create_file(0, "Attribute Test File.txt").unwrap();
+    let mut directory = volume.create_directory(0, "Attribute Dir").unwrap();
     let sets = [
         (Attributes::EMPTY, FileAttributes::empty()),
         (Attributes::READ_ONLY, FileAttributes::READ_ONLY),
@@ -153,9 +153,10 @@ fn attributes_agree(label: &str, mebibytes: usize, fat_type: FatType) {
         ),
     ];
     for (ours, theirs) in sets {
-        let file = volume.set_attributes(&file, ours).unwrap();
+        // Each change returns the entry as it now stands, and the next change goes through that.
+        file = volume.set_attributes(&file, ours).unwrap();
         assert_eq!(file.user_attributes(), ours, "{label}");
-        let directory = volume.set_attributes(&directory, ours).unwrap();
+        directory = volume.set_attributes(&directory, ours).unwrap();
         assert!(directory.is_directory(), "{label}");
         volume.mark_clean().unwrap();
         let image = volume.into_device();

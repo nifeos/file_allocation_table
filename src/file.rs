@@ -13,9 +13,28 @@ use crate::named_entry::NamedEntry;
 use crate::reader::{ChainError, Links, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize};
 
-/// **Why a file could not be opened for reading.**
+/// **Why an entry could not be opened as a file**, for reading or for writing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FileOpenError;
+#[non_exhaustive]
+pub enum FileOpenError {
+    /// The entry is a directory, whose slots [`Volume::named_entries`] reads.
+    IsADirectory,
+    /// The entry is the volume label, which names no file and owns no cluster.
+    IsAVolumeLabel,
+}
+
+impl FileOpenError {
+    /// Why `entry` cannot be opened as a file, or `Ok` when it can.
+    pub(crate) const fn check(entry: &NamedEntry) -> Result<(), FileOpenError> {
+        if entry.is_directory() {
+            Err(FileOpenError::IsADirectory)
+        } else if entry.is_volume_label() {
+            Err(FileOpenError::IsAVolumeLabel)
+        } else {
+            Ok(())
+        }
+    }
+}
 
 /// **Why a file read stopped.**
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -247,9 +266,7 @@ impl<D: SectorDevice> Volume<D> {
         &mut self,
         entry: &NamedEntry,
     ) -> Result<FileReader<'_, D>, FileOpenError> {
-        if entry.is_directory() || entry.is_volume_label() {
-            return Err(FileOpenError);
-        }
+        FileOpenError::check(entry)?;
         Ok(FileReader::new(
             self,
             entry.first_cluster(),

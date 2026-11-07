@@ -215,8 +215,14 @@ fn open_file_refuses_a_directory_and_the_label_and_opens_a_file() {
     let [Some(file), Some(directory), Some(label)] = found else {
         panic!("three entries");
     };
-    assert!(volume.open_file_reader(&directory).is_err());
-    assert!(volume.open_file_reader(&label).is_err());
+    assert!(matches!(
+        volume.open_file_reader(&directory),
+        Err(FileOpenError::IsADirectory)
+    ));
+    assert!(matches!(
+        volume.open_file_reader(&label),
+        Err(FileOpenError::IsAVolumeLabel)
+    ));
     let mut reader = volume.open_file_reader(&file).unwrap();
     let mut buffer = [0u8; 200];
     assert_eq!(reader.read(&mut buffer), Ok(100));

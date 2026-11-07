@@ -14,7 +14,7 @@ use crate::reader::verification::HostileTable;
 /// **Every slot parses, as its first byte and its attributes say.** A first byte of 0 is the
 /// end and `0xE5` a free slot; otherwise the six defined attribute bits equal to `0x0F` make a
 /// long-name piece and anything else a short entry, whose first cluster on FAT12 and FAT16 fits
-/// the low word.
+/// the low word and whose write time is the one its bytes store.
 #[kani::proof]
 fn every_slot_parses_as_its_bytes_say() {
     let slot: [u8; 32] = kani::any();
@@ -44,6 +44,12 @@ fn every_slot_parses_as_its_bytes_say() {
                     if file_allocation_table_type != FileAllocationTableType::Fat32 {
                         assert!(short.first_cluster() <= 0xFFFF);
                     }
+                    let write_date = u16::from_le_bytes([slot[24], slot[25]]);
+                    let write_time = u16::from_le_bytes([slot[22], slot[23]]);
+                    assert_eq!(
+                        short.modified(),
+                        crate::time::unpack(write_date, write_time, 0)
+                    );
                 }
             }
         }

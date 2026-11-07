@@ -19,7 +19,7 @@ use file_allocation_table::efi_system_partition::{
     FILE_CLUSTER, ROOT_CLUSTER, SECTORS_PER_CLUSTER,
 };
 use file_allocation_table::{
-    CivilDateTime, Clock, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
+    CivilDateTime, Clock, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, Volume,
     VolumeLayout, WritableSectorDevice, WritableVolume, WriteError,
 };
 use lamfat::FatType;
@@ -229,6 +229,17 @@ fn times_agree(label: &str, mebibytes: usize, fat_type: FatType) {
         "{label}"
     );
     check_with_fsck(&image.bytes, &format!("{label}-stamped"));
+    // This crate reads back what rust-fatfs reads: the odd creation second, the write time to two
+    // seconds and the access date alone.
+    let mut volume = Volume::open(image).unwrap();
+    let entry = volume.lookup(file).unwrap();
+    assert_eq!(entry.created(), at(2026, 11, 1, 12, 34, 57), "{label}");
+    assert_eq!(entry.modified(), at(2027, 2, 3, 4, 5, 6), "{label}");
+    assert_eq!(entry.accessed(), at(2027, 2, 3, 0, 0, 0), "{label}");
+    let directory = volume.lookup("Stamped Dir").unwrap();
+    assert_eq!(directory.created(), at(2026, 11, 1, 12, 34, 57), "{label}");
+    assert_eq!(directory.modified(), at(2026, 11, 1, 12, 34, 56), "{label}");
+    assert_eq!(directory.accessed(), at(2026, 11, 1, 0, 0, 0), "{label}");
 }
 
 #[test]
@@ -303,6 +314,12 @@ fn no_clock_and_a_clock_with_no_time_write_the_zero_timestamp() {
     let mut with_no_clock =
         WritableVolume::open(formatted(4, FatType::Fat12, 512), NoClock).unwrap();
     with_no_clock.create_file(0, "ZERO.TXT").unwrap();
+    let entry = with_no_clock.lookup("ZERO.TXT").unwrap();
+    assert_eq!(
+        (entry.created(), entry.modified(), entry.accessed()),
+        (None, None, None),
+        "the zero timestamp reads as no time"
+    );
     let (a, b) = (with_empty.into_device(), with_no_clock.into_device());
     assert_eq!(a.bytes, b.bytes, "a clock with no time is NoClock");
     check_with_fsck(&a.bytes, "zero-timestamp");
