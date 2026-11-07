@@ -137,7 +137,12 @@ fn a_directory_or_label_is_not_a_file_to_write_or_remove() {
         NamedEntry::created(ShortEntry::new(*b"DIR        ", 0x10, 0, 0), entry.place());
     assert_eq!(
         volume.open_file_writer(&directory).err(),
-        Some(FileOpenError)
+        Some(FileOpenError::IsADirectory)
+    );
+    let label = NamedEntry::created(ShortEntry::new(*b"LABEL      ", 0x08, 0, 0), entry.place());
+    assert_eq!(
+        volume.open_file_writer(&label).err(),
+        Some(FileOpenError::IsAVolumeLabel)
     );
     assert_eq!(volume.remove_file(&directory), Err(WriteError::NotAFile));
 }

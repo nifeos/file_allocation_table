@@ -157,7 +157,7 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     }
 
     /// **Open the file `entry` names for writing**, at its start. The writer reads this volume's
-    /// clock on each write. Refuses a directory and the volume label.
+    /// clock on each write. Refuses a directory and the volume label, saying which.
     ///
     /// The writer's first write or resize checks that the slot still holds `entry`, and refuses
     /// with [`WriteError::EntryChanged`] when it does not. The entry [`Self::create_file`] returns

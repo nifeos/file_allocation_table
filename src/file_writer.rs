@@ -273,9 +273,7 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
         clock: &'v mut C,
         entry: &NamedEntry,
     ) -> Result<FileWriter<'v, D, C>, FileOpenError> {
-        if entry.is_directory() || entry.is_volume_label() {
-            return Err(FileOpenError);
-        }
+        FileOpenError::check(entry)?;
         Ok(FileWriter {
             volume,
             clock,
