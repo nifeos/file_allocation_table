@@ -19,7 +19,9 @@ from a disk.
   The first change clears the clean-shutdown bit, and `WritableVolume::mark_clean` sets it again
   and updates the hints in the FAT32 file system information sector.
 - Format. `FormatPlan` lays out an empty volume of any size and sector size (512 to 4096 bytes),
-  with the cluster size, serial number and label of your choice. `VolumeLayout` lays out the one
+  with the cluster size, serial number and label of your choice. Left to choose, it takes one
+  sector to the cluster, the smallest legal size, up to about 130 GiB of 512-byte sectors, where
+  `mkfs.fat` would take larger clusters. `VolumeLayout` lays out the one
   shape a bootloader needs: a FAT32 Extensible Firmware Interface (EFI) system partition holding one
   boot file, with 512-byte sectors and 4096-byte clusters. The `efi_system_partition` module holds
   that shape's constants.

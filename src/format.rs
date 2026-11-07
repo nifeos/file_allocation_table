@@ -46,7 +46,11 @@ pub enum FormatError {
 /// size, the serial number, the label and the sectors ahead of the volume on its disk.
 ///
 /// Without a type or a cluster size the smallest cluster that gives a legal count wins, and the
-/// type follows from the count, as the specification has it.
+/// type follows from the count, as the specification has it. In practice that is one sector to
+/// the cluster, at any sector size, until FAT32 runs out of cluster numbers: about 130 GiB of
+/// 512-byte sectors. With one-sector clusters FAT12 ends near 2 MiB and FAT16 near 32 MiB of
+/// 512-byte sectors. `mkfs.fat` and other formatters pick larger clusters on larger volumes, which
+/// make a smaller table; [`FormatOptions::with_sectors_per_cluster`] asks for one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormatOptions {
     bytes_per_sector: SectorSize,
