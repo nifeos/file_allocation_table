@@ -11,6 +11,7 @@ use crate::directory::{Directory, DirectoryEntry, ShortEntry};
 use crate::long_name_assembly::{LongFileName, LongFileNameError, LongNameAssembler};
 use crate::reader::ChainError;
 use crate::sector::SectorDevice;
+use crate::time::CivilDateTime;
 
 /// **A directory entry with its names**: the short entry, and the long name when the entry has one
 /// that passed its checks.
@@ -33,7 +34,7 @@ pub(crate) struct EntryPlace {
 impl NamedEntry {
     /// An entry at `place` with no long name, for the writer's tests.
     #[cfg(test)]
-    pub(crate) const fn created(short: ShortEntry, place: EntryPlace) -> NamedEntry {
+    pub(crate) const fn from_parts(short: ShortEntry, place: EntryPlace) -> NamedEntry {
         NamedEntry {
             short,
             long_name: Ok(None),
@@ -89,6 +90,21 @@ impl NamedEntry {
     /// The file's length in bytes; 0 for a directory.
     pub const fn size_bytes(&self) -> u32 {
         self.short.size_bytes()
+    }
+
+    /// When the entry was created; see [`ShortEntry::created`].
+    pub const fn created(&self) -> Option<CivilDateTime> {
+        self.short.created()
+    }
+
+    /// When the entry was last written; see [`ShortEntry::modified`].
+    pub const fn modified(&self) -> Option<CivilDateTime> {
+        self.short.modified()
+    }
+
+    /// The day the entry was last accessed; see [`ShortEntry::accessed`].
+    pub const fn accessed(&self) -> Option<CivilDateTime> {
+        self.short.accessed()
     }
 
     /// Whether the entry is a directory.

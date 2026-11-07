@@ -105,8 +105,9 @@ const LAST_YEAR: u16 = 2107;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct OutOfRange;
 
-/// **The six time fields of a directory entry, packed**: what a stamp writes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// **The six time fields of a directory entry, packed**: what a stamp writes and what a short
+/// entry reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Stamp {
     /// `DIR_CrtTimeTenth`: 0 or 100, the odd second of the creation time.
     pub(crate) creation_tenths: u8,
@@ -164,6 +165,40 @@ impl Stamp {
         })
     }
 
+    /// The six fields as the 32-byte short entry `slot` stores them.
+    pub(crate) const fn read(slot: &[u8; 32]) -> Stamp {
+        Stamp {
+            creation_tenths: slot[13],
+            creation_time: u16::from_le_bytes([slot[14], slot[15]]),
+            creation_date: u16::from_le_bytes([slot[16], slot[17]]),
+            access_date: u16::from_le_bytes([slot[18], slot[19]]),
+            write_time: u16::from_le_bytes([slot[22], slot[23]]),
+            write_date: u16::from_le_bytes([slot[24], slot[25]]),
+        }
+    }
+
+    /// The creation time, to the second.
+    pub(crate) const fn created(&self) -> Option<CivilDateTime> {
+        if self.creation_tenths > 199 {
+            return None;
+        }
+        unpack(
+            self.creation_date,
+            self.creation_time,
+            self.creation_tenths / 100,
+        )
+    }
+
+    /// The last write time, to two seconds.
+    pub(crate) const fn modified(&self) -> Option<CivilDateTime> {
+        unpack(self.write_date, self.write_time, 0)
+    }
+
+    /// The last access date, at midnight.
+    pub(crate) const fn accessed(&self) -> Option<CivilDateTime> {
+        unpack(self.access_date, 0, 0)
+    }
+
     /// Write all six fields into the 32-byte short entry `slot`: a new entry, created, written and
     /// accessed now.
     pub(crate) fn write_new(&self, slot: &mut [u8]) {
@@ -180,6 +215,28 @@ impl Stamp {
         slot[22..24].copy_from_slice(&self.write_time.to_le_bytes());
         slot[24..26].copy_from_slice(&self.write_date.to_le_bytes());
     }
+}
+
+/// **Unpack a stored date and time**, with `odd_second` (0 or 1) added to the time's two-second
+/// count, or `None` when a field is outside its range. The zero timestamp has month 0, so it is
+/// `None`: the entry carries no time.
+pub(crate) const fn unpack(date: u16, time: u16, odd_second: u8) -> Option<CivilDateTime> {
+    let month = ((date >> 5) & 0xF) as u8;
+    let day = (date & 0x1F) as u8;
+    let hour = (time >> 11) as u8;
+    let minute = ((time >> 5) & 0x3F) as u8;
+    let second = (time & 0x1F) as u8 * 2 + odd_second;
+    if month == 0 || month > 12 || day == 0 || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    Some(CivilDateTime {
+        year: FIRST_YEAR + (date >> 9),
+        month,
+        day,
+        hour,
+        minute,
+        second,
+    })
 }
 
 /// Copy the time fields of the short entry `from` into `to`: a moved entry keeps its times.

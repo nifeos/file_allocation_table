@@ -165,7 +165,10 @@ ignored test has the host's own driver read an image (`cargo test -- --ignored`,
   takes no clock and never writes. A time outside 1980 to 2107, or a field outside its range,
   fails with `TimeOutOfRange` before the crate writes a byte. A clock that cannot report the time
   returns `None` and gets the zero timestamp. A write sets the write and access times, a new
-  entry gets its creation time, a rename keeps the times, and a read stamps nothing.
+  entry gets its creation time, a rename keeps the times, and a read stamps nothing. An entry's
+  `created`, `modified` and `accessed` read them back: the creation time to the second, the write
+  time to two seconds, and the access date at midnight, since FAT keeps no access time of day. The
+  zero timestamp reads as `None`.
 - The crate refuses a name with a character outside the Basic Multilingual Plane. It stores a
   lower-case 8.3 name as a long name, since it writes no lower-case flag.
 - Names compare by simple Unicode upper-casing, not the volume's code page or upcase table.

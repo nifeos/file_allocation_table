@@ -9,6 +9,7 @@
 use crate::boot_sector::{BootSector, FileAllocationTableType, RootDirectory};
 use crate::reader::{ChainError, Links, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize};
+use crate::time::{CivilDateTime, Stamp};
 
 /// The bytes of one directory slot.
 pub const SLOT_BYTES: usize = 32;
@@ -63,6 +64,7 @@ pub struct ShortEntry {
     attributes: u8,
     first_cluster: u32,
     size_bytes: u32,
+    times: Stamp,
 }
 
 /// **One piece of a long file name.**
@@ -117,6 +119,7 @@ impl Slot {
             attributes,
             first_cluster: (high << 16) | low,
             size_bytes: u32::from_le_bytes([slot[28], slot[29], slot[30], slot[31]]),
+            times: Stamp::read(slot),
         }))
     }
 }
@@ -135,6 +138,7 @@ impl ShortEntry {
             attributes,
             first_cluster,
             size_bytes: size,
+            times: Stamp::ZERO,
         }
     }
 
@@ -168,6 +172,27 @@ impl ShortEntry {
     /// The file's length in bytes; 0 for a directory.
     pub const fn size_bytes(&self) -> u32 {
         self.size_bytes
+    }
+
+    /// **When the entry was created**, to the second (`DIR_CrtDate`, `DIR_CrtTime` and the odd
+    /// second of `DIR_CrtTimeTenth`; the fraction of a second is dropped). `None` for the zero timestamp,
+    /// which a writer with no clock stores, and for a field outside its range. Like every FAT
+    /// time it has no time zone; see [`CivilDateTime`].
+    pub const fn created(&self) -> Option<CivilDateTime> {
+        self.times.created()
+    }
+
+    /// **When the entry was last written**, to two seconds (`DIR_WrtDate` and `DIR_WrtTime`), or
+    /// `None` as for [`ShortEntry::created`].
+    pub const fn modified(&self) -> Option<CivilDateTime> {
+        self.times.modified()
+    }
+
+    /// **The day the entry was last accessed** (`DIR_LstAccDate`), at midnight, since FAT keeps
+    /// no access time of day; or `None` as for [`ShortEntry::created`]. This crate's reads stamp
+    /// nothing, so only a write moves it.
+    pub const fn accessed(&self) -> Option<CivilDateTime> {
+        self.times.accessed()
     }
 }
 

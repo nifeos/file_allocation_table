@@ -1,0 +1,20 @@
+Falsifies `file_allocation_table::time::verification::every_stored_time_reads_back_as_legal_fields_or_none`.
+
+The defect: the unpack masks the month with five bits instead of four, so the low bit of the year
+reads as part of the month, and every odd year (1981, 2027) reads with its month 16 too large:
+refused as no time, or a time that is not the stored one.
+
+Expected to fail: the harness's `assert!(!legal)`.
+
+diff --git a/src/time.rs b/src/time.rs
+--- a/src/time.rs
++++ b/src/time.rs
+@@ -221,7 +221,7 @@
+ /// count, or `None` when a field is outside its range. The zero timestamp has month 0, so it is
+ /// `None`: the entry carries no time.
+ pub(crate) const fn unpack(date: u16, time: u16, odd_second: u8) -> Option<CivilDateTime> {
+-    let month = ((date >> 5) & 0xF) as u8;
++    let month = ((date >> 5) & 0x1F) as u8;
+     let day = (date & 0x1F) as u8;
+     let hour = (time >> 11) as u8;
+     let minute = ((time >> 5) & 0x3F) as u8;

@@ -134,12 +134,12 @@ fn a_directory_or_label_is_not_a_file_to_write_or_remove() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     let entry = volume.create_file(0, "X.BIN").unwrap();
     let directory =
-        NamedEntry::created(ShortEntry::new(*b"DIR        ", 0x10, 0, 0), entry.place());
+        NamedEntry::from_parts(ShortEntry::new(*b"DIR        ", 0x10, 0, 0), entry.place());
     assert_eq!(
         volume.open_file_writer(&directory).err(),
         Some(FileOpenError::IsADirectory)
     );
-    let label = NamedEntry::created(ShortEntry::new(*b"LABEL      ", 0x08, 0, 0), entry.place());
+    let label = NamedEntry::from_parts(ShortEntry::new(*b"LABEL      ", 0x08, 0, 0), entry.place());
     assert_eq!(
         volume.open_file_writer(&label).err(),
         Some(FileOpenError::IsAVolumeLabel)
@@ -454,7 +454,7 @@ fn a_write_keeps_the_attributes_the_entry_already_has() {
     let mut image = volume.into_device();
     image.bytes[5 * 512 + 11] = 0x02;
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let readonly = NamedEntry::created(
+    let readonly = NamedEntry::from_parts(
         ShortEntry::new(entry.short_name(), 0x02, 0, 0),
         entry.place(),
     );
