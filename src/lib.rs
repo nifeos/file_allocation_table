@@ -1,6 +1,7 @@
 #![no_std]
-//! **A FAT12, FAT16 and FAT32 filesystem, sans I/O**, in three parts: a reader, a writer and a
-//! format.
+#![forbid(unsafe_code)]
+//! **A File Allocation Table (FAT) filesystem, sans I/O**, in all three widths (FAT12, FAT16 and
+//! FAT32) and in three parts: a reader, a writer and a format.
 //!
 //! The reader opens a volume through [`SectorDevice`], a trait the caller implements over any
 //! device that reads whole sectors. [`BootSector::read`] reads and checks the boot sector and its

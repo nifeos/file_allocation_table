@@ -9,7 +9,19 @@ repository = "https://github.com/nifeos/file_allocation_table"
 readme = "README.md"
 keywords = ["no-std", "fat32", "filesystem", "kani"]
 categories = ["no-std", "filesystem"]
-publish = false     # the default; the allowlist lint holds the exception (crates/publish-allowlist.txt)
+# What the package carries: the crate, its tests and fixtures, the falsification patches and fuzz
+# targets that the README tells a reader to use, and the licenses. The repository's workflows,
+# hooks, process documents and lint settings stay out.
+include = [
+    "/src/**",
+    "/tests/**",
+    "/falsifications/**",
+    "/Cargo.toml",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+]
 
 # FAT12, FAT16 and FAT32 (Microsoft's "FAT: General Overview of On-Disk Format", version 1.03), as
 # pure computation. No I/O of any kind: the reader takes sectors from a caller's `SectorDevice`,
