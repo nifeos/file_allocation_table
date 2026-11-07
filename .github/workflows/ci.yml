@@ -18,5 +18,3 @@ jobs:
     with:
       # Bare-metal targets the crate builds for, space-separated; empty for a host-only crate.
       targets: aarch64-unknown-none-softfloat riscv64imac-unknown-none-elf x86_64-unknown-none
-      # The soak publishes nothing, so the manifest carries publish = false on purpose.
-      allow-unpublished: true
