@@ -158,6 +158,11 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
 
     /// **Open the file `entry` names for writing**, at its start. The writer reads this volume's
     /// clock on each write. Refuses a directory and the volume label.
+    ///
+    /// The writer's first write or resize checks that the slot still holds `entry`, and refuses
+    /// with [`WriteError::EntryChanged`] when it does not. The entry [`Self::create_file`] returns
+    /// says size 0 and no cluster, so after writing through it, call
+    /// [`lookup`](crate::Volume::lookup) again before opening another writer.
     pub fn open_file_writer(
         &mut self,
         entry: &NamedEntry,

@@ -205,17 +205,31 @@ mod heapless_name {
     }
 }
 
+/// `image` with a file `name` in the root's first slot whose entry claims `first_cluster` and
+/// `size_bytes`, whatever the table says, and the entry as read back.
+fn claimed(
+    image: Image,
+    name: &str,
+    first_cluster: u16,
+    size_bytes: u32,
+) -> (WritableVolume<Image, NoClock>, NamedEntry) {
+    let mut volume = WritableVolume::open(image, NoClock).unwrap();
+    volume.create_file(0, name).unwrap();
+    let mut image = volume.into_device();
+    // The root's first slot starts at sector 5: 26..28 is the first cluster, 28..32 the size.
+    image.bytes[5 * 512 + 26..5 * 512 + 28].copy_from_slice(&first_cluster.to_le_bytes());
+    image.bytes[5 * 512 + 28..5 * 512 + 32].copy_from_slice(&size_bytes.to_le_bytes());
+    let mut volume = WritableVolume::open(image, NoClock).unwrap();
+    let entry = volume.lookup(name).unwrap();
+    (volume, entry)
+}
+
 #[test]
 fn a_damaged_chain_is_reported_not_extended() {
     let mut image = Image::fat12();
     // A file claiming 1000 bytes with a one-cluster chain.
     image.set(5, 0xFFF);
-    let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let entry = volume.create_file(0, "D.BIN").unwrap();
-    let damaged = NamedEntry::created(
-        ShortEntry::new(entry.short_name(), 0x20, 5, 1000),
-        entry.place(),
-    );
+    let (mut volume, damaged) = claimed(image, "D.BIN", 5, 1000);
     let mut writer = volume.open_file_writer(&damaged).unwrap();
     writer.set_position(0);
     assert_eq!(writer.write(b"x"), Ok(1));
@@ -273,12 +287,13 @@ fn a_write_after_seeking_back_and_forth_lands_where_it_says() {
 
 #[test]
 fn a_chain_that_loops_or_leaves_the_volume_is_an_error_not_a_hang() {
-    let mut image = Image::fat12();
-    image.set(5, 9);
-    image.set(9, 5);
-    image.set(20, 400);
-    let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let entry = volume.create_file(0, "L.BIN").unwrap();
+    let damaged = || {
+        let mut image = Image::fat12();
+        image.set(5, 9);
+        image.set(9, 5);
+        image.set(20, 400);
+        image
+    };
     for (first, error) in [
         (5, ChainError::TooLong),
         (
@@ -289,10 +304,7 @@ fn a_chain_that_loops_or_leaves_the_volume_is_an_error_not_a_hang() {
             },
         ),
     ] {
-        let looped = NamedEntry::created(
-            ShortEntry::new(entry.short_name(), 0x20, first, 1_000_000),
-            entry.place(),
-        );
+        let (mut volume, looped) = claimed(damaged(), "L.BIN", first, 1_000_000);
         let mut writer = volume.open_file_writer(&looped).unwrap();
         writer.set_position(u32::MAX);
         assert_eq!(writer.write(b"x"), Err(WriteError::Chain(error)));
@@ -519,4 +531,102 @@ fn growing_by_several_buffers_from_empty_and_by_exactly_two_works() {
         volume.lookup("GROW.BIN").unwrap().size_bytes(),
         8192 + 4096 + 1
     );
+}
+
+#[test]
+fn a_second_writer_from_the_entry_create_file_returned_is_refused_and_leaks_nothing() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    let created = volume.create_file(0, "TWICE.BIN").unwrap();
+    volume
+        .open_file_writer(&created)
+        .unwrap()
+        .write(b"first")
+        .unwrap();
+    let free = volume.count_free_clusters().unwrap();
+    // `created` still says no cluster and size 0; the slot now says one cluster and 5 bytes.
+    let mut stale = volume.open_file_writer(&created).unwrap();
+    assert_eq!(stale.write(b"X"), Err(WriteError::EntryChanged));
+    assert_eq!(stale.set_len(0), Err(WriteError::EntryChanged));
+    // A refusal is not a failure: the writer refuses again, still before touching the volume.
+    assert_eq!(stale.write(b"X"), Err(WriteError::EntryChanged));
+    assert_eq!(volume.count_free_clusters().unwrap(), free);
+    let mut out = [0u8; 16];
+    assert_eq!(read_back(&mut volume, "TWICE.BIN", &mut out), 5);
+    assert_eq!(out[..5], *b"first");
+    // A fresh lookup writes.
+    let fresh = volume.lookup("TWICE.BIN").unwrap();
+    let mut writer = volume.open_file_writer(&fresh).unwrap();
+    assert_eq!(writer.write(b"second"), Ok(6));
+    assert_eq!(writer.write(b"!"), Ok(1));
+    assert_eq!(read_back(&mut volume, "TWICE.BIN", &mut out), 7);
+    assert_eq!(out[..7], *b"second!");
+    assert_eq!(volume.count_free_clusters().unwrap(), free);
+}
+
+#[test]
+fn an_entry_read_before_a_write_is_stale_for_a_remove_a_rename_and_an_attribute_change() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    let created = volume.create_file(0, "OLD.BIN").unwrap();
+    volume
+        .open_file_writer(&created)
+        .unwrap()
+        .write(&[9; 600])
+        .unwrap();
+    let free = volume.count_free_clusters().unwrap();
+    assert_eq!(volume.remove_file(&created), Err(WriteError::EntryChanged));
+    assert_eq!(
+        volume.rename(&created, 0, "NEW.BIN"),
+        Err(WriteError::EntryChanged)
+    );
+    assert_eq!(
+        volume.set_attributes(&created, crate::Attributes::READ_ONLY),
+        Err(WriteError::EntryChanged)
+    );
+    assert_eq!(volume.count_free_clusters().unwrap(), free);
+    let fresh = volume.lookup("OLD.BIN").unwrap();
+    assert_eq!((fresh.size_bytes(), fresh.attributes()), (600, 0x20));
+    volume.remove_file(&fresh).unwrap();
+    assert_eq!(volume.count_free_clusters().unwrap(), 350);
+}
+
+/// A file of 10 bytes in the root's first slot, the entry read for it, and the volume.
+fn one_written_file() -> (WritableVolume<Image, NoClock>, NamedEntry) {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    let created = volume.create_file(0, "ONE.BIN").unwrap();
+    volume
+        .open_file_writer(&created)
+        .unwrap()
+        .write(&[1; 10])
+        .unwrap();
+    let entry = volume.lookup("ONE.BIN").unwrap();
+    (volume, entry)
+}
+
+#[test]
+fn a_slot_that_differs_from_the_entry_in_one_field_is_stale() {
+    // The root's first slot starts at sector 5: byte 11 is the attribute, 26..28 the first
+    // cluster, 28..32 the size.
+    for (at, value) in [(11, 0x21u8), (26, 9), (28, 11)] {
+        let (volume, entry) = one_written_file();
+        let mut image = volume.into_device();
+        image.bytes[5 * 512 + at] = value;
+        let mut volume = WritableVolume::open(image, NoClock).unwrap();
+        let mut writer = volume.open_file_writer(&entry).unwrap();
+        assert_eq!(
+            writer.write(b"x"),
+            Err(WriteError::EntryChanged),
+            "byte {at}"
+        );
+        assert_eq!(
+            volume.remove_file(&entry),
+            Err(WriteError::EntryChanged),
+            "byte {at}"
+        );
+    }
+    // The times are not compared: a slot whose write time alone differs still holds the entry.
+    let (volume, entry) = one_written_file();
+    let mut image = volume.into_device();
+    image.bytes[5 * 512 + 22] = 0x21;
+    let mut volume = WritableVolume::open(image, NoClock).unwrap();
+    assert_eq!(volume.open_file_writer(&entry).unwrap().write(b"x"), Ok(1));
 }

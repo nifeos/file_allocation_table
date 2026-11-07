@@ -28,7 +28,9 @@ pub enum WriteError<E> {
     FileTooLarge,
     /// The chain ends before the size the entry states: the volume is damaged.
     ShorterThanItsSize,
-    /// The slot the entry names no longer holds that entry.
+    /// The slot the entry names no longer holds that entry: it was removed or replaced, or its
+    /// attributes, first cluster or size changed since the entry was read. An entry is a copy of
+    /// its slot and a write through another copy does not update it, so look the entry up again.
     EntryChanged,
     /// An earlier write failed, so this writer does nothing more rather than skip bytes.
     Failed,

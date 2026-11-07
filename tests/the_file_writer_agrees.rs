@@ -367,6 +367,27 @@ fn names_and_stale_entries_are_refused() {
 }
 
 #[test]
+fn a_second_writer_from_the_entry_create_file_returned_is_refused_and_nothing_leaks() {
+    let mut volume = WritableVolume::open(formatted(8, FatType::Fat16, 512), NoClock).unwrap();
+    let created = volume.create_file(0, "HELLO.TXT").unwrap();
+    volume
+        .open_file_writer(&created)
+        .unwrap()
+        .write(b"first")
+        .unwrap();
+    // `created` says no cluster and size 0, and the slot no longer does.
+    let mut stale = volume.open_file_writer(&created).unwrap();
+    assert_eq!(stale.write(b"X"), Err(WriteError::EntryChanged));
+    volume.mark_clean().unwrap();
+    let image = volume.into_device();
+    assert_eq!(
+        lamfat_files(&image.bytes),
+        [("HELLO.TXT".to_owned(), b"first".to_vec())]
+    );
+    check_with_fsck(&image.bytes, "stale-writer");
+}
+
+#[test]
 fn a_full_volume_writes_what_fits_then_refuses_and_deleting_restores_the_space() {
     let mut volume = WritableVolume::open(formatted(1, FatType::Fat12, 512), NoClock).unwrap();
     let total = volume.count_free_clusters().unwrap() as usize;
