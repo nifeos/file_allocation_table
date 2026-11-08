@@ -113,6 +113,53 @@ tells you what every metadata sector holds. Write sectors `0..metadata_sectors()
 from `fill_sector`, then the file's bytes from `file_first_sector()` on, `file_sectors()` long. You
 choose the label, such as `"EFI SYSTEM"`.
 
+A `PartitionDevice` only reads. To write inside a partition, wrap the whole-disk device in a small
+device of your own. It adds the partition's first sector to every index, and the volume opens
+through it. The example below does this.
+
+```rust
+use file_allocation_table::{
+    NoClock, Partition, SectorDevice, SectorSize, WritableSectorDevice, WritableVolume,
+};
+
+/// Shows a disk from sector `first` on, as a device whose sector 0 is that sector.
+struct Offset<D> {
+    device: D,
+    first: u64,
+}
+
+impl<D: SectorDevice> SectorDevice for Offset<D> {
+    type Error = D::Error;
+
+    fn sector_size(&self) -> SectorSize {
+        self.device.sector_size()
+    }
+
+    fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), D::Error> {
+        self.device.read_sector(self.first + index, buffer)
+    }
+}
+
+impl<D: WritableSectorDevice> WritableSectorDevice for Offset<D> {
+    fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), D::Error> {
+        self.device.write_sector(self.first + index, buffer)
+    }
+}
+
+/// Make a file in the volume inside `partition`, which `MasterBootRecord::partitions` yielded.
+fn create_in_partition<D: WritableSectorDevice>(disk: D, partition: Partition) {
+    let first = u64::from(partition.first_sector());
+    let Ok(mut volume) = WritableVolume::open(Offset { device: disk, first }, NoClock) else {
+        return;
+    };
+    let _ = volume.create_file(0, "NOTE.TXT");
+}
+```
+
+This `Offset` does not stop a write past the partition's last sector, which would land in the next
+partition. A caller that cannot trust the volume's boot sector checks each index against
+`Partition::sector_count` before it writes.
+
 Every error enum is `#[non_exhaustive]`, so a match on one needs a wildcard arm, and a later
 release can add a variant without breaking your code. Every error type implements `Display` and
 `core::error::Error`, with no allocator. A message names its own level only, and `source()` returns
@@ -171,6 +218,9 @@ runs both for a bounded time.
 - Not crash-atomic, and there is no journal, since FAT has none. The crate orders its writes so a
   crash leaks a cluster and never shares one, and a write has no barrier: the device decides when a
   write reaches the medium.
+- Write amplification. The default cluster size is one sector, which multiplies the writes to the
+  table. Measured in memory, one-sector clusters cost 5.0 sector writes per data sector and
+  eight-sector clusters cost 1.5. Larger clusters reduce the cost.
 - Time. Every writer needs a clock. FAT stores a date and a time of day with no time zone, and the
   crate expects the clock to supply Coordinated Universal Time (UTC). The crate stores exactly the
   fields the clock reports and converts nothing, so it cannot check that a clock gives UTC. A reader
