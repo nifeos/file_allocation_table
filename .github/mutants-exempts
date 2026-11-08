@@ -24,3 +24,9 @@ src/time/verification.rs:109 # cfg(kani) harness every_stored_time_reads_back_as
 src/time/verification.rs:114 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
 src/time/verification.rs:115 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
 src/time/verification.rs:116 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
+#
+# Survivors of `cargo mutants --in-diff` over the range that added the alias window and tail
+# number harnesses, 7 mutants on 3 lines; a mutant is listed once per line.
+src/directory_writer/verification.rs:83 # cfg(kani) harness the_first_free_alias_number_is_the_least_one_not_marked: its body compiles only under Kani, which checks it
+src/directory_writer/verification.rs:97 # cfg(kani) harness the_first_free_alias_number_is_the_least_one_not_marked: its body compiles only under Kani, which checks it
+src/long_name/verification.rs:170 # cfg(kani) harness every_alias_reads_back_through_its_tail_number: its body compiles only under Kani, which checks it

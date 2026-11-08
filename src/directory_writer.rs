@@ -113,6 +113,7 @@ impl<const WORDS: usize> AliasWindow<WORDS> {
     }
 
     /// The window's first number.
+    #[cfg(test)]
     pub(crate) const fn first(&self) -> u32 {
         self.first
     }
