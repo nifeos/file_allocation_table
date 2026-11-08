@@ -70,3 +70,30 @@ fn the_run_finder_returns_the_first_run_of_free_slots() {
         assert_eq!(kinds[start as usize - 1], SlotKind::Used);
     }
 }
+
+/// Falsification: replayable `falsifications/directory_writer.verification.the_first_free_alias_number_is_the_least_one_not_marked.patch`
+/// **The first free number of an alias window is the least number of the window not marked.**
+/// For any window of 128 numbers starting anywhere an alias may, and any three numbers marked,
+/// in the window or outside it: the number returned lies in the window, is not one of the
+/// marks, and every number of the window below it is. The writer's window has eight times the
+/// words and the same code.
+#[kani::proof]
+#[kani::unwind(4)]
+fn the_first_free_alias_number_is_the_least_one_not_marked() {
+    let first: u32 = kani::any();
+    kani::assume((1..=999_999).contains(&first));
+    let marks: [u32; 3] = kani::any();
+    let mut window = AliasWindow::<2>::new(first);
+    for number in marks {
+        window.mark(number);
+    }
+    // Three marks cannot fill 128 numbers.
+    let Some(free) = window.first_free() else {
+        panic!("a window with three marks has a free number");
+    };
+    assert!(free >= first && free - first < 128);
+    assert!(!marks.contains(&free));
+    let below: u32 = kani::any();
+    kani::assume(below >= first && below < free);
+    assert!(marks.contains(&below));
+}

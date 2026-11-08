@@ -7,16 +7,21 @@
 //! no entry in the directory holds it. The run and its short entry go down in directory order,
 //! the short entry last, so a crash leaves orphan pieces that no reader joins and never a short
 //! entry with a wrong name. [`RunFinder`] picks the slots; `verification.rs` proves it first-fit.
+//!
+//! One read of the directory serves a whole create: it refuses a name already there, finds the
+//! first run of free slots, and marks in an [`AliasWindow`] every alias number of the new name's
+//! basis that an entry holds, so the alias is the window's first free number. Only an alias past
+//! the first [`ALIAS_WINDOW`] numbers reads the directory again.
 
 use crate::boot_sector::FileAllocationTableType;
 use crate::directory::{DirectoryEntry, SLOT_BYTES, ShortEntry, Slot};
 use crate::file_writer::{ARCHIVE, FREE, MOST_SLOTS, short_name_bytes};
 use crate::long_name::{self, LongName};
 use crate::lookup::LookupError;
-use crate::named_entry::{EntryPlace, NamedEntry};
+use crate::named_entry::{EntryPlace, Joiner, NamedEntry};
 use crate::reader::{ChainError, Volume};
 use crate::sector::{SectorSize, WritableSectorDevice};
-use crate::write_cursor::WriteError;
+use crate::write_cursor::{Medium, WriteError};
 
 /// `DIR_Attr`'s directory bit.
 const DIRECTORY: u8 = 0x10;
@@ -74,6 +79,89 @@ impl RunFinder {
     }
 }
 
+/// The most slots one entry takes: twenty long-name pieces and the short entry.
+const MOST_RUN_SLOTS: usize = 21;
+
+/// The highest number an alias's tail carries.
+const MOST_ALIAS: u32 = 999_999;
+
+/// How many alias numbers one read of a directory counts.
+pub(crate) const ALIAS_WINDOW: u32 = 1024;
+
+/// How many windows cover every alias number from 1 to [`MOST_ALIAS`].
+const ALIAS_WINDOWS: u32 = MOST_ALIAS.div_ceil(ALIAS_WINDOW);
+
+/// The window the writer uses: [`ALIAS_WINDOW`] numbers, 64 to a word.
+pub(crate) type DirectoryAliasWindow = AliasWindow<{ (ALIAS_WINDOW / 64) as usize }>;
+
+/// **Which alias numbers a directory holds**, for the `64 * WORDS` numbers from `first` on, marked
+/// as one read of the directory passes each entry. `verification.rs` proves the first free number
+/// is the least one not marked.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AliasWindow<const WORDS: usize> {
+    first: u32,
+    taken: [u64; WORDS],
+}
+
+impl<const WORDS: usize> AliasWindow<WORDS> {
+    /// A window from `first` with no number taken.
+    pub(crate) const fn new(first: u32) -> AliasWindow<WORDS> {
+        AliasWindow {
+            first,
+            taken: [0; WORDS],
+        }
+    }
+
+    /// The window's first number.
+    #[cfg(test)]
+    pub(crate) const fn first(&self) -> u32 {
+        self.first
+    }
+
+    /// The window of the numbers after this one's, with none taken.
+    pub(crate) const fn next(&self) -> AliasWindow<WORDS> {
+        AliasWindow::new(self.first + 64 * WORDS as u32)
+    }
+
+    /// Mark `number` taken. A number outside the window changes nothing.
+    pub(crate) fn mark(&mut self, number: u32) {
+        let Some(offset) = number.checked_sub(self.first) else {
+            return;
+        };
+        if let Some(word) = self.taken.get_mut((offset / 64) as usize) {
+            *word |= 1 << (offset % 64);
+        }
+    }
+
+    /// Mark the number of `short` taken when it is the alias of `long` numbered with its tail.
+    pub(crate) fn note(&mut self, long: &LongName, short: [u8; 11]) {
+        if let Some(number) = long_name::tail_number(&short)
+            && long.alias_numbered(number) == Some(short)
+        {
+            self.mark(number);
+        }
+    }
+
+    /// **The least number of the window not marked**, or `None` when every one is.
+    pub(crate) fn first_free(&self) -> Option<u32> {
+        let (at, word) = self
+            .taken
+            .iter()
+            .enumerate()
+            .find(|(_, word)| **word != u64::MAX)?;
+        Some(self.first + at as u32 * 64 + word.trailing_ones())
+    }
+}
+
+/// **The run a survey found**: its first slot, whether it reaches the end marker, and the
+/// joiner as it stood at its first slot, which joins the entry written there.
+#[derive(Clone, Copy)]
+struct Run {
+    start: u32,
+    reaches_end: bool,
+    joiner: Joiner,
+}
+
 /// **What a new directory entry holds**: its name and attributes, where its data starts and how
 /// long it is, the entry (if any) it replaces under a rename so its own name does not collide, and
 /// the times to copy from it. `None` for the times means a new entry, stamped now.
@@ -114,56 +202,91 @@ impl<D: WritableSectorDevice> Volume<D> {
     }
 
     /// The first slot of a run of `count` free slots in `directory`, and whether the run reaches
-    /// the directory's end marker.
+    /// the directory's end marker, read in one pass.
     pub(crate) fn find_run(
         &mut self,
         directory: u32,
         count: u32,
     ) -> Result<(u32, bool), WriteError<D::Error>> {
-        let mut finder = RunFinder::new(count);
-        let mut index = 0;
-        let mut grown_at = None;
-        for _ in 0..2 * MOST_SLOTS {
-            if index >= MOST_SLOTS {
-                break;
-            }
-            match self.read_slot(directory, index)? {
-                Some(slot) => {
-                    let kind = match slot[0] {
-                        0 => SlotKind::End,
-                        FREE => SlotKind::Free,
-                        _ => SlotKind::Used,
-                    };
-                    if let Some(start) = finder.push(kind) {
-                        self.ensure_slots(directory, start + count)?;
-                        return Ok((start, kind == SlotKind::End));
-                    }
-                    index += 1;
-                }
-                // A directory that grew and still has no slot at `index` is damaged.
-                None if grown_at != Some(index) && self.grow_directory(directory)? => {
-                    grown_at = Some(index);
-                }
-                None => break,
-            }
-        }
-        Err(WriteError::DirectoryFull)
+        let run = self.survey(directory, count, None, &mut AliasWindow::new(1))?;
+        Ok((run.start, run.reaches_end))
     }
 
-    /// Whether any entry of `directory` other than the one at `except` holds the short name.
-    fn short_name_taken(
+    /// **Read `directory` once for a new entry of `count` slots**: the first run of free slots
+    /// it fits, made sure to exist (a chain directory grows when the run reaches past its last
+    /// cluster), and, for a `name`, every alias number of `name`'s basis in `window` that an entry
+    /// other than `name.except` holds. Refuses with `AlreadyExists` at the first entry other
+    /// than `name.except` already called `name.name`, and with `DirectoryFull` when no run fits
+    /// below [`MOST_SLOTS`].
+    fn survey(
         &mut self,
         directory: u32,
-        short: [u8; 11],
-        except: Option<EntryPlace>,
-    ) -> Result<bool, WriteError<D::Error>> {
-        for entry in self.named_entries(directory) {
-            let entry = entry?;
-            if entry.short_name() == short && Some(entry.place()) != except {
-                return Ok(true);
+        count: u32,
+        name: Option<(&NewEntry, Option<&LongName>)>,
+        window: &mut DirectoryAliasWindow,
+    ) -> Result<Run, WriteError<D::Error>> {
+        let mut finder = RunFinder::new(count);
+        let mut run = None;
+        let mut entries = self.named_entries(directory);
+        loop {
+            let Some(step) = entries.advance_slot() else {
+                break;
+            };
+            let (_, slot, named) = step?;
+            if run.is_none() {
+                let kind = match slot {
+                    Slot::End => SlotKind::End,
+                    Slot::Free => SlotKind::Free,
+                    Slot::Used(_) => SlotKind::Used,
+                };
+                run = finder.push(kind).map(|start| Run {
+                    start,
+                    reaches_end: kind == SlotKind::End,
+                    joiner: entries.joiner(),
+                });
+                // With no name to check, the run is all the read is for.
+                if run.is_some() && name.is_none() {
+                    break;
+                }
+            }
+            if let (Some(entry), Some((new, long))) = (named, name)
+                && Some(entry.place()) != new.except
+            {
+                if entry.is_called(new.name) {
+                    return Err(WriteError::AlreadyExists);
+                }
+                if let Some(long) = long {
+                    window.note(long, entry.short_name());
+                }
             }
         }
-        Ok(false)
+        // Past the last cluster every slot is one the directory grows, zeroed: the end marker.
+        let joiner = entries.joiner();
+        let run = run.unwrap_or_else(|| Run {
+            start: finder.push(SlotKind::End).unwrap_or(0),
+            reaches_end: true,
+            joiner,
+        });
+        self.ensure_slots(directory, run.start + count)?;
+        Ok(run)
+    }
+
+    /// The alias numbers of `long`'s basis in `window` that an entry of `directory` other than
+    /// `except` holds, for a window past the one [`Volume::survey`] filled.
+    fn note_aliases(
+        &mut self,
+        directory: u32,
+        long: &LongName,
+        except: Option<EntryPlace>,
+        window: &mut DirectoryAliasWindow,
+    ) -> Result<(), WriteError<D::Error>> {
+        for entry in self.named_entries(directory) {
+            let entry = entry?;
+            if Some(entry.place()) != except {
+                window.note(long, entry.short_name());
+            }
+        }
+        Ok(())
     }
 
     /// Refuse `name` when it is not a legal name or an entry other than `except` already has it.
@@ -200,81 +323,142 @@ impl<D: WritableSectorDevice> Volume<D> {
         Err(WriteError::EntryChanged)
     }
 
-    /// Write the entry `new` describes into `directory` and return it as stored.
+    /// **Write the entry `new` describes into `directory`** and return it as stored.
+    ///
+    /// One read of the directory checks the name, finds the run and numbers the alias, unless every
+    /// alias number in the first [`ALIAS_WINDOW`] is taken, when each later window costs one read
+    /// more. The slots are written a sector at a time, in directory order, the short entry's
+    /// sector last, and the entry returned is joined from the slots written and the pieces the
+    /// read found ahead of the run, as a later read of the directory would join it.
     fn write_entry(
         &mut self,
         directory: u32,
         new: &NewEntry,
     ) -> Result<NamedEntry, WriteError<D::Error>> {
-        let NewEntry {
-            name,
-            attributes,
-            first_cluster,
-            size_bytes: size,
-            except,
-            times,
-        } = *new;
         let directory = self.directory_number(directory);
-        self.check_new_name(directory, name, except)?;
-        let long = match short_name_bytes(name) {
+        let short_name = short_name_bytes(new.name);
+        let long = match short_name {
             Some(_) => None,
-            None => Some(LongName::new(name).ok_or(WriteError::NameRefused)?),
-        };
-        let short = match (&long, short_name_bytes(name)) {
-            (_, Some(short)) => short,
-            (Some(long), None) => self.unused_alias(directory, long, except)?,
-            (None, None) => return Err(WriteError::NameRefused),
+            None => Some(LongName::new(new.name).ok_or(WriteError::NameRefused)?),
         };
         let pieces = long.as_ref().map_or(0, LongName::entries) as u32;
-        let (start, reached_end) = self.find_run(directory, pieces + 1)?;
+        let mut window = AliasWindow::new(1);
+        let run = self.survey(
+            directory,
+            pieces + 1,
+            Some((new, long.as_ref())),
+            &mut window,
+        )?;
+        let short = match (&long, short_name) {
+            (_, Some(short)) => short,
+            (Some(long), None) => self.unused_alias(directory, long, new.except, window)?,
+            (None, None) => return Err(WriteError::NameRefused),
+        };
         self.begin_change()?;
+        let mut slots = [[0u8; SLOT_BYTES]; MOST_RUN_SLOTS];
         let sum = long_name::checksum(&short);
-        for piece in 0..pieces {
-            let mut slot = [0u8; SLOT_BYTES];
-            if let Some(long) = &long {
-                long.entry(piece as usize, sum, &mut slot);
+        if let Some(long) = &long {
+            for (piece, slot) in slots.iter_mut().enumerate().take(pieces as usize) {
+                long.entry(piece, sum, slot);
             }
-            self.write_slot(directory, start + piece, &slot)?;
         }
-        let mut slot = [0u8; SLOT_BYTES];
+        let slots = &mut slots[..=pieces as usize];
+        let slot = &mut slots[pieces as usize];
         slot[..11].copy_from_slice(&short);
-        slot[11] = attributes;
+        slot[11] = new.attributes;
         if self.boot.file_allocation_table_type() == FileAllocationTableType::Fat32 {
-            slot[20..22].copy_from_slice(&((first_cluster >> 16) as u16).to_le_bytes());
+            slot[20..22].copy_from_slice(&((new.first_cluster >> 16) as u16).to_le_bytes());
         }
-        slot[26..28].copy_from_slice(&(first_cluster as u16).to_le_bytes());
-        slot[28..32].copy_from_slice(&size.to_le_bytes());
+        slot[26..28].copy_from_slice(&(new.first_cluster as u16).to_le_bytes());
+        slot[28..32].copy_from_slice(&new.size_bytes.to_le_bytes());
         // A new entry is created, written and accessed now; a moved one keeps its times.
-        match times {
-            None => self.stamp.write_new(&mut slot),
-            Some(old) => crate::time::copy_times(&old, &mut slot),
+        match new.times {
+            None => self.stamp.write_new(slot),
+            Some(old) => crate::time::copy_times(&old, slot),
         }
-        let short_slot = start + pieces;
-        self.write_slot(directory, short_slot, &slot)?;
-        if reached_end
-            && let Some(next) = self.read_slot(directory, short_slot + 1)?
-            && next[0] != 0
-        {
-            // Slots after the end marker may hold stale bytes; end the directory after the new one.
-            let mut end = next;
-            end[0] = 0;
-            self.write_slot(directory, short_slot + 1, &end)?;
+        self.write_run(directory, run.start, slots, run.reaches_end)?;
+        let file_allocation_table_type = self.boot.file_allocation_table_type();
+        let mut joiner = run.joiner;
+        let mut written = None;
+        for (index, slot) in (run.start..).zip(slots.iter()) {
+            if let Slot::Used(entry) = Slot::parse(slot, file_allocation_table_type) {
+                written = joiner.take(directory, index, entry);
+            }
         }
-        self.entry_at(directory, short_slot)
+        written.ok_or(WriteError::EntryChanged)
     }
 
-    /// The first alias of `long`, numbered from 1, that no other entry of `directory` holds.
+    /// **Write `slots` to `directory` from slot `start` on**, a sector at a time and in order, so
+    /// the last slot's sector goes down last. With `reaches_end`, the slot after the last is made
+    /// an end marker when it holds anything else, since the slots after an end marker may hold
+    /// stale bytes.
+    fn write_run(
+        &mut self,
+        directory: u32,
+        start: u32,
+        slots: &[[u8; SLOT_BYTES]],
+        reaches_end: bool,
+    ) -> Result<(), WriteError<D::Error>> {
+        let size = self.boot.sector_size().bytes();
+        let mut buffer = [0u8; SectorSize::MAXIMUM_BYTES];
+        let mut open = None;
+        for (index, slot) in (start..).zip(slots) {
+            let Some((sector, offset)) = self.slot_location(directory, index)? else {
+                break;
+            };
+            if open != Some(sector) {
+                if let Some(full) = open {
+                    self.write_data(full, &buffer[..size])?;
+                }
+                self.read_sector(sector, &mut buffer[..size])?;
+                open = Some(sector);
+            }
+            buffer[offset..offset + SLOT_BYTES].copy_from_slice(slot);
+        }
+        let after = start + slots.len() as u32;
+        let end = match reaches_end {
+            true => self.slot_location(directory, after)?,
+            false => None,
+        };
+        match (open, end) {
+            (Some(full), Some((sector, offset))) if full == sector => {
+                buffer[offset] = 0;
+                self.write_data(full, &buffer[..size])?;
+            }
+            (open, end) => {
+                if let Some(full) = open {
+                    self.write_data(full, &buffer[..size])?;
+                }
+                if let Some((sector, offset)) = end {
+                    self.read_sector(sector, &mut buffer[..size])?;
+                    if buffer[offset] != 0 {
+                        buffer[offset] = 0;
+                        self.write_data(sector, &buffer[..size])?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The first alias of `long`, numbered from 1, that no entry of `directory` other than
+    /// `except` holds. `window` is the first window, which the survey filled.
     fn unused_alias(
         &mut self,
         directory: u32,
         long: &LongName,
         except: Option<EntryPlace>,
+        mut window: DirectoryAliasWindow,
     ) -> Result<[u8; 11], WriteError<D::Error>> {
-        for number in 1..=999_999 {
-            let alias = long.alias_numbered(number).ok_or(WriteError::NameRefused)?;
-            if !self.short_name_taken(directory, alias, except)? {
-                return Ok(alias);
+        for _ in 0..ALIAS_WINDOWS {
+            if let Some(number) = window.first_free() {
+                return match long.alias_numbered(number) {
+                    Some(alias) => Ok(alias),
+                    None => Err(WriteError::DirectoryFull),
+                };
             }
+            window = window.next();
+            self.note_aliases(directory, long, except, &mut window)?;
         }
         Err(WriteError::DirectoryFull)
     }
@@ -361,10 +545,10 @@ impl<D: WritableSectorDevice> Volume<D> {
             slot[26..28].copy_from_slice(&(*target as u16).to_le_bytes());
             self.stamp.write_new(slot);
         }
-        crate::write_cursor::Medium::write_data(self, first, &sector[..size])?;
+        Medium::write_data(self, first, &sector[..size])?;
         let zeros = [0u8; SectorSize::MAXIMUM_BYTES];
         for later in 1..boot.sectors_per_cluster() {
-            crate::write_cursor::Medium::write_data(self, first + later, &zeros[..size])?;
+            Medium::write_data(self, first + later, &zeros[..size])?;
         }
         Ok(())
     }

@@ -1,0 +1,20 @@
+Falsifies `file_allocation_table::long_name::verification::every_alias_reads_back_through_its_tail_number`.
+
+The defect: the tail is read from the first `~` of the base rather than the last, so the alias of a
+name that carries its own `~`, such as `a~b.txt`, reads as no number at all. The writer then never
+sees that alias taken, and two names in one directory share it.
+
+Expected to fail: the harness's `assert_eq!(tail_number(&alias), Some(number))`.
+
+diff --git a/src/long_name.rs b/src/long_name.rs
+--- a/src/long_name.rs
++++ b/src/long_name.rs
+@@ -236,7 +236,7 @@ pub(crate) fn is_short_byte(b: u8) -> bool {
+ pub(crate) fn tail_number(short: &[u8; 11]) -> Option<u32> {
+     let base = &short[..8];
+     let end = base.iter().rposition(|b| *b != b' ')? + 1;
+-    let tilde = base[..end].iter().rposition(|b| *b == b'~')?;
++    let tilde = base[..end].iter().position(|b| *b == b'~')?;
+     let digits = &base[tilde + 1..end];
+     if digits.is_empty() || digits.len() > 6 {
+         return None;

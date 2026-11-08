@@ -35,6 +35,167 @@ fn aliases_count_up_and_give_the_base_room_for_the_tail() {
 }
 
 #[test]
+fn a_window_marks_only_its_own_numbers_and_finds_the_least_free_one() {
+    let mut window = AliasWindow::<2>::new(65);
+    assert_eq!(window.first(), 65);
+    assert_eq!(window.first_free(), Some(65));
+    // Below and past the window's 128 numbers.
+    window.mark(64);
+    window.mark(193);
+    window.mark(0);
+    assert_eq!(window.first_free(), Some(65));
+    for number in 65..135 {
+        window.mark(number);
+    }
+    assert_eq!(window.first_free(), Some(135));
+    window.mark(136);
+    assert_eq!(window.first_free(), Some(135));
+    for number in 135..193 {
+        window.mark(number);
+    }
+    assert_eq!(window.first_free(), None);
+    let next = window.next();
+    assert_eq!(next.first(), 193);
+    assert_eq!(next.first_free(), Some(193));
+    assert_eq!(
+        DirectoryAliasWindow::new(1).next().first(),
+        1 + ALIAS_WINDOW
+    );
+}
+
+#[test]
+fn a_window_counts_an_alias_of_its_own_basis_and_number_only() {
+    let long = LongName::new("Long File One.txt").unwrap();
+    let mut window = DirectoryAliasWindow::new(1);
+    window.note(&long, *b"LONGFI~1TXT");
+    // Another basis, another extension, a leading zero the writer never makes, and no tail.
+    for other in [
+        b"OTHERS~2TXT",
+        b"LONGFI~2TX ",
+        b"LONGF~02TXT",
+        b"LONGFILETXT",
+    ] {
+        window.note(&long, *other);
+    }
+    assert_eq!(window.first_free(), Some(2));
+    window.note(&long, *b"LONGFI~2TXT");
+    window.note(&long, *b"LONGF~10TXT");
+    assert_eq!(window.first_free(), Some(3));
+}
+
+/// The 8.3 name a short entry's eleven bytes spell, dot and all.
+fn spelled(short: [u8; 11]) -> String {
+    let base = core::str::from_utf8(&short[..8]).unwrap().trim_end();
+    let extension = core::str::from_utf8(&short[8..]).unwrap().trim_end();
+    format!("{base}.{extension}")
+}
+
+/// A directory whose first [`ALIAS_WINDOW`] alias numbers are all held, by short names, makes the
+/// writer read it again for the next window; a number freed in the first window is taken first.
+#[test]
+#[cfg_attr(miri, ignore = "creates over a thousand entries in one directory")]
+fn an_alias_past_the_first_window_is_the_next_free_number() {
+    use crate::{FormatOptions, FormatPlan, SectorSize};
+    let sectors = 16 * 1024u32;
+    let plan = FormatPlan::new(
+        FormatOptions::new(SectorSize::Bytes512, sectors),
+        &mut NoClock,
+    )
+    .unwrap();
+    let mut device = Blank(vec![0; sectors as usize * 512]);
+    plan.write_to(&mut device).unwrap();
+    let mut volume = WritableVolume::open(device, NoClock).unwrap();
+    let directory = volume.create_directory(0, "MANY").unwrap().first_cluster();
+    let long = LongName::new("Long File.txt").unwrap();
+    let mut seventh = None;
+    for number in 1..=ALIAS_WINDOW + 6 {
+        let alias = long.alias_numbered(number).unwrap();
+        let entry = volume.create_file(directory, &spelled(alias)).unwrap();
+        assert_eq!(entry.short_name(), alias);
+        if number == 7 {
+            seventh = Some(entry);
+        }
+    }
+    let entry = volume.create_file(directory, "Long File.txt").unwrap();
+    assert_eq!(entry.short_name(), *b"LON~1031TXT");
+    // A rename past the first window may keep its own number there.
+    let entry = volume
+        .rename(&entry, directory, "Long File Renamed.txt")
+        .unwrap();
+    assert_eq!(entry.short_name(), *b"LON~1031TXT");
+    volume.remove_file(&seventh.unwrap()).unwrap();
+    let entry = volume.create_file(directory, "Long File 2.txt").unwrap();
+    assert_eq!(entry.short_name(), *b"LONGFI~7TXT");
+}
+
+#[test]
+fn a_rename_may_keep_its_own_alias() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    let one = volume.create_file(0, "Long File One.txt").unwrap();
+    assert_eq!(one.short_name(), *b"LONGFI~1TXT");
+    let renamed = volume.rename(&one, 0, "Long File Two.txt").unwrap();
+    assert_eq!(renamed.short_name(), *b"LONGFI~1TXT");
+    assert!(volume.lookup("Long File One.txt").is_err());
+}
+
+/// The entry a create returns is the one a read of the directory joins, even when a stray
+/// long-name piece sits ahead of the run: the read counts it into the run's slots.
+#[test]
+fn the_entry_a_create_returns_is_the_one_a_read_joins() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    volume.create_file(0, "A.TXT").unwrap();
+    let mut stray = [0xFFu8; SLOT_BYTES];
+    LongName::new("stray").unwrap().entry(0, 0x5A, &mut stray);
+    volume.write_slot(0, 1, &stray).unwrap();
+    for name in ["A long name after a stray piece.txt", "B.TXT"] {
+        let made = volume.create_file(0, name).unwrap();
+        let read = volume.entry_at(0, made.place().short_slot).unwrap();
+        assert_eq!(made, read);
+    }
+    let made = volume
+        .lookup("A long name after a stray piece.txt")
+        .unwrap();
+    assert_eq!(made.place().first_slot, 1);
+    assert!(made.long_name().is_some());
+}
+
+/// A cluster of one sector holds sixteen slots: a stale slot after the end marker, in the sector
+/// the new entry goes into or in the next one, becomes an end marker.
+#[test]
+fn a_stale_slot_after_the_end_marker_is_ended_in_the_same_sector_or_the_next() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    let directory = volume.create_directory(0, "SUB").unwrap().first_cluster();
+    let mut stale = [0u8; SLOT_BYTES];
+    stale[..11].copy_from_slice(b"STALE   TXT");
+    stale[11] = ARCHIVE;
+    // Slot 3 holds stale bytes after the end marker at 2, in the cluster's one sector.
+    volume.write_slot(directory, 3, &stale).unwrap();
+    volume.create_file(directory, "B.TXT").unwrap();
+    assert_eq!(volume.read_slot(directory, 3).unwrap().unwrap()[0], 0);
+    assert_eq!(
+        volume.read_slot(directory, 3).unwrap().unwrap()[1..],
+        stale[1..]
+    );
+    // Fill the sector to slot 14, then put stale bytes at 16, in the next cluster's sector.
+    for name in "CDEFGHIJKLMN".chars() {
+        volume
+            .create_file(directory, &format!("{name}.TXT"))
+            .unwrap();
+    }
+    assert!(volume.grow_directory(directory).unwrap());
+    volume.write_slot(directory, 16, &stale).unwrap();
+    let last = volume.create_file(directory, "O.TXT").unwrap();
+    assert_eq!(last.place().short_slot, 15);
+    assert_eq!(volume.read_slot(directory, 16).unwrap().unwrap()[0], 0);
+    let names = volume
+        .named_entries(directory)
+        .map(|entry| entry.unwrap().short_name())
+        .filter(|name| name[0] != b'.')
+        .count();
+    assert_eq!(names, 14);
+}
+
+#[test]
 fn colliding_long_names_take_successive_aliases_and_a_freed_alias_is_reused() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     let first = volume.create_file(0, "Long File One.txt").unwrap();
@@ -250,6 +411,8 @@ fn a_volume_label_cannot_be_renamed() {
 }
 
 extern crate std;
+use std::format;
+use std::string::String;
 use std::vec;
 use std::vec::Vec;
 
@@ -327,4 +490,64 @@ fn a_directory_stops_growing_at_65536_entries() {
         assert_eq!(volume.grow_directory(0), Ok(false));
         assert_eq!(volume.chain(first).count() as u64, wanted);
     }
+}
+
+/// The small FAT12 volume, counting the sectors it writes.
+struct Counted {
+    image: Image,
+    writes: u32,
+}
+
+impl crate::sector::SectorDevice for Counted {
+    type Error = u64;
+
+    fn sector_size(&self) -> crate::SectorSize {
+        crate::SectorSize::Bytes512
+    }
+
+    fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
+        self.image.read_sector(index, buffer)
+    }
+}
+
+impl crate::sector::WritableSectorDevice for Counted {
+    fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), u64> {
+        self.writes += 1;
+        self.image.write_sector(index, buffer)
+    }
+}
+
+/// A short entry and the end marker after it, in one sector, go down in one write.
+#[test]
+fn an_end_marker_beside_the_new_entry_rides_in_its_write() {
+    let device = Counted {
+        image: Image::fat12(),
+        writes: 0,
+    };
+    let mut volume = WritableVolume::open(device, NoClock).unwrap();
+    let mut stale = [0u8; SLOT_BYTES];
+    stale[..11].copy_from_slice(b"STALE   TXT");
+    volume.write_slot(0, 1, &stale).unwrap();
+    let before = volume.device.writes;
+    volume.create_file(0, "A.TXT").unwrap();
+    assert_eq!(volume.device.writes - before, 1);
+    assert_eq!(volume.read_slot(0, 1).unwrap().unwrap()[0], 0);
+}
+
+/// A directory whose name is taken is refused before a cluster is taken for it: nothing is
+/// written, not even the dot entries.
+#[test]
+fn a_taken_directory_name_is_refused_before_anything_is_written() {
+    let device = Counted {
+        image: Image::fat12(),
+        writes: 0,
+    };
+    let mut volume = WritableVolume::open(device, NoClock).unwrap();
+    volume.create_directory(0, "Sub Directory").unwrap();
+    let before = volume.device.writes;
+    assert_eq!(
+        volume.create_directory(0, "SUB DIRECTORY"),
+        Err(WriteError::AlreadyExists)
+    );
+    assert_eq!(volume.device.writes, before);
 }

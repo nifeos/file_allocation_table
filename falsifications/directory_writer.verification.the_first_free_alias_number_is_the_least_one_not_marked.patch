@@ -1,0 +1,20 @@
+Falsifies `file_allocation_table::directory_writer::verification::the_first_free_alias_number_is_the_least_one_not_marked`.
+
+The defect: the first free number is counted by the word's trailing zeros instead of its trailing
+ones, so a window whose first number is free reports a later number, and with every low number
+taken it reports one already taken, which the writer would give to a second entry.
+
+Expected to fail: the harness's `assert!(marks.contains(&below))`.
+
+diff --git a/src/directory_writer.rs b/src/directory_writer.rs
+--- a/src/directory_writer.rs
++++ b/src/directory_writer.rs
+@@ -135,7 +135,7 @@ impl<const WORDS: usize> AliasWindow<WORDS> {
+             .iter()
+             .enumerate()
+             .find(|(_, word)| **word != u64::MAX)?;
+-        Some(self.first + at as u32 * 64 + word.trailing_ones())
++        Some(self.first + at as u32 * 64 + word.trailing_zeros())
+     }
+ }
+ 

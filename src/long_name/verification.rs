@@ -153,3 +153,32 @@ fn every_numbered_alias_carries_its_number() {
     assert_eq!(read, number);
     assert!(alias[at..8].iter().all(|b| *b == b' '));
 }
+
+/// The longest name the tail harness quantifies over. Eight units make every base length from one
+/// to six beside an extension, a `~` inside the base, and a base the tail shortens; the tail's
+/// digits come from the number, which the harness leaves free.
+const TAIL_UNITS: usize = 8;
+
+/// Falsification: replayable `falsifications/long_name.verification.every_alias_reads_back_through_its_tail_number.patch`
+/// **Every numbered alias reads back to its own number through [`tail_number`]**, for every name
+/// up to [`TAIL_UNITS`] units and every number from 1 to 999,999. The writer reads a directory
+/// once and marks the number [`tail_number`] gives for each entry whose name is that numbered
+/// alias, so this is what makes the one read see every number a basis has taken.
+#[kani::proof]
+#[kani::unwind(10)]
+fn every_alias_reads_back_through_its_tail_number() {
+    let len: usize = kani::any();
+    kani::assume((1..=TAIL_UNITS).contains(&len));
+    let mut units = [0u16; MAXIMUM_CODE_UNITS];
+    let chosen: [u16; TAIL_UNITS] = kani::any();
+    units[..TAIL_UNITS].copy_from_slice(&chosen);
+    let name = LongName {
+        units,
+        unit_count: len,
+    };
+    let number: u32 = kani::any();
+    let Some(alias) = name.alias_numbered(number) else {
+        return;
+    };
+    assert_eq!(tail_number(&alias), Some(number));
+}

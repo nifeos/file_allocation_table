@@ -7,12 +7,12 @@ Expected to fail: the harness's `assert_eq!(before[taken], TableEntry::Free)`.
 diff --git a/src/allocation.rs b/src/allocation.rs
 --- a/src/allocation.rs
 +++ b/src/allocation.rs
-@@ -76,7 +76,7 @@ pub(crate) fn allocate<L: LinksMut>(
+@@ -78,7 +78,7 @@ pub(crate) fn find_free<L: Links>(
      for step in 0..clusters {
          // `start < clusters` and `step < clusters`, so the sum cannot reach 2 * clusters + 2.
          let cluster = 2 + (start + step) % clusters;
 -        if links.table_entry(cluster)? == TableEntry::Free {
 +        if matches!(links.table_entry(cluster)?, TableEntry::Free | TableEntry::Reserved) {
-             links.set_table_entry(cluster, TableEntry::EndOfChain)?;
              return Ok(Some(cluster));
          }
+     }
