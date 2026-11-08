@@ -411,8 +411,9 @@ impl<'v, D: SectorDevice> Directory<'v, D> {
             }
         }
         let mut slot = [0u8; SLOT_BYTES];
-        slot.copy_from_slice(&self.buffer[self.at..self.at + SLOT_BYTES]);
-        self.at += SLOT_BYTES;
+        let end = self.at + SLOT_BYTES;
+        slot.copy_from_slice(&self.buffer[self.at..end]);
+        self.at = end;
         let index = self.index;
         self.index = self.index.saturating_add(1);
         Some(Ok((index, Slot::parse(&slot, file_allocation_table_type))))

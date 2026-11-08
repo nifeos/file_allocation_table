@@ -88,6 +88,9 @@ const MOST_ALIAS: u32 = 999_999;
 /// How many alias numbers one read of a directory counts.
 pub(crate) const ALIAS_WINDOW: u32 = 1024;
 
+/// How many windows cover every alias number from 1 to [`MOST_ALIAS`].
+const ALIAS_WINDOWS: u32 = MOST_ALIAS.div_ceil(ALIAS_WINDOW);
+
 /// The window the writer uses: [`ALIAS_WINDOW`] numbers, 64 to a word.
 pub(crate) type DirectoryAliasWindow = AliasWindow<{ (ALIAS_WINDOW / 64) as usize }>;
 
@@ -112,6 +115,11 @@ impl<const WORDS: usize> AliasWindow<WORDS> {
     /// The window's first number.
     pub(crate) const fn first(&self) -> u32 {
         self.first
+    }
+
+    /// The window of the numbers after this one's, with none taken.
+    pub(crate) const fn next(&self) -> AliasWindow<WORDS> {
+        AliasWindow::new(self.first + 64 * WORDS as u32)
     }
 
     /// Mark `number` taken. A number outside the window changes nothing.
@@ -441,14 +449,14 @@ impl<D: WritableSectorDevice> Volume<D> {
         except: Option<EntryPlace>,
         mut window: DirectoryAliasWindow,
     ) -> Result<[u8; 11], WriteError<D::Error>> {
-        for _ in 0..=MOST_ALIAS / ALIAS_WINDOW {
+        for _ in 0..ALIAS_WINDOWS {
             if let Some(number) = window.first_free() {
                 return match long.alias_numbered(number) {
                     Some(alias) => Ok(alias),
                     None => Err(WriteError::DirectoryFull),
                 };
             }
-            window = AliasWindow::new(window.first() + ALIAS_WINDOW);
+            window = window.next();
             self.note_aliases(directory, long, except, &mut window)?;
         }
         Err(WriteError::DirectoryFull)

@@ -54,6 +54,13 @@ fn a_window_marks_only_its_own_numbers_and_finds_the_least_free_one() {
         window.mark(number);
     }
     assert_eq!(window.first_free(), None);
+    let next = window.next();
+    assert_eq!(next.first(), 193);
+    assert_eq!(next.first_free(), Some(193));
+    assert_eq!(
+        DirectoryAliasWindow::new(1).next().first(),
+        1 + ALIAS_WINDOW
+    );
 }
 
 #[test]
@@ -101,7 +108,7 @@ fn an_alias_past_the_first_window_is_the_next_free_number() {
     let directory = volume.create_directory(0, "MANY").unwrap().first_cluster();
     let long = LongName::new("Long File.txt").unwrap();
     let mut seventh = None;
-    for number in 1..=ALIAS_WINDOW {
+    for number in 1..=ALIAS_WINDOW + 6 {
         let alias = long.alias_numbered(number).unwrap();
         let entry = volume.create_file(directory, &spelled(alias)).unwrap();
         assert_eq!(entry.short_name(), alias);
@@ -110,7 +117,12 @@ fn an_alias_past_the_first_window_is_the_next_free_number() {
         }
     }
     let entry = volume.create_file(directory, "Long File.txt").unwrap();
-    assert_eq!(entry.short_name(), *b"LON~1025TXT");
+    assert_eq!(entry.short_name(), *b"LON~1031TXT");
+    // A rename past the first window may keep its own number there.
+    let entry = volume
+        .rename(&entry, directory, "Long File Renamed.txt")
+        .unwrap();
+    assert_eq!(entry.short_name(), *b"LON~1031TXT");
     volume.remove_file(&seventh.unwrap()).unwrap();
     let entry = volume.create_file(directory, "Long File 2.txt").unwrap();
     assert_eq!(entry.short_name(), *b"LONGFI~7TXT");
@@ -478,4 +490,46 @@ fn a_directory_stops_growing_at_65536_entries() {
         assert_eq!(volume.grow_directory(0), Ok(false));
         assert_eq!(volume.chain(first).count() as u64, wanted);
     }
+}
+
+/// The small FAT12 volume, counting the sectors it writes.
+struct Counted {
+    image: Image,
+    writes: u32,
+}
+
+impl crate::sector::SectorDevice for Counted {
+    type Error = u64;
+
+    fn sector_size(&self) -> crate::SectorSize {
+        crate::SectorSize::Bytes512
+    }
+
+    fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
+        self.image.read_sector(index, buffer)
+    }
+}
+
+impl crate::sector::WritableSectorDevice for Counted {
+    fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), u64> {
+        self.writes += 1;
+        self.image.write_sector(index, buffer)
+    }
+}
+
+/// A short entry and the end marker after it, in one sector, go down in one write.
+#[test]
+fn an_end_marker_beside_the_new_entry_rides_in_its_write() {
+    let device = Counted {
+        image: Image::fat12(),
+        writes: 0,
+    };
+    let mut volume = WritableVolume::open(device, NoClock).unwrap();
+    let mut stale = [0u8; SLOT_BYTES];
+    stale[..11].copy_from_slice(b"STALE   TXT");
+    volume.write_slot(0, 1, &stale).unwrap();
+    let before = volume.device.writes;
+    volume.create_file(0, "A.TXT").unwrap();
+    assert_eq!(volume.device.writes - before, 1);
+    assert_eq!(volume.read_slot(0, 1).unwrap().unwrap()[0], 0);
 }
