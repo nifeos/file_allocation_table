@@ -533,3 +533,21 @@ fn an_end_marker_beside_the_new_entry_rides_in_its_write() {
     assert_eq!(volume.device.writes - before, 1);
     assert_eq!(volume.read_slot(0, 1).unwrap().unwrap()[0], 0);
 }
+
+/// A directory whose name is taken is refused before a cluster is taken for it: nothing is
+/// written, not even the dot entries.
+#[test]
+fn a_taken_directory_name_is_refused_before_anything_is_written() {
+    let device = Counted {
+        image: Image::fat12(),
+        writes: 0,
+    };
+    let mut volume = WritableVolume::open(device, NoClock).unwrap();
+    volume.create_directory(0, "Sub Directory").unwrap();
+    let before = volume.device.writes;
+    assert_eq!(
+        volume.create_directory(0, "SUB DIRECTORY"),
+        Err(WriteError::AlreadyExists)
+    );
+    assert_eq!(volume.device.writes, before);
+}
