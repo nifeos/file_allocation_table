@@ -1,5 +1,10 @@
 # file_allocation_table
 
+[![check](https://github.com/nifeos/file_allocation_table/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nifeos/file_allocation_table/actions/workflows/ci.yml?query=branch%3Amain)
+[![proofs](https://github.com/nifeos/file_allocation_table/actions/workflows/proofs.yml/badge.svg?branch=main)](https://github.com/nifeos/file_allocation_table/actions/workflows/proofs.yml?query=branch%3Amain)
+[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/nifeos/file_allocation_table#license)
+[![minimum Rust version](https://img.shields.io/badge/rust-1.88%2B-blue.svg)](https://github.com/nifeos/file_allocation_table/blob/main/Cargo.toml)
+
 File Allocation Table (FAT) volumes as pure computation, in all three widths: FAT12, FAT16 and
 FAT32. The crate reads, writes and formats volumes through a sector interface you implement. It does
 no I/O, needs no allocator (`no_std`), and names no device. It reads and writes the long file
