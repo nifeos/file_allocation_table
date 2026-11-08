@@ -212,11 +212,11 @@ name and byte for byte. If the host has `fsck.fat` or `fsck_msdos`, every image 
 crate reads two FAT32 images that a macOS host formatted and wrote, to their recorded hashes. An
 ignored test has the host's own driver read an image (`cargo test -- --ignored`, on macOS).
 
-Two cargo-fuzz targets in `fuzz/` reach what the proofs bound. `file_allocation_table_boot_sector`
-reads an arbitrary volume at each sector size and walks its directories, chains and files.
-`file_allocation_table_writer` runs arbitrary writes, renames and removals on a hostile image or on
-a volume the crate formatted. Run one with `cargo +nightly fuzz run <target>`; the weekly fuzz job
-runs both for a bounded time.
+Two cargo-fuzz targets in the repository's `fuzz/` directory, which the crates.io package leaves
+out, reach what the proofs bound. `file_allocation_table_boot_sector` reads an arbitrary volume at
+each sector size and walks its directories, chains and files. `file_allocation_table_writer` runs
+arbitrary writes, renames and removals on a hostile image or on a volume the crate formatted. Run
+one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a bounded time.
 
 ## BUGS
 
