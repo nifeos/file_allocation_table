@@ -267,3 +267,19 @@ fn fat32_stops_at_the_last_cluster_the_table_can_number() {
         Err(GeometryError::WrongType(_))
     ));
 }
+
+#[test]
+fn a_volume_with_one_sector_to_each_table_keeps_its_label_in_the_root() {
+    // With one sector to each table, the root's first sector sits right after the two tables;
+    // the tables' range must end there, or the label entry lands in neither.
+    let format = FormatPlan::new(options(256).with_label("SMALL").unwrap(), &mut NoClock).unwrap();
+    assert_eq!(format.table_sectors(), 1);
+    let root = format.geometry.reserved_sectors + 2 * format.table_sectors();
+    let mut sector = [0xFFu8; 512];
+    assert!(format.fill_sector(root, &mut sector));
+    assert_eq!(&sector[..11], b"SMALL      ");
+    assert_eq!(sector[11], 0x08);
+    let mut second_table = [0u8; 512];
+    assert!(format.fill_sector(root - 1, &mut second_table));
+    assert_eq!(second_table[0], 0xF8);
+}
