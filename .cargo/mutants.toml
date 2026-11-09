@@ -1,0 +1,4 @@
+# cargo-mutants reads this. Each `verification.rs` is a module declared under `#[cfg(kani)]`, which
+# `cargo test` never compiles, so a mutant there can only be missed; Kani checks those harnesses.
+# tests/the_mutation_exclusion_covers_only_kani_harnesses.rs holds every matched file to that.
+exclude_globs = ["src/**/verification.rs"]
