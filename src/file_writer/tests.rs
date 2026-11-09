@@ -369,6 +369,20 @@ fn setting_the_length_it_already_has_changes_nothing() {
 }
 
 #[test]
+fn setting_the_length_it_already_has_keeps_a_chain_longer_than_the_size() {
+    // A file of one cluster's bytes on a two-cluster chain, as another driver may leave one.
+    let mut image = Image::fat12();
+    image.link(&[5, 6]);
+    let (mut volume, long) = claimed(image, "LONG.BIN", 5, 512);
+    let free = volume.count_free_clusters().unwrap();
+    let mut writer = volume.open_file_writer(&long).unwrap();
+    writer.set_len(512).unwrap();
+    assert_eq!(writer.size_bytes(), 512);
+    assert_eq!(volume.count_free_clusters().unwrap(), free);
+    assert_eq!(volume.chain(5).count(), 2);
+}
+
+#[test]
 fn an_entry_that_no_longer_matches_its_slot_is_stale_for_every_operation() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     let entry = volume.create_file(0, "OLD.BIN").unwrap();
