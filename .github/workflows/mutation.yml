@@ -1,0 +1,11 @@
+name: mutation
+on:
+  schedule:
+    # This repository's own weekday, tried at 08, 10 and 12 UTC.
+    - cron: '5 8,10,12 * * 3'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mutation:
+    uses: nifeos/crate-workflows/.github/workflows/mutation.yml@57f2d528fc7f6c405592fbd72eea9b04886022d8
