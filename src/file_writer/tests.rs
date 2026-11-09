@@ -383,6 +383,24 @@ fn setting_the_length_it_already_has_keeps_a_chain_longer_than_the_size() {
 }
 
 #[test]
+fn a_whole_sector_overwrite_never_reads_the_sector() {
+    // Cluster 5 is sector 9, and the device refuses to read it: a write that covers the whole
+    // sector has nothing to keep, so it must not ask.
+    let mut image = Image::fat12();
+    image.set(5, 0xFFF);
+    let (volume, _) = claimed(image, "WHOLE.BIN", 5, 512);
+    let mut image = volume.into_device();
+    image.refuse = Some(9);
+    let mut volume = WritableVolume::open(image, NoClock).unwrap();
+    let whole = volume.lookup("WHOLE.BIN").unwrap();
+    let mut writer = volume.open_file_writer(&whole).unwrap();
+    assert_eq!(writer.write(&[9; 512]), Ok(512));
+    assert_eq!(writer.size_bytes(), 512);
+    let image = volume.into_device();
+    assert!(image.bytes[9 * 512..10 * 512].iter().all(|b| *b == 9));
+}
+
+#[test]
 fn an_entry_that_no_longer_matches_its_slot_is_stale_for_every_operation() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     let entry = volume.create_file(0, "OLD.BIN").unwrap();
