@@ -3,6 +3,10 @@
 //! compiles, so no test could catch a mutant in it and Kani checks it instead. This test holds
 //! the exclusion to that: a `verification.rs` that ordinary builds compile fails here.
 
+// Not under Miri: this test reads the repository's own files, which Miri's isolation refuses. It
+// checks source text, not the crate's behavior, so Miri has nothing to find in it.
+#![cfg(not(miri))]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
