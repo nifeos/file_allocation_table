@@ -6,9 +6,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Every file named `verification.rs` under `dir`.
-fn verification_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).expect("the source directory lists") {
+/// Every file named `verification.rs` under `directory`.
+fn verification_files(directory: &Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(directory).expect("the source directory lists") {
         let path = entry.expect("a directory entry reads").path();
         if path.is_dir() {
             verification_files(&path, out);
@@ -21,17 +21,17 @@ fn verification_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// The file that declares the module `dir`: `dir.rs` beside it, or `dir/mod.rs`, or for `src`
-/// itself `src/lib.rs`.
-fn declaring_file(dir: &Path, src: &Path) -> PathBuf {
-    if dir == src {
+/// The file that declares the module at `directory`: the `.rs` file beside it, else `mod.rs`
+/// inside it, or for `src` itself `src/lib.rs`.
+fn declaring_file(directory: &Path, src: &Path) -> PathBuf {
+    if directory == src {
         return src.join("lib.rs");
     }
-    let beside = dir.with_extension("rs");
+    let beside = directory.with_extension("rs");
     if beside.is_file() {
         beside
     } else {
-        dir.join("mod.rs")
+        directory.join("mod.rs")
     }
 }
 
@@ -61,20 +61,20 @@ fn declares_only_under_kani(text: &str) -> bool {
 fn every_excluded_file_is_a_module_only_kani_compiles() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     // The package leaves `.cargo` out, and where there is no exclusion there is nothing to hold.
-    let Ok(config) = fs::read_to_string(root.join(".cargo/mutants.toml")) else {
+    let Ok(configuration) = fs::read_to_string(root.join(".cargo/mutants.toml")) else {
         return;
     };
     assert!(
-        config.contains(r#"exclude_globs = ["src/**/verification.rs"]"#),
-        "the exclusion this test checks is not the one in .cargo/mutants.toml:\n{config}"
+        configuration.contains(r#"exclude_globs = ["src/**/verification.rs"]"#),
+        "the exclusion this test checks is not the one in .cargo/mutants.toml:\n{configuration}"
     );
     let src = root.join("src");
     let mut files = Vec::new();
     verification_files(&src, &mut files);
     assert!(!files.is_empty(), "no verification.rs under src");
     for file in files {
-        let dir = file.parent().expect("a file has a directory");
-        let declaring = declaring_file(dir, &src);
+        let directory = file.parent().expect("a file has a directory");
+        let declaring = declaring_file(directory, &src);
         let text = fs::read_to_string(&declaring)
             .unwrap_or_else(|error| panic!("{}: {error}", declaring.display()));
         assert!(
