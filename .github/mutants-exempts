@@ -6,27 +6,26 @@
 # Mutation census row carried from the source tree, as counts: caught 137, missed 0, timeout 0, unviable 0.
 # No mutant was missed, so no line is expected below.
 
-# Rule: a survivor that sits only in the body of a `#[cfg(kani)]` harness is an equivalent mutant.
-# Those bodies compile only under Kani, which already checks them, so the ordinary tests cannot see
-# the mutation. Code the ordinary tests compile gets no such acceptance: such a survivor needs a test.
-#
-# Survivors of `cargo mutants --in-diff` over the range that added the stored-time harness, 31 mutants
-# on 12 lines; a mutant is listed once per line.
-src/directory/verification.rs:20 # cfg(kani) harness every_slot_parses_as_its_bytes_say: its body compiles only under Kani, which checks it
-src/time/verification.rs:65 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-src/time/verification.rs:75 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-src/time/verification.rs:76 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-src/time/verification.rs:77 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-src/time/verification.rs:78 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-src/time/verification.rs:79 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-src/time/verification.rs:80 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-src/time/verification.rs:109 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-src/time/verification.rs:114 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-src/time/verification.rs:115 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-src/time/verification.rs:116 # cfg(kani) harness every_stored_time_reads_back_as_legal_fields_or_none: its body compiles only under Kani, which checks it
-#
-# Survivors of `cargo mutants --in-diff` over the range that added the alias window and tail
-# number harnesses, 7 mutants on 3 lines; a mutant is listed once per line.
-src/directory_writer/verification.rs:83 # cfg(kani) harness the_first_free_alias_number_is_the_least_one_not_marked: its body compiles only under Kani, which checks it
-src/directory_writer/verification.rs:97 # cfg(kani) harness the_first_free_alias_number_is_the_least_one_not_marked: its body compiles only under Kani, which checks it
-src/long_name/verification.rs:170 # cfg(kani) harness every_alias_reads_back_through_its_tail_number: its body compiles only under Kani, which checks it
+# The Kani harness files, `src/**/verification.rs`, are not mutated at all: `.cargo/mutants.toml`
+# excludes them, since each is a module declared under `#[cfg(kani)]` that `cargo test` never
+# compiles, so no test can catch a mutant there and Kani checks those bodies instead.
+# tests/the_mutation_exclusion_covers_only_kani_harnesses.rs fails if one stops being such a module.
+# Code the ordinary tests compile gets no such acceptance: a survivor there needs a test, or a line
+# here saying why it is equivalent behavior.
+
+# Survivors of the full weekly run in code the tests compile, each read against its source.
+# Equivalent: `|` and `^` agree when the two sides share no bit.
+src/directory.rs:28 # READ_ONLY, HIDDEN, SYSTEM and VOLUME_ID are four distinct bits, so `^` between them is `|`
+src/directory.rs:120 # `high << 16` has no bit in the low 16 and `low` is a u16 widened, so `^` is `|`
+src/directory_writer.rs:644 # `high << 16` has no bit in the low 16 and the low half is a u16 widened, so `^` is `|`
+src/long_name.rs:160 # the ordinal is at most 20 (255 units, 13 to an entry), below LAST_LONG_ENTRY's 0x40, so `^` is `|`
+# Equivalent: the change reaches only text the next step discards.
+src/long_name.rs:132 # `i * 1` keeps the period at the head of the extension, and `fold` skips periods
+# Equivalent: a bound that no reachable state meets, or meets one step sooner.
+src/write_cursor.rs:207 # `passes` feeds only the debug assertion against a stuck loop, and no pass writes zero bytes
+src/write_cursor.rs:162 # `steps` reaches the cluster count only on a chain longer than the volume, so `>=` or `==` refuses the same chains as `>`
+src/file_writer.rs:402 # `passes` only bounds a loop that ends when `step` is 0; a larger bound runs no more passes (on a 64-bit host, below 4 GiB of length plus size)
+# Hangs: the mutant takes away what ends a loop, and every test that reaches it runs to the timeout.
+src/write_cursor.rs:140 # `<=` meets `at == index` only after the early return took it; `false` or `==` drops the cursor, so every reach walks from the first cluster and the tests run past the timeout
+src/reader.rs:266 # a step that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
+src/reader.rs:275 # an advance that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
