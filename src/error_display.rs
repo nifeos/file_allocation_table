@@ -10,9 +10,9 @@ use core::error::Error;
 use core::fmt;
 
 use crate::{
-    ChainError, FileOpenError, FileReadError, FileSystemInformationError, FormatError, LayoutError,
-    LongFileNameError, LookupError, MasterBootRecordError, MasterBootRecordReadError, ParseError,
-    PartitionError, ReadError, TableEntry, WriteError,
+    ChainError, CivilDateTimeError, FileOpenError, FileReadError, FileSystemInformationError,
+    FormatError, LayoutError, LongFileNameError, LookupError, MasterBootRecordError,
+    MasterBootRecordReadError, ParseError, PartitionError, ReadError, TableEntry, WriteError,
 };
 
 impl fmt::Display for ParseError {
@@ -108,6 +108,20 @@ impl<E: Error + 'static> Error for ChainError<E> {
         }
     }
 }
+
+impl fmt::Display for CivilDateTimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            CivilDateTimeError::Month => "the month is not 1 to 12",
+            CivilDateTimeError::Day => "the day is not a day of its month",
+            CivilDateTimeError::Hour => "the hour is past 23",
+            CivilDateTimeError::Minute => "the minute is past 59",
+            CivilDateTimeError::Second => "the second is past 59",
+        })
+    }
+}
+
+impl Error for CivilDateTimeError {}
 
 impl fmt::Display for FileOpenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

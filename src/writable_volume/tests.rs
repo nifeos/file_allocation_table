@@ -21,14 +21,7 @@ impl Clock for Shared<'_> {
 }
 
 fn at(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> Option<CivilDateTime> {
-    Some(CivilDateTime {
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-    })
+    Some(CivilDateTime::new(year, month, day, hour, minute, second).expect("a real date"))
 }
 
 /// The root directory's first sector in the test image.
@@ -310,14 +303,14 @@ fn the_volume_without_a_clock_cannot_write_and_the_clock_is_given_back_with_the_
     assert_eq!(read_only.count_free_clusters(), Ok(350));
 }
 
-/// The times FAT cannot store that the refusal tests try.
-fn bad_times() -> [Option<CivilDateTime>; 5] {
+/// The real dates FAT cannot store that the refusal tests try: the moments beside its first and
+/// last years, and the ends of the year's range.
+fn bad_times() -> [Option<CivilDateTime>; 4] {
     [
         at(1979, 12, 31, 23, 59, 58),
         at(2108, 1, 1, 0, 0, 0),
-        at(2026, 13, 1, 0, 0, 0),
-        at(2026, 1, 1, 24, 0, 0),
-        at(2026, 1, 1, 0, 60, 0),
+        at(0, 1, 1, 0, 0, 0),
+        at(u16::MAX, 12, 31, 23, 59, 59),
     ]
 }
 

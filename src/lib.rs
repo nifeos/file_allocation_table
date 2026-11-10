@@ -129,7 +129,7 @@ pub use named_entry::{NamedEntries, NamedEntry};
 pub use reader::{Chain, ChainError, Volume};
 pub use sector::{SectorDevice, SectorSize, WritableSectorDevice};
 pub use table::TableEntry;
-pub use time::{CivilDateTime, Clock, NoClock};
+pub use time::{CivilDateTime, CivilDateTimeError, Clock, NoClock};
 pub use volume::{LayoutError, VolumeLayout};
 pub use writable_volume::WritableVolume;
 pub use write_cursor::WriteError;

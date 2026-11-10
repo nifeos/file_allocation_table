@@ -230,8 +230,9 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
   crate expects the clock to supply Coordinated Universal Time (UTC). The crate stores exactly the
   fields the clock reports and converts nothing, so it cannot check that a clock gives UTC. A reader
   that treats FAT times as local time, such as Windows, shows a UTC value as local time. A read
-  takes no clock and never writes. A time outside 1980 to 2107, or a field outside its range,
-  fails with `TimeOutOfRange` before the crate writes a byte. A clock that cannot report the time
+  takes no clock and never writes. `CivilDateTime::new` refuses a date no calendar holds, and a
+  year outside 1980 to 2107 fails with `TimeOutOfRange` before the crate writes a byte. A stored
+  date no calendar holds reads as `None`. A clock that cannot report the time
   returns `None` and gets the zero timestamp. A write sets the write and access times, a new
   entry gets its creation time, a rename keeps the times, and a read stamps nothing. An entry's
   `created`, `modified` and `accessed` read them back: the creation time to the second, the write

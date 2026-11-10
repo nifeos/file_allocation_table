@@ -3,14 +3,7 @@
 use super::*;
 
 fn at(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> CivilDateTime {
-    CivilDateTime {
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-    }
+    CivilDateTime::new(year, month, day, hour, minute, second).expect("a real date")
 }
 
 /// The packed fields of a time that must be legal.
@@ -60,16 +53,81 @@ fn the_first_and_last_moments_are_accepted_and_the_ones_beside_them_are_refused(
 
 #[test]
 fn each_field_just_outside_its_range_is_refused_and_just_inside_is_accepted() {
-    let legal = |t: CivilDateTime| Stamp::pack(Some(t)).is_ok();
-    assert!(!legal(at(2000, 0, 1, 0, 0, 0)) && legal(at(2000, 1, 1, 0, 0, 0)));
-    assert!(!legal(at(2000, 13, 1, 0, 0, 0)) && legal(at(2000, 12, 1, 0, 0, 0)));
-    assert!(!legal(at(2000, 1, 0, 0, 0, 0)) && legal(at(2000, 1, 1, 0, 0, 0)));
-    assert!(!legal(at(2000, 1, 32, 0, 0, 0)) && legal(at(2000, 1, 31, 0, 0, 0)));
-    assert!(!legal(at(2000, 1, 1, 24, 0, 0)) && legal(at(2000, 1, 1, 23, 0, 0)));
-    assert!(!legal(at(2000, 1, 1, 0, 60, 0)) && legal(at(2000, 1, 1, 0, 59, 0)));
-    assert!(!legal(at(2000, 1, 1, 0, 0, 60)) && legal(at(2000, 1, 1, 0, 0, 59)));
-    // The crate does not check a day against its month.
-    assert!(legal(at(2000, 2, 31, 0, 0, 0)));
+    use CivilDateTimeError::{Day, Hour, Minute, Month, Second};
+    let new = CivilDateTime::new;
+    assert_eq!(new(2000, 0, 1, 0, 0, 0), Err(Month));
+    assert_eq!(new(2000, 13, 1, 0, 0, 0), Err(Month));
+    assert!(new(2000, 1, 1, 0, 0, 0).is_ok() && new(2000, 12, 1, 0, 0, 0).is_ok());
+    assert_eq!(new(2000, 1, 0, 0, 0, 0), Err(Day));
+    assert_eq!(new(2000, 1, 32, 0, 0, 0), Err(Day));
+    assert!(new(2000, 1, 31, 0, 0, 0).is_ok());
+    assert_eq!(new(2000, 1, 1, 24, 0, 0), Err(Hour));
+    assert!(new(2000, 1, 1, 23, 0, 0).is_ok());
+    assert_eq!(new(2000, 1, 1, 0, 60, 0), Err(Minute));
+    assert!(new(2000, 1, 1, 0, 59, 0).is_ok());
+    assert_eq!(new(2000, 1, 1, 0, 0, 60), Err(Second));
+    assert!(new(2000, 1, 1, 0, 0, 59).is_ok());
+}
+
+#[test]
+fn a_day_past_the_end_of_its_month_is_refused() {
+    let new = CivilDateTime::new;
+    for (month, last) in [
+        (1, 31),
+        (3, 31),
+        (4, 30),
+        (5, 31),
+        (6, 30),
+        (7, 31),
+        (8, 31),
+        (9, 30),
+        (10, 31),
+        (11, 30),
+        (12, 31),
+    ] {
+        assert!(new(2026, month, last, 0, 0, 0).is_ok(), "month {month}");
+        assert_eq!(
+            new(2026, month, last + 1, 0, 0, 0),
+            Err(CivilDateTimeError::Day),
+            "month {month}"
+        );
+    }
+    // February: 29 days in a Gregorian leap year, 28 otherwise; a century is a leap year only
+    // when it divides by 400.
+    for (year, last) in [(2024, 29), (2026, 28), (2000, 29), (2100, 28), (1980, 29)] {
+        assert!(new(year, 2, last, 0, 0, 0).is_ok(), "{year}");
+        assert_eq!(
+            new(year, 2, last + 1, 0, 0, 0),
+            Err(CivilDateTimeError::Day),
+            "{year}"
+        );
+    }
+}
+
+#[test]
+fn any_year_is_a_date_and_the_getters_read_back_each_field() {
+    let time = CivilDateTime::new(1066, 10, 14, 9, 30, 59).unwrap();
+    assert_eq!(
+        (
+            time.year(),
+            time.month(),
+            time.day(),
+            time.hour(),
+            time.minute(),
+            time.second()
+        ),
+        (1066, 10, 14, 9, 30, 59)
+    );
+    // A real date FAT cannot store is the writer's refusal, not the constructor's.
+    assert!(Stamp::pack(Some(time)).is_err());
+}
+
+#[test]
+fn a_stored_day_past_the_end_of_its_month_reads_as_no_time() {
+    // 2026-02-30, which the specification's five-bit day field can hold.
+    let date = (46 << 9) + (2 << 5) + 30;
+    assert_eq!(unpack(date, 0, 0), None);
+    assert!(unpack(date - 2, 0, 0).is_some());
 }
 
 #[test]

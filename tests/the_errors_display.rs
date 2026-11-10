@@ -8,9 +8,10 @@ use std::error::Error;
 use std::fmt;
 
 use file_allocation_table::{
-    ChainError, FileOpenError, FileReadError, FileSystemInformationError, FormatError, LayoutError,
-    LongFileNameError, LookupError, MasterBootRecordError, MasterBootRecordReadError, ParseError,
-    PartitionError, ReadError, SectorSize, TableEntry, WriteError,
+    ChainError, CivilDateTimeError, FileOpenError, FileReadError, FileSystemInformationError,
+    FormatError, LayoutError, LongFileNameError, LookupError, MasterBootRecordError,
+    MasterBootRecordReadError, ParseError, PartitionError, ReadError, SectorSize, TableEntry,
+    WriteError,
 };
 
 /// A device error that is a `std::error::Error`.
@@ -96,6 +97,13 @@ fn every_parse_and_format_error_has_its_own_message() {
         LongFileNameError::BadPadding,
     ]);
     messages(&[FileOpenError::IsADirectory, FileOpenError::IsAVolumeLabel]);
+    messages(&[
+        CivilDateTimeError::Month,
+        CivilDateTimeError::Day,
+        CivilDateTimeError::Hour,
+        CivilDateTimeError::Minute,
+        CivilDateTimeError::Second,
+    ]);
     let partitions = messages(&[
         MasterBootRecordError::TooShort,
         MasterBootRecordError::NoSignature,

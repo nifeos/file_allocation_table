@@ -103,14 +103,16 @@ impl Clock for Fed {
         if next[0] < 32 {
             return None;
         }
-        Some(CivilDateTime {
-            year: u16::from_le_bytes([next[0], next[1]]),
-            month: next[2],
-            day: next[3],
-            hour: next[4],
-            minute: next[5],
-            second: next[6],
-        })
+        // A date no calendar holds is no time, the zero timestamp.
+        CivilDateTime::new(
+            u16::from_le_bytes([next[0], next[1]]),
+            next[2],
+            next[3],
+            next[4],
+            next[5],
+            next[6],
+        )
+        .ok()
     }
 }
 

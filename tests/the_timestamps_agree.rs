@@ -34,14 +34,7 @@ impl Clock for Shared<'_> {
 }
 
 fn at(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> Option<CivilDateTime> {
-    Some(CivilDateTime {
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-    })
+    Some(CivilDateTime::new(year, month, day, hour, minute, second).expect("a real date"))
 }
 
 /// A volume held in memory, read and written one sector at a time.
@@ -262,8 +255,7 @@ fn a_time_fat_cannot_store_is_refused_and_the_edges_pass_fsck() {
     for (label, time) in [
         ("before-1980", at(1979, 12, 31, 23, 59, 58)),
         ("after-2107", at(2108, 1, 1, 0, 0, 0)),
-        ("month-13", at(2000, 13, 1, 0, 0, 0)),
-        ("hour-99", at(2000, 1, 1, 99, 0, 0)),
+        ("year-0", at(0, 1, 1, 0, 0, 0)),
     ] {
         let now = Cell::new(time);
         let volume = WritableVolume::open(formatted(4, FatType::Fat12, 512), Shared(&now)).unwrap();
