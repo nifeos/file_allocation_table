@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::efi_system_partition::BYTES_PER_SECTOR;
-use crate::{NoClock, VolumeLayout};
+use crate::{NoClock, VolumeLayout, VolumeLayoutOptions};
 
 const FAT12_FLOPPY: &[u8; 512] = include_bytes!("../../tests/fixtures/fat12-floppy.boot");
 const FAT16_32M: &[u8; 512] = include_bytes!("../../tests/fixtures/fat16-32m.boot");
@@ -199,16 +199,13 @@ fn a_fat32_layout_under_the_cluster_floor_is_refused() {
 
 #[test]
 fn what_this_crates_mkfs_writes_parses_to_the_same_geometry() {
-    let volume = VolumeLayout::new(
-        1024 * 1024,
-        2048,
-        9_000_000,
-        0x1234_5678,
-        "EFI SYSTEM",
-        "BOOTX64.EFI",
-        &mut NoClock,
-    )
-    .unwrap();
+    let volume = VolumeLayoutOptions::new(1024 * 1024)
+        .with_hidden_sectors(2048)
+        .with_volume_id(0x1234_5678)
+        .with_label("EFI SYSTEM")
+        .and_then(|o| o.with_file("BOOTX64.EFI", 9_000_000))
+        .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+        .unwrap();
     let mut sector = [0u8; BYTES_PER_SECTOR];
     for index in [0, 6] {
         assert!(volume.fill_sector(index, &mut sector));

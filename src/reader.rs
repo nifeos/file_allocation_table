@@ -40,10 +40,17 @@ pub enum ChainError<E> {
 ///
 /// ```
 /// use file_allocation_table::efi_system_partition::BYTES_PER_SECTOR;
-/// use file_allocation_table::{NoClock, SectorDevice, SectorSize, Volume, VolumeLayout};
+/// use file_allocation_table::{
+///     NoClock, SectorDevice, SectorSize, Volume, VolumeLayout, VolumeLayoutOptions,
+/// };
 ///
 /// // A volume this crate's writer lays out, held in memory.
-/// let layout = VolumeLayout::new(70_000 * 8 + 2_000, 0, 5_000, 1, "EFI SYSTEM", "BOOTX64.EFI", &mut NoClock).unwrap();
+/// let options = VolumeLayoutOptions::new(70_000 * 8 + 2_000)
+///     .with_volume_id(1)
+///     .with_label("EFI SYSTEM")
+///     .and_then(|options| options.with_file("BOOTX64.EFI", 5_000))
+///     .unwrap();
+/// let layout = VolumeLayout::new(options, &mut NoClock).unwrap();
 /// struct Image(VolumeLayout);
 /// impl SectorDevice for Image {
 ///     type Error = ();

@@ -114,11 +114,14 @@ fn main() {
 
 A documentation test compiles and runs this example. Every write goes through a `WritableVolume`,
 which needs a `Clock`. `NoClock` is the explicit "no time", and the entries it stamps carry the zero
-timestamp. For an EFI system partition, `VolumeLayout::new` takes the total and hidden sector counts,
-the boot file's size, the volume identifier, the label, the boot file's name and a clock, and then
-tells you what every metadata sector holds. Write sectors `0..metadata_sectors()`
-from `fill_sector`, then the file's bytes from `file_first_sector()` on, `file_sectors()` long. You
-choose the label, such as `"EFI SYSTEM"`.
+timestamp. `FormatPlan` formats any FAT volume onto a device, and a `WritableVolume` then writes its
+files. `VolumeLayout` is for one shape, an EFI system partition, written without a device in one
+pass. `VolumeLayout::new` takes a `VolumeLayoutOptions` and a clock. The options hold the total
+sector count, and optionally the hidden sectors, the volume identifier, a label you choose, such as
+`"EFI SYSTEM"`, and the one boot file's name and size. The layout then tells you what every metadata
+sector holds. Write sectors `0..metadata_sectors()` from `fill_sector`, then the file's bytes from
+`file_first_sector()` on, `file_sectors()` long. Without a label the volume has none, and without a
+file it is an empty FAT32 volume.
 
 A `PartitionDevice` only reads. To write inside a partition, wrap the whole-disk device in a small
 device of your own. It adds the partition's first sector to every index, and the volume opens

@@ -23,7 +23,7 @@ use std::process::Command;
 use file_allocation_table::efi_system_partition::BYTES_PER_SECTOR;
 use file_allocation_table::{
     DirectoryCluster, LookupError, MasterBootRecord, NamedEntry, NoClock, SectorDevice, SectorSize,
-    ShortEntry, TableEntry, Volume, VolumeLayout,
+    ShortEntry, TableEntry, Volume, VolumeLayout, VolumeLayoutOptions,
 };
 use lamfat::{Read, Write};
 
@@ -468,16 +468,12 @@ fn this_crate_reads_what_rust_fatfs_wrote_on_fat32() {
 fn rust_fatfs_reads_what_this_crate_wrote() {
     const FILE_LENGTH_BYTES: usize = 100_000;
     let total = 70_000 * 8 + 2_000;
-    let layout = VolumeLayout::new(
-        total,
-        0,
-        FILE_LENGTH_BYTES as u64,
-        0x1234_5678,
-        "EFI SYSTEM",
-        "BOOTRISCV64.EFI",
-        &mut NoClock,
-    )
-    .expect("a FAT32 volume");
+    let layout = VolumeLayoutOptions::new(total)
+        .with_volume_id(0x1234_5678)
+        .with_label("EFI SYSTEM")
+        .and_then(|o| o.with_file("BOOTRISCV64.EFI", FILE_LENGTH_BYTES as u64))
+        .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+        .expect("a FAT32 volume");
     let mut image = vec![0u8; total as usize * BYTES_PER_SECTOR];
     for index in 0..layout.metadata_sectors() {
         let at = index as usize * BYTES_PER_SECTOR;
@@ -536,4 +532,61 @@ fn rust_fatfs_reads_what_this_crate_wrote() {
         .filter(|&c| volume.table_entry(c).unwrap() == TableEntry::Free)
         .count();
     assert_eq!(our_free as u32, free);
+}
+
+#[test]
+fn a_layout_without_a_label_or_a_file_is_an_empty_volume_both_readers_accept() {
+    let total = 70_000 * 8 + 2_000;
+    let bare = VolumeLayoutOptions::new(total).with_volume_id(0x1234_5678);
+    for (label, options) in [
+        ("bare", bare),
+        ("with-label", bare.with_label("EFI SYSTEM").unwrap()),
+        ("file-only", bare.with_file("BOOTX64.EFI", 5_000).unwrap()),
+    ] {
+        let layout = VolumeLayout::new(options, &mut NoClock).expect("a FAT32 volume");
+        let mut image = vec![0u8; total as usize * BYTES_PER_SECTOR];
+        for index in 0..layout.metadata_sectors() {
+            let at = index as usize * BYTES_PER_SECTOR;
+            assert!(layout.fill_sector(index, &mut image[at..at + BYTES_PER_SECTOR]));
+        }
+        check_with_fsck(&image, &format!("layout-{label}"));
+        let fs = lamfat::FileSystem::new(
+            lamfat::StdIoWrapper::from(Cursor::new(image.clone())),
+            lamfat::FsOptions::new(),
+        )
+        .expect("rust-fatfs mounts it");
+        let free = fs.stats().unwrap().free_clusters();
+        let mut volume = Volume::open(Memory {
+            bytes: &image,
+            bytes_per_sector: SectorSize::Bytes512,
+        })
+        .unwrap();
+        let named: Vec<_> = volume
+            .root_named_entries()
+            .map(|entry| entry.unwrap())
+            .filter(|entry| !entry.is_volume_label())
+            .map(|entry| entry.short_name())
+            .collect();
+        let clusters = volume.boot_sector().clusters();
+        match label {
+            "bare" | "with-label" => {
+                // An empty volume: the root and nothing in it, every other cluster free.
+                assert!(named.is_empty(), "{label}");
+                assert_eq!(layout.file_sectors(), 0, "{label}");
+                assert_eq!(free, clusters - 1, "{label}");
+            }
+            _ => {
+                assert_eq!(named, [*b"EFI        "], "{label}");
+                assert!(volume.lookup("EFI/BOOT/BOOTX64.EFI").is_ok(), "{label}");
+            }
+        }
+        let read_label = volume.volume_label().unwrap();
+        if label == "with-label" {
+            assert_eq!(read_label.unwrap().trim_ascii_end(), b"EFI SYSTEM");
+        } else {
+            // The boot sector holds `NO NAME` and the root no label entry: no label.
+            assert_eq!(read_label, None, "{label}");
+            assert_eq!(&image[71..82], b"NO NAME    ", "{label}");
+        }
+    }
 }

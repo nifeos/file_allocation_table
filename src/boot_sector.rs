@@ -154,9 +154,16 @@ pub enum ReadError<E> {
 ///
 /// ```
 /// use file_allocation_table::efi_system_partition::{MINIMUM_FAT32_CLUSTERS, BYTES_PER_SECTOR};
-/// use file_allocation_table::{BootSector, FileAllocationTableType, NoClock, VolumeLayout};
+/// use file_allocation_table::{
+///     BootSector, FileAllocationTableType, NoClock, VolumeLayout, VolumeLayoutOptions,
+/// };
 ///
-/// let volume = VolumeLayout::new(1024 * 1024, 0, 4096, 1, "EFI SYSTEM", "BOOTX64.EFI", &mut NoClock).unwrap();
+/// let options = VolumeLayoutOptions::new(1024 * 1024)
+///     .with_volume_id(1)
+///     .with_label("EFI SYSTEM")
+///     .and_then(|options| options.with_file("BOOTX64.EFI", 4096))
+///     .unwrap();
+/// let volume = VolumeLayout::new(options, &mut NoClock).unwrap();
 /// let mut sector = [0u8; BYTES_PER_SECTOR];
 /// volume.fill_sector(0, &mut sector);
 ///

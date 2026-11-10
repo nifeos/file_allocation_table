@@ -130,6 +130,6 @@ pub use reader::{Chain, ChainError, DirectoryCluster, Volume};
 pub use sector::{SectorDevice, SectorSize, WritableSectorDevice};
 pub use table::TableEntry;
 pub use time::{CivilDateTime, CivilDateTimeError, Clock, NoClock};
-pub use volume::{LayoutError, VolumeLayout};
+pub use volume::{LayoutError, VolumeLayout, VolumeLayoutOptions};
 pub use writable_volume::WritableVolume;
 pub use write_cursor::WriteError;
