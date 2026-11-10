@@ -107,7 +107,7 @@ fn read_everything<D: SectorDevice>(device: D) {
     assert!(bytes[..5000].iter().all(|b| *b == 7));
     assert!(volume.root_named_entries().count() >= 2);
     assert_eq!(
-        volume.volume_label().ok().unwrap().unwrap().trimmed(),
+        volume.volume_label().ok().unwrap().unwrap().trim_ascii_end(),
         b"READS"
     );
     assert!(volume.count_free_clusters().ok().unwrap() > 0);

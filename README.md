@@ -104,7 +104,7 @@ fn main() {
         .unwrap();
     assert_eq!(&bytes[..read], b"hello, volume");
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trimmed(),
+        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
         b"EXAMPLE"
     );
 }

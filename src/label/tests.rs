@@ -11,12 +11,12 @@ fn a_volume_with_no_label_reads_as_none_and_a_set_label_reads_back() {
     volume.set_volume_label("MY DISK").unwrap();
     let label = volume.volume_label().unwrap().unwrap();
     assert_eq!(label.as_bytes(), b"MY DISK    ");
-    assert_eq!(label.trimmed(), b"MY DISK");
+    assert_eq!(label.trim_ascii_end(), b"MY DISK");
     // The entry is the first in the root and the root still lists it as the label.
     let first = volume.root_named_entries().next().unwrap().unwrap();
     assert!(first.is_volume_label());
     volume.set_volume_label("OTHER").unwrap();
-    assert_eq!(volume.volume_label().unwrap().unwrap().trimmed(), b"OTHER");
+    assert_eq!(volume.volume_label().unwrap().unwrap().trim_ascii_end(), b"OTHER");
     let labels = volume
         .root_named_entries()
         .map(|e| e.unwrap())
@@ -46,7 +46,7 @@ fn the_boot_sectors_copy_is_read_when_the_root_has_no_entry() {
     image.bytes[43..54].copy_from_slice(b"BOOT LABEL ");
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trimmed(),
+        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
         b"BOOT LABEL"
     );
     // "NO NAME" is the absence of a label, and so is an all-space field.
@@ -86,4 +86,15 @@ fn a_full_fixed_root_has_no_room_for_a_first_label() {
             .unwrap();
     }
     assert_eq!(volume.set_volume_label("X"), Err(WriteError::DirectoryFull));
+}
+
+#[test]
+fn trim_ascii_end_is_the_standard_librarys_on_the_stored_bytes() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    for name in ["A", "MY DISK", "ELEVEN CHRS", "TWO  SPACES"] {
+        volume.set_volume_label(name).unwrap();
+        let label = volume.volume_label().unwrap().unwrap();
+        assert_eq!(label.trim_ascii_end(), label.as_bytes().trim_ascii_end());
+        assert_eq!(label.trim_ascii_end(), name.as_bytes());
+    }
 }

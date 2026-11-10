@@ -27,10 +27,10 @@ impl VolumeLabel {
         &self.0
     }
 
-    /// The name without its trailing spaces.
-    pub fn trimmed(&self) -> &[u8] {
-        let end = self.0.iter().rposition(|b| *b != b' ').map_or(0, |i| i + 1);
-        &self.0[..end]
+    /// The name without its trailing spaces: the standard library's `trim_ascii_end` on the
+    /// eleven bytes, and the same result for every label.
+    pub fn trim_ascii_end(&self) -> &[u8] {
+        self.0.trim_ascii_end()
     }
 }
 

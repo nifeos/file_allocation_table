@@ -217,7 +217,7 @@ fn labels_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     );
     volume.set_volume_label("LAMFAT LBL").unwrap();
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trimmed(),
+        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
         b"LAMFAT LBL"
     );
     volume.mark_clean().unwrap();
@@ -293,7 +293,7 @@ fn a_label_the_format_wrote_reads_back_and_changes() {
         assert_eq!(lamfat_label(&image.bytes), "FORMATTED");
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
         assert_eq!(
-            volume.volume_label().unwrap().unwrap().trimmed(),
+            volume.volume_label().unwrap().unwrap().trim_ascii_end(),
             b"FORMATTED"
         );
         volume.set_volume_label("CHANGED").unwrap();
@@ -335,7 +335,7 @@ fn a_label_mkfs_fat_wrote_reads_back_and_changes() {
     )
     .unwrap();
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trimmed(),
+        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
         b"MKFSLABEL"
     );
     volume.set_volume_label("AFTER").unwrap();
