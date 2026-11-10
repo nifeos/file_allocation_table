@@ -102,9 +102,10 @@ impl VolumeLayoutOptions {
         }
     }
 
-    /// The partition's own first LBA on the disk, which goes into `BPB_HiddSec`. It is a field
-    /// some boot code reads and nothing here does; passing the wrong value does not move a single
-    /// byte this crate places, because every other offset is partition-relative.
+    /// The partition's own first logical block address (LBA) on the disk, which goes into
+    /// `BPB_HiddSec`. It is a field some boot code reads and nothing here does; passing the wrong
+    /// value does not move a single byte this crate places, because every other offset is
+    /// partition-relative.
     #[must_use]
     pub const fn with_hidden_sectors(mut self, hidden_sectors: u64) -> VolumeLayoutOptions {
         self.hidden_sectors = hidden_sectors;
