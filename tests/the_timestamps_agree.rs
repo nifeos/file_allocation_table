@@ -10,7 +10,6 @@
 // tests run under Miri.
 #![cfg(not(miri))]
 
-use file_allocation_table::DirectoryCluster;
 use std::cell::Cell;
 use std::io::Cursor;
 use std::path::Path;
@@ -20,8 +19,8 @@ use file_allocation_table::efi_system_partition::{
     FILE_CLUSTER, ROOT_CLUSTER, SECTORS_PER_CLUSTER,
 };
 use file_allocation_table::{
-    CivilDateTime, Clock, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, Volume,
-    VolumeLayout, WritableSectorDevice, WritableVolume, WriteError,
+    CivilDateTime, Clock, DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice,
+    SectorSize, Volume, VolumeLayout, WritableSectorDevice, WritableVolume, WriteError,
 };
 use lamfat::FatType;
 

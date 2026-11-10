@@ -15,7 +15,6 @@
 // temporary file, which Miri's isolation refuses. The crate has no `unsafe`.
 #![cfg(not(miri))]
 
-use file_allocation_table::DirectoryCluster;
 use std::cell::Cell;
 use std::io::Cursor;
 use std::path::Path;
@@ -23,8 +22,8 @@ use std::process::Command;
 use std::rc::Rc;
 
 use file_allocation_table::{
-    FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, WritableSectorDevice,
-    WritableVolume,
+    DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
+    WritableSectorDevice, WritableVolume,
 };
 
 /// The volume's size in 512-byte sectors: 128 MiB.

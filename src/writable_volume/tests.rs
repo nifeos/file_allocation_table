@@ -1,7 +1,6 @@
 //! Every stamped field, and every operation that stamps or does not, on the small FAT12 volume
 //! `reader::tests` builds, with a clock the test sets and counts.
 
-use crate::DirectoryCluster;
 use core::cell::Cell;
 
 use super::*;

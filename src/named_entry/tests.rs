@@ -2,7 +2,6 @@
 //! entries.
 
 use super::*;
-use crate::DirectoryCluster;
 use crate::long_name::{LongName, checksum};
 use crate::reader::Volume;
 use crate::reader::tests::Image;
@@ -193,7 +192,7 @@ fn a_listing_yields_nothing_after_an_error_however_often_it_is_asked() {
 #[test]
 fn a_directory_entry_names_its_directory_and_a_file_or_the_label_names_none() {
     use crate::reader::tests::Image;
-    use crate::{NoClock, WritableVolume};
+    use crate::{DirectoryCluster, NoClock, WritableVolume};
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     volume.set_volume_label("LABEL").unwrap();
     let directory = volume

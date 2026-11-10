@@ -5,10 +5,9 @@
 //! type system forbids a write), and a device whose write method panics, both read through a
 //! `Volume` and nothing else. After every kind of read the image is byte for byte what it was.
 
-use file_allocation_table::DirectoryCluster;
 use file_allocation_table::{
-    FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, Volume, WritableSectorDevice,
-    WritableVolume,
+    DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, Volume,
+    WritableSectorDevice, WritableVolume,
 };
 
 /// A device that reads only: it has no write method at all.

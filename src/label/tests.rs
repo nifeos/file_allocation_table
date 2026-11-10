@@ -1,9 +1,8 @@
 //! Labels on the small FAT12 volume `reader::tests` builds.
 
 use super::*;
-use crate::DirectoryCluster;
 use crate::reader::tests::Image;
-use crate::{NoClock, WritableVolume};
+use crate::{DirectoryCluster, NoClock, WritableVolume};
 
 #[test]
 fn a_volume_with_no_label_reads_as_none_and_a_set_label_reads_back() {

@@ -2,9 +2,8 @@
 //! `reader::tests` builds.
 
 use super::*;
-use crate::DirectoryCluster;
 use crate::reader::tests::Image;
-use crate::{NoClock, WritableVolume};
+use crate::{DirectoryCluster, NoClock, WritableVolume};
 
 fn feed(count: u32, kinds: &[SlotKind]) -> Option<u32> {
     let mut finder = RunFinder::new(count);

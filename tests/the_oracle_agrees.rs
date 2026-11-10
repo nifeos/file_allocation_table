@@ -16,15 +16,14 @@
 // tests run under Miri.
 #![cfg(not(miri))]
 
-use file_allocation_table::DirectoryCluster;
 use std::io::Cursor;
 use std::path::Path;
 use std::process::Command;
 
 use file_allocation_table::efi_system_partition::BYTES_PER_SECTOR;
 use file_allocation_table::{
-    LookupError, MasterBootRecord, NamedEntry, NoClock, SectorDevice, SectorSize, ShortEntry,
-    TableEntry, Volume, VolumeLayout,
+    DirectoryCluster, LookupError, MasterBootRecord, NamedEntry, NoClock, SectorDevice, SectorSize,
+    ShortEntry, TableEntry, Volume, VolumeLayout,
 };
 use lamfat::{Read, Write};
 

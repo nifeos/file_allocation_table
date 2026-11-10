@@ -11,14 +11,13 @@
 // tests run under Miri.
 #![cfg(not(miri))]
 
-use file_allocation_table::DirectoryCluster;
 use std::io::Cursor;
 use std::path::Path;
 use std::process::Command;
 
 use file_allocation_table::{
-    Attributes, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, WritableSectorDevice,
-    WritableVolume, WriteError,
+    Attributes, DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
+    WritableSectorDevice, WritableVolume, WriteError,
 };
 use lamfat::{FatType, FileAttributes};
 

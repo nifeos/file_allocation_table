@@ -1,9 +1,8 @@
 //! Attribute sets, the stored byte, and the change on the small FAT12 volume `reader::tests` builds.
 
 use super::*;
-use crate::DirectoryCluster;
 use crate::reader::tests::Image;
-use crate::{NoClock, WritableVolume};
+use crate::{DirectoryCluster, NoClock, WritableVolume};
 
 #[test]
 fn a_set_is_a_union_a_difference_and_a_containment() {

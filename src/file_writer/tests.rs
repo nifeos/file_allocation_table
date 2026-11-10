@@ -3,11 +3,10 @@
 //! root, a stale entry, and a device that refuses a write.
 
 use super::*;
-use crate::DirectoryCluster;
 use crate::directory::ShortEntry;
 use crate::named_entry::NamedEntry;
 use crate::reader::tests::Image;
-use crate::{NoClock, WritableVolume};
+use crate::{DirectoryCluster, NoClock, WritableVolume};
 
 /// A byte that tells its file offset.
 fn pattern(offset: usize) -> u8 {

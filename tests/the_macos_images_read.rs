@@ -12,8 +12,9 @@
 // the crate has no `unsafe`; the library's unit tests walk the same reader.
 #![cfg(not(miri))]
 
-use file_allocation_table::DirectoryCluster;
-use file_allocation_table::{MasterBootRecord, NamedEntry, SectorDevice, SectorSize, Volume};
+use file_allocation_table::{
+    DirectoryCluster, MasterBootRecord, NamedEntry, SectorDevice, SectorSize, Volume,
+};
 
 const BARE: &[u8] = include_bytes!("fixtures/macos/fat32.img.zst");
 const PARTITIONED: &[u8] = include_bytes!("fixtures/macos/fat32-mbr.img.zst");

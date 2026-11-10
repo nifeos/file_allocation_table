@@ -10,14 +10,13 @@
 // tests run under Miri.
 #![cfg(not(miri))]
 
-use file_allocation_table::DirectoryCluster;
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::process::Command;
 
 use file_allocation_table::{
-    BootSector, FileAllocationTableType, FormatError, FormatOptions, FormatPlan, NoClock,
-    SectorDevice, SectorSize, WritableSectorDevice, WritableVolume,
+    BootSector, DirectoryCluster, FileAllocationTableType, FormatError, FormatOptions, FormatPlan,
+    NoClock, SectorDevice, SectorSize, WritableSectorDevice, WritableVolume,
 };
 
 /// A volume held in memory, read and written one sector at a time.
