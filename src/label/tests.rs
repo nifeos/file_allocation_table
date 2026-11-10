@@ -92,7 +92,7 @@ fn a_full_fixed_root_has_no_room_for_a_first_label() {
 }
 
 #[test]
-fn trim_ascii_end_is_the_standard_librarys_on_the_stored_bytes() {
+fn trim_ascii_end_matches_the_standard_library_on_the_stored_bytes() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     for name in ["A", "MY DISK", "ELEVEN CHRS", "TWO  SPACES"] {
         volume.set_volume_label(name).unwrap();
