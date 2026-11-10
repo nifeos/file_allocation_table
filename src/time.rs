@@ -18,27 +18,132 @@
 
 /// **A calendar date and time of day**, as plain numbers with no time zone.
 ///
-/// FAT stores a date and a time of day with no time zone. The value is expected to be UTC. The crate stores these fields as given and converts nothing, so it cannot check that they
-/// are UTC. A reader that treats FAT times as local time, such as Windows, shows a UTC value as
-/// local time.
+/// FAT stores a date and a time of day with no time zone. The value is expected to be UTC. The
+/// crate stores these fields as given and converts nothing, so it cannot check that they are UTC. A
+/// reader that treats FAT times as local time, such as Windows, shows a UTC value as local time.
 ///
-/// The fields need not be valid. A writer refuses a time FAT cannot store (see [`Clock`]) with
-/// `TimeOutOfRange`, and writes nothing.
+/// [`CivilDateTime::new`] is the one way to make a value, and it refuses a date no calendar holds,
+/// so every value is a real date and time of day. A real date can still lie outside the years FAT
+/// stores: a writer refuses that one (see [`Clock`]) with `TimeOutOfRange`, and writes nothing.
+///
+/// # Examples
+///
+/// ```
+/// use file_allocation_table::{CivilDateTime, CivilDateTimeError};
+///
+/// let noon = CivilDateTime::new(2026, 11, 10, 12, 0, 0).unwrap();
+/// assert_eq!((noon.year(), noon.month(), noon.day()), (2026, 11, 10));
+/// assert_eq!(
+///     CivilDateTime::new(2026, 2, 29, 0, 0, 0),
+///     Err(CivilDateTimeError::Day)
+/// );
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CivilDateTime {
-    /// The year, for example 2026. FAT stores 1980 to 2107.
-    pub year: u16,
+    year: u16,
+    month: u8,
+    day: u8,
+    hour: u8,
+    minute: u8,
+    second: u8,
+}
+
+/// **A date no calendar holds**: the field of [`CivilDateTime::new`] that is out of its range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum CivilDateTimeError {
+    /// The month is not 1 to 12.
+    Month,
+    /// The day is 0 or past the last day of its month (February has 29 days in a leap year of the
+    /// Gregorian calendar and 28 otherwise).
+    Day,
+    /// The hour is past 23.
+    Hour,
+    /// The minute is past 59.
+    Minute,
+    /// The second is past 59.
+    Second,
+}
+
+/// The number of days in `month` (1 to 12) of `year`, in the proleptic Gregorian calendar.
+const fn days_in_month(year: u16, month: u8) -> u8 {
+    match month {
+        2 if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) => {
+            29
+        }
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+impl CivilDateTime {
+    /// **A date and time of day**, or the field that makes it one no calendar holds: a month
+    /// outside 1 to 12, a day of 0 or past the end of its month, an hour past 23, a minute or a
+    /// second past 59. Any year is accepted; a writer refuses one FAT cannot store.
+    pub const fn new(
+        year: u16,
+        month: u8,
+        day: u8,
+        hour: u8,
+        minute: u8,
+        second: u8,
+    ) -> Result<CivilDateTime, CivilDateTimeError> {
+        if month < 1 || month > 12 {
+            return Err(CivilDateTimeError::Month);
+        }
+        if day < 1 || day > days_in_month(year, month) {
+            return Err(CivilDateTimeError::Day);
+        }
+        if hour > 23 {
+            return Err(CivilDateTimeError::Hour);
+        }
+        if minute > 59 {
+            return Err(CivilDateTimeError::Minute);
+        }
+        if second > 59 {
+            return Err(CivilDateTimeError::Second);
+        }
+        Ok(CivilDateTime {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+        })
+    }
+
+    /// The year, for example 2026.
+    pub const fn year(&self) -> u16 {
+        self.year
+    }
+
     /// The month, 1 to 12.
-    pub month: u8,
-    /// The day of the month, 1 to 31. The crate does not check the day against the month.
-    pub day: u8,
+    pub const fn month(&self) -> u8 {
+        self.month
+    }
+
+    /// The day of the month, from 1 to the last day of the month.
+    pub const fn day(&self) -> u8 {
+        self.day
+    }
+
     /// The hour, 0 to 23.
-    pub hour: u8,
+    pub const fn hour(&self) -> u8 {
+        self.hour
+    }
+
     /// The minute, 0 to 59.
-    pub minute: u8,
+    pub const fn minute(&self) -> u8 {
+        self.minute
+    }
+
     /// The second, 0 to 59. FAT keeps two-second resolution, and a creation time keeps the odd
     /// second in its tenths byte.
-    pub second: u8,
+    pub const fn second(&self) -> u8 {
+        self.second
+    }
 }
 
 /// **Where a writer gets the time.** A volume that writes holds one.
@@ -50,10 +155,10 @@ pub struct CivilDateTime {
 ///
 /// [`Clock::now`] returns `None` when there is no time to report, and the entry then carries the
 /// zero timestamp. A clock whose time is not trustworthy (one that has not been set, or has lost
-/// power) returns `None`; it does not guess. A time FAT cannot store is refused: a year before 1980
-/// or after 2107, or a field outside its range (month 1 to 12, day 1 to 31, hour 0 to 23, minute
-/// and second 0 to 59). The operation then fails with `TimeOutOfRange` before it writes a byte,
-/// and the writer stays usable. The crate does not check a day against its month.
+/// power) returns `None`; it does not guess. A time FAT cannot store, a year before 1980 or after
+/// 2107, is refused: the operation then fails with `TimeOutOfRange` before it writes a byte, and
+/// the writer stays usable. A date no calendar holds never reaches a writer, because
+/// [`CivilDateTime::new`] refuses it.
 ///
 /// The crate takes the clock as a type parameter and not as a trait object, so it needs no
 /// allocator and no `dyn` indirection, and a caller's clock is a plain value.
@@ -134,20 +239,14 @@ impl Stamp {
         write_date: 0,
     };
 
-    /// **Pack `now`**, or refuse it. `None` packs to [`Stamp::ZERO`]. A time FAT cannot store (a
-    /// year outside 1980 to 2107, a month outside 1 to 12, a day outside 1 to 31, an hour past 23, a
-    /// minute or second past 59) is [`OutOfRange`]. The check runs before any byte is written.
+    /// **Pack `now`**, or refuse it. `None` packs to [`Stamp::ZERO`]. A year outside 1980 to 2107
+    /// is [`OutOfRange`]; every other field is already in range, because [`CivilDateTime::new`]
+    /// checked it. The check runs before any byte is written.
     pub(crate) fn pack(now: Option<CivilDateTime>) -> Result<Stamp, OutOfRange> {
         let Some(now) = now else {
             return Ok(Stamp::ZERO);
         };
-        let legal = now.year >= FIRST_YEAR
-            && now.year <= LAST_YEAR
-            && (1..=12).contains(&now.month)
-            && (1..=31).contains(&now.day)
-            && now.hour <= 23
-            && now.minute <= 59
-            && now.second <= 59;
+        let legal = now.year >= FIRST_YEAR && now.year <= LAST_YEAR;
         if !legal {
             return Err(OutOfRange);
         }
@@ -218,25 +317,18 @@ impl Stamp {
 }
 
 /// **Unpack a stored date and time**, with `odd_second` (0 or 1) added to the time's two-second
-/// count, or `None` when a field is outside its range. The zero timestamp has month 0, so it is
-/// `None`: the entry carries no time.
+/// count, or `None` when a field is outside its range or the day is past the end of its month. The
+/// zero timestamp has month 0, so it is `None`: the entry carries no time.
 pub(crate) const fn unpack(date: u16, time: u16, odd_second: u8) -> Option<CivilDateTime> {
     let month = ((date >> 5) & 0xF) as u8;
     let day = (date & 0x1F) as u8;
     let hour = (time >> 11) as u8;
     let minute = ((time >> 5) & 0x3F) as u8;
     let second = (time & 0x1F) as u8 * 2 + odd_second;
-    if month == 0 || month > 12 || day == 0 || hour > 23 || minute > 59 || second > 59 {
-        return None;
+    match CivilDateTime::new(FIRST_YEAR + (date >> 9), month, day, hour, minute, second) {
+        Ok(time) => Some(time),
+        Err(_) => None,
     }
-    Some(CivilDateTime {
-        year: FIRST_YEAR + (date >> 9),
-        month,
-        day,
-        hour,
-        minute,
-        second,
-    })
 }
 
 /// Copy the time fields of the short entry `from` into `to`: a moved entry keeps its times.

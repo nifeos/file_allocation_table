@@ -188,21 +188,36 @@ impl<D: SectorDevice> Volume<D> {
         NamedEntries::new(self.root_directory())
     }
 
-    /// **The directory whose first cluster is `first_cluster`, as named entries.** Cluster 0 is the root.
-    pub fn named_entries(&mut self, first_cluster: u32) -> NamedEntries<'_, D> {
-        NamedEntries::new(self.directory(first_cluster))
+    /// **The directory `directory`, as named entries.**
+    pub fn named_entries(&mut self, directory: DirectoryCluster) -> NamedEntries<'_, D> {
+        NamedEntries::new(self.directory(directory))
     }
 
-    /// **The directory whose first cluster is `first_cluster`**, as a short entry's
-    /// `first_cluster` names it. Cluster 0 is the root, the value a `..` entry holds in a
-    /// directory whose parent is the root.
-    pub fn directory(&mut self, first_cluster: u32) -> Directory<'_, D> {
-        if first_cluster == 0 {
+    /// **The directory `directory`**: the root for [`DirectoryCluster::ROOT`], else the chain
+    /// from its first cluster.
+    pub fn directory(&mut self, directory: DirectoryCluster) -> Directory<'_, D> {
+        if directory == DirectoryCluster::ROOT {
             Directory::root(self)
         } else {
-            Directory::chain(self, first_cluster)
+            Directory::chain(self, directory.0)
         }
     }
+}
+
+/// **A directory, by the first cluster of its chain**: what the methods that read or write in a
+/// directory take. [`DirectoryCluster::ROOT`] is the root directory, and
+/// [`NamedEntry::directory_cluster`](crate::NamedEntry::directory_cluster) gives every other one,
+/// from the directory's own entry. A file's entry gives none, so a file's first cluster cannot be
+/// passed where a directory is meant.
+///
+/// The number is 0 for the root, the value a `..` entry holds in a directory whose parent is the
+/// root, on FAT32 as well as on FAT12 and FAT16.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DirectoryCluster(pub(crate) u32);
+
+impl DirectoryCluster {
+    /// The root directory.
+    pub const ROOT: DirectoryCluster = DirectoryCluster(0);
 }
 
 /// **What a chain walk reads**: how many data clusters the volume has, and one table entry at a

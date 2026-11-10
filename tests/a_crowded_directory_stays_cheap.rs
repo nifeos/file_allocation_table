@@ -22,8 +22,8 @@ use std::process::Command;
 use std::rc::Rc;
 
 use file_allocation_table::{
-    FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, WritableSectorDevice,
-    WritableVolume,
+    DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
+    WritableSectorDevice, WritableVolume,
 };
 
 /// The volume's size in 512-byte sectors: 128 MiB.
@@ -153,7 +153,11 @@ fn volume() -> (WritableVolume<Counting, NoClock>, Counts) {
 #[test]
 fn five_hundred_colliding_long_names_stay_under_their_read_ceiling() {
     let (mut volume, counts) = volume();
-    let directory = volume.create_directory(0, "many").unwrap().first_cluster();
+    let directory = volume
+        .create_directory(DirectoryCluster::ROOT, "many")
+        .unwrap()
+        .directory_cluster()
+        .unwrap();
     let (reads, writes) = (counts.reads(), counts.writes());
     for i in 0..NAMES {
         volume
@@ -200,7 +204,9 @@ fn five_hundred_colliding_long_names_stay_under_their_read_ceiling() {
 #[test]
 fn a_long_write_stays_under_its_write_ceiling() {
     let (mut volume, counts) = volume();
-    let file = volume.create_file(0, "BIG.BIN").unwrap();
+    let file = volume
+        .create_file(DirectoryCluster::ROOT, "BIG.BIN")
+        .unwrap();
     let writes = counts.writes();
     let data = vec![7u8; FILE_BYTES];
     let mut writer = volume.open_file_writer(&file).unwrap();

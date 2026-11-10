@@ -10,6 +10,7 @@
 use crate::directory::{Directory, DirectoryEntry, ShortEntry, Slot};
 use crate::long_name_assembly::{LongFileName, LongFileNameError, LongNameAssembler};
 use crate::reader::ChainError;
+use crate::reader::DirectoryCluster;
 use crate::sector::SectorDevice;
 use crate::time::CivilDateTime;
 
@@ -110,6 +111,16 @@ impl NamedEntry {
     /// Whether the entry is a directory.
     pub const fn is_directory(&self) -> bool {
         self.short.is_directory()
+    }
+
+    /// **The directory this entry names**, or `None` for a file or the volume label. A `..` entry
+    /// whose parent is the root gives [`DirectoryCluster::ROOT`].
+    pub const fn directory_cluster(&self) -> Option<DirectoryCluster> {
+        if self.short.is_directory() && !self.short.is_volume_label() {
+            Some(DirectoryCluster(self.short.first_cluster()))
+        } else {
+            None
+        }
     }
 
     /// Whether the entry is the volume label, which names no file.

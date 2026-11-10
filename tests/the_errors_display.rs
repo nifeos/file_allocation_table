@@ -8,9 +8,9 @@ use std::error::Error;
 use std::fmt;
 
 use file_allocation_table::{
-    ChainError, FileOpenError, FileReadError, FileSystemInformationError, FormatError, LayoutError,
-    LongFileNameError, LookupError, MasterBootRecordError, MasterBootRecordReadError, ParseError,
-    PartitionError, ReadError, SectorSize, TableEntry, WriteError,
+    ChainError, CivilDateTimeError, FileReadError, FileSystemInformationError, FormatError,
+    LayoutError, LongFileNameError, LookupError, MasterBootRecordError, MasterBootRecordReadError,
+    OpenError, ParseError, PartitionError, ReadError, SectorSize, TableEntry, WriteError,
 };
 
 /// A device error that is a `std::error::Error`.
@@ -95,7 +95,13 @@ fn every_parse_and_format_error_has_its_own_message() {
         LongFileNameError::ChecksumMismatch,
         LongFileNameError::BadPadding,
     ]);
-    messages(&[FileOpenError::IsADirectory, FileOpenError::IsAVolumeLabel]);
+    messages(&[
+        CivilDateTimeError::Month,
+        CivilDateTimeError::Day,
+        CivilDateTimeError::Hour,
+        CivilDateTimeError::Minute,
+        CivilDateTimeError::Second,
+    ]);
     let partitions = messages(&[
         MasterBootRecordError::TooShort,
         MasterBootRecordError::NoSignature,
@@ -210,7 +216,8 @@ fn every_device_level_error_has_its_own_message_and_its_source() {
 #[test]
 fn every_file_level_error_has_its_own_message_and_its_source() {
     let chain = ChainError::Device(DeviceGone);
-    let wrapped: [&dyn Error; 3] = [
+    let wrapped: [&dyn Error; 4] = [
+        &OpenError::Chain(chain),
         &FileReadError::Chain(chain),
         &LookupError::Chain(chain),
         &WriteError::Chain(chain),
@@ -220,6 +227,18 @@ fn every_file_level_error_has_its_own_message_and_its_source() {
         let inner = error.source().unwrap();
         assert_eq!(source_message(inner).as_deref(), Some("the device is gone"));
     }
+    messages(&[
+        OpenError::Chain(chain),
+        OpenError::IsADirectory,
+        OpenError::IsAVolumeLabel,
+        OpenError::EntryChanged,
+    ]);
+    assert!(OpenError::<DeviceGone>::EntryChanged.source().is_none());
+    // A stale entry is the same refusal to open as to write through.
+    assert_eq!(
+        OpenError::<DeviceGone>::EntryChanged.to_string(),
+        WriteError::<DeviceGone>::EntryChanged.to_string()
+    );
     messages(&[
         FileReadError::Chain(chain),
         FileReadError::ShorterThanItsSize,

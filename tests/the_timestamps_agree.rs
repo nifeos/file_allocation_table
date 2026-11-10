@@ -19,8 +19,8 @@ use file_allocation_table::efi_system_partition::{
     FILE_CLUSTER, ROOT_CLUSTER, SECTORS_PER_CLUSTER,
 };
 use file_allocation_table::{
-    CivilDateTime, Clock, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, Volume,
-    VolumeLayout, WritableSectorDevice, WritableVolume, WriteError,
+    CivilDateTime, Clock, DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice,
+    SectorSize, Volume, VolumeLayout, WritableSectorDevice, WritableVolume, WriteError,
 };
 use lamfat::FatType;
 
@@ -34,14 +34,7 @@ impl Clock for Shared<'_> {
 }
 
 fn at(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> Option<CivilDateTime> {
-    Some(CivilDateTime {
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-    })
+    Some(CivilDateTime::new(year, month, day, hour, minute, second).expect("a real date"))
 }
 
 /// A volume held in memory, read and written one sector at a time.
@@ -193,9 +186,11 @@ fn times_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     let mut volume =
         WritableVolume::open(formatted(mebibytes, fat_type, 512), Shared(&now)).unwrap();
     volume
-        .create_file(0, "Stamped File With A Long Name.txt")
+        .create_file(DirectoryCluster::ROOT, "Stamped File With A Long Name.txt")
         .unwrap();
-    volume.create_directory(0, "Stamped Dir").unwrap();
+    volume
+        .create_directory(DirectoryCluster::ROOT, "Stamped Dir")
+        .unwrap();
     // A later write: the write and access times move, the creation time stays.
     now.set(at(2027, 2, 3, 4, 5, 6));
     let entry = volume.lookup("Stamped File With A Long Name.txt").unwrap();
@@ -262,8 +257,7 @@ fn a_time_fat_cannot_store_is_refused_and_the_edges_pass_fsck() {
     for (label, time) in [
         ("before-1980", at(1979, 12, 31, 23, 59, 58)),
         ("after-2107", at(2108, 1, 1, 0, 0, 0)),
-        ("month-13", at(2000, 13, 1, 0, 0, 0)),
-        ("hour-99", at(2000, 1, 1, 99, 0, 0)),
+        ("year-0", at(0, 1, 1, 0, 0, 0)),
     ] {
         let now = Cell::new(time);
         let volume = WritableVolume::open(formatted(4, FatType::Fat12, 512), Shared(&now)).unwrap();
@@ -277,7 +271,7 @@ fn a_time_fat_cannot_store_is_refused_and_the_edges_pass_fsck() {
         )
         .unwrap();
         assert_eq!(
-            volume.create_file(0, "REFUSED.TXT"),
+            volume.create_file(DirectoryCluster::ROOT, "REFUSED.TXT"),
             Err(WriteError::TimeOutOfRange),
             "{label}"
         );
@@ -298,7 +292,9 @@ fn a_time_fat_cannot_store_is_refused_and_the_edges_pass_fsck() {
         let now = Cell::new(time);
         let mut volume =
             WritableVolume::open(formatted(4, FatType::Fat12, 512), Shared(&now)).unwrap();
-        volume.create_file(0, "EDGE.TXT").unwrap();
+        volume
+            .create_file(DirectoryCluster::ROOT, "EDGE.TXT")
+            .unwrap();
         let image = volume.into_device();
         assert_eq!(creation(&image.bytes, "EDGE.TXT"), expected, "{label}");
         check_with_fsck(&image.bytes, &format!("edge-{label}"));
@@ -310,10 +306,14 @@ fn no_clock_and_a_clock_with_no_time_write_the_zero_timestamp() {
     let none = Cell::new(None);
     let mut with_empty =
         WritableVolume::open(formatted(4, FatType::Fat12, 512), Shared(&none)).unwrap();
-    with_empty.create_file(0, "ZERO.TXT").unwrap();
+    with_empty
+        .create_file(DirectoryCluster::ROOT, "ZERO.TXT")
+        .unwrap();
     let mut with_no_clock =
         WritableVolume::open(formatted(4, FatType::Fat12, 512), NoClock).unwrap();
-    with_no_clock.create_file(0, "ZERO.TXT").unwrap();
+    with_no_clock
+        .create_file(DirectoryCluster::ROOT, "ZERO.TXT")
+        .unwrap();
     let entry = with_no_clock.lookup("ZERO.TXT").unwrap();
     assert_eq!(
         (entry.created(), entry.modified(), entry.accessed()),

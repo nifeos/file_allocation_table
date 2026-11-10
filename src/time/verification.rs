@@ -3,29 +3,49 @@
 
 use super::*;
 
+/// The last day of `month` in `year`, written out here apart from the crate's own table, so the
+/// harnesses check the constructor against an independent statement of the calendar.
+fn last_day(year: u16, month: u8) -> u8 {
+    let leap = (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400);
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        _ if leap => 29,
+        _ => 28,
+    }
+}
+
 /// Falsification: replayable `falsifications/time.verification.any_time_packs_to_legal_fields.patch`
-/// **Any time a clock reports is refused or packs to legal fields.** For every year, month, day,
-/// hour, minute and second as 16-bit and 8-bit numbers, including every invalid one: the pack is
-/// refused exactly when the year is outside 1980 to 2107 or a field is outside its range; otherwise
-/// the date's year field is at most 127, its month 1 to 12 and its day 1 to 31, the time's hour is
-/// at most 23, its minute at most 59 and its two-second count at most 29, the tenths byte is 0 or
-/// 100, the access date is the write date, and the time comes back exactly as it went in.
+/// **Any date a caller names is refused or is a calendar date, and a calendar date is refused by
+/// the writer or packs to legal fields.** For every year, month, day, hour, minute and second as
+/// 16-bit and 8-bit numbers, including every invalid one: the constructor refuses exactly when the
+/// month is outside 1 to 12, the day is 0 or past the end of its month, or a time field is outside
+/// its range; the pack is refused exactly when the year is outside 1980 to 2107; otherwise the
+/// date's year field is at most 127, its month 1 to 12 and its day 1 to 31, the time's hour is at
+/// most 23, its minute at most 59 and its two-second count at most 29, the tenths byte is 0 or 100,
+/// the access date is the write date, and the time comes back exactly as it went in.
 #[kani::proof]
 fn any_time_packs_to_legal_fields() {
-    let now = CivilDateTime {
-        year: kani::any(),
-        month: kani::any(),
-        day: kani::any(),
-        hour: kani::any(),
-        minute: kani::any(),
-        second: kani::any(),
+    let (year, month, day, hour, minute, second): (u16, u8, u8, u8, u8, u8) = (
+        kani::any(),
+        kani::any(),
+        kani::any(),
+        kani::any(),
+        kani::any(),
+        kani::any(),
+    );
+    let calendar = (1..=12).contains(&month)
+        && day >= 1
+        && day <= last_day(year, month)
+        && hour <= 23
+        && minute <= 59
+        && second <= 59;
+    let Ok(now) = CivilDateTime::new(year, month, day, hour, minute, second) else {
+        assert!(!calendar);
+        return;
     };
-    let in_range = (1980..=2107).contains(&now.year)
-        && (1..=12).contains(&now.month)
-        && (1..=31).contains(&now.day)
-        && now.hour <= 23
-        && now.minute <= 59
-        && now.second <= 59;
+    assert!(calendar);
+    let in_range = (1980..=2107).contains(&year);
     let Ok(stamp) = Stamp::pack(Some(now)) else {
         assert!(!in_range);
         return;
@@ -43,14 +63,14 @@ fn any_time_packs_to_legal_fields() {
     assert_eq!(stamp.access_date, stamp.write_date);
     assert_eq!(stamp.write_date, date);
     assert_eq!(stamp.write_time, time);
-    assert_eq!(date >> 9, now.year - 1980);
-    assert_eq!(((date >> 5) & 0xF) as u8, now.month);
-    assert_eq!((date & 0x1F) as u8, now.day);
-    assert_eq!((time >> 11) as u8, now.hour);
-    assert_eq!(((time >> 5) & 0x3F) as u8, now.minute);
+    assert_eq!(date >> 9, year - 1980);
+    assert_eq!(((date >> 5) & 0xF) as u8, month);
+    assert_eq!((date & 0x1F) as u8, day);
+    assert_eq!((time >> 11) as u8, hour);
+    assert_eq!(((time >> 5) & 0x3F) as u8, minute);
     assert_eq!(
         (time & 0x1F) as u8 * 2 + stamp.creation_tenths / 100,
-        now.second
+        second
     );
 }
 
@@ -58,7 +78,7 @@ fn any_time_packs_to_legal_fields() {
 /// **Every stored time reads back as legal fields or as no time, and a packed time reads back as
 /// itself.** For every date, time and tenths byte: an unpacked time is one a clock could report
 /// (it packs again), its fields are the stored bits, and it is `None` only when a field is out of
-/// range. For every time a clock reports that packs, the creation time reads back exactly, the
+/// range or the day is past the end of its month. For every time a clock reports that packs, the creation time reads back exactly, the
 /// write time to the even second below and the access date at midnight.
 #[kani::proof]
 fn every_stored_time_reads_back_as_legal_fields_or_none() {
@@ -74,6 +94,7 @@ fn every_stored_time_reads_back_as_legal_fields_or_none() {
     let time = stored.creation_time;
     let legal = (1..=12).contains(&((date >> 5) & 0xF))
         && date & 0x1F != 0
+        && (date & 0x1F) as u8 <= last_day(1980 + (date >> 9), ((date >> 5) & 0xF) as u8)
         && time >> 11 <= 23
         && (time >> 5) & 0x3F <= 59
         && time & 0x1F <= 29
@@ -82,26 +103,28 @@ fn every_stored_time_reads_back_as_legal_fields_or_none() {
         Some(read) => {
             assert!(legal);
             assert!(Stamp::pack(Some(read)).is_ok());
-            assert_eq!(read.year, 1980 + (date >> 9));
-            assert_eq!(u16::from(read.month), (date >> 5) & 0xF);
-            assert_eq!(u16::from(read.day), date & 0x1F);
-            assert_eq!(u16::from(read.hour), time >> 11);
-            assert_eq!(u16::from(read.minute), (time >> 5) & 0x3F);
+            assert_eq!(read.year(), 1980 + (date >> 9));
+            assert_eq!(u16::from(read.month()), (date >> 5) & 0xF);
+            assert_eq!(u16::from(read.day()), date & 0x1F);
+            assert_eq!(u16::from(read.hour()), time >> 11);
+            assert_eq!(u16::from(read.minute()), (time >> 5) & 0x3F);
             assert_eq!(
-                read.second,
+                read.second(),
                 (time & 0x1F) as u8 * 2 + stored.creation_tenths / 100
             );
         }
         None => assert!(!legal),
     }
 
-    let now = CivilDateTime {
-        year: kani::any(),
-        month: kani::any(),
-        day: kani::any(),
-        hour: kani::any(),
-        minute: kani::any(),
-        second: kani::any(),
+    let Ok(now) = CivilDateTime::new(
+        kani::any(),
+        kani::any(),
+        kani::any(),
+        kani::any(),
+        kani::any(),
+        kani::any(),
+    ) else {
+        return;
     };
     if let Ok(packed) = Stamp::pack(Some(now)) {
         assert_eq!(packed.created(), Some(now));

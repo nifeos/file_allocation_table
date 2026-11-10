@@ -17,15 +17,15 @@
 # Equivalent: `|` and `^` agree when the two sides share no bit.
 src/directory.rs:28 # READ_ONLY, HIDDEN, SYSTEM and VOLUME_ID are four distinct bits, so `^` between them is `|`
 src/directory.rs:120 # `high << 16` has no bit in the low 16 and `low` is a u16 widened, so `^` is `|`
-src/directory_writer.rs:644 # `high << 16` has no bit in the low 16 and the low half is a u16 widened, so `^` is `|`
+src/directory_writer.rs:620 # `high << 16` has no bit in the low 16 and the low half is a u16 widened, so `^` is `|`
 src/long_name.rs:160 # the ordinal is at most 20 (255 units, 13 to an entry), below LAST_LONG_ENTRY's 0x40, so `^` is `|`
 # Equivalent: the change reaches only text the next step discards.
 src/long_name.rs:132 # `i * 1` keeps the period at the head of the extension, and `fold` skips periods
 # Equivalent: a bound that no reachable state meets, or meets one step sooner.
 src/write_cursor.rs:207 # `passes` feeds only the debug assertion against a stuck loop, and no pass writes zero bytes
 src/write_cursor.rs:162 # `steps` reaches the cluster count only on a chain longer than the volume, so `>=` or `==` refuses the same chains as `>`
-src/file_writer.rs:402 # `passes` only bounds a loop that ends when `step` is 0; a larger bound runs no more passes (on a 64-bit host, below 4 GiB of length plus size)
+src/file_writer.rs:413 # `passes` only bounds a loop that ends when `step` is 0; a larger bound runs no more passes (on a 64-bit host, below 4 GiB of length plus size)
 # Hangs: the mutant takes away what ends a loop, and every test that reaches it runs to the timeout.
 src/write_cursor.rs:140 # `<=` meets `at == index` only after the early return took it; `false` or `==` drops the cursor, so every reach walks from the first cluster and the tests run past the timeout
-src/reader.rs:266 # a step that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
-src/reader.rs:275 # an advance that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
+src/reader.rs:281 # a step that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
+src/reader.rs:290 # an advance that always yields a cluster makes every walk endless; the tests that walk hang to the timeout

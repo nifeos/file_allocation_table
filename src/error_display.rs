@@ -10,9 +10,9 @@ use core::error::Error;
 use core::fmt;
 
 use crate::{
-    ChainError, FileOpenError, FileReadError, FileSystemInformationError, FormatError, LayoutError,
-    LongFileNameError, LookupError, MasterBootRecordError, MasterBootRecordReadError, ParseError,
-    PartitionError, ReadError, TableEntry, WriteError,
+    ChainError, CivilDateTimeError, FileReadError, FileSystemInformationError, FormatError,
+    LayoutError, LongFileNameError, LookupError, MasterBootRecordError, MasterBootRecordReadError,
+    OpenError, ParseError, PartitionError, ReadError, TableEntry, WriteError,
 };
 
 impl fmt::Display for ParseError {
@@ -109,16 +109,41 @@ impl<E: Error + 'static> Error for ChainError<E> {
     }
 }
 
-impl fmt::Display for FileOpenError {
+impl fmt::Display for CivilDateTimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            FileOpenError::IsADirectory => "the entry is a directory, not a file",
-            FileOpenError::IsAVolumeLabel => "the entry is the volume label, not a file",
+            CivilDateTimeError::Month => "the month is not 1 to 12",
+            CivilDateTimeError::Day => "the day is not a day of its month",
+            CivilDateTimeError::Hour => "the hour is past 23",
+            CivilDateTimeError::Minute => "the minute is past 59",
+            CivilDateTimeError::Second => "the second is past 59",
         })
     }
 }
 
-impl Error for FileOpenError {}
+impl Error for CivilDateTimeError {}
+
+impl<E> fmt::Display for OpenError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            OpenError::IsADirectory => "the entry is a directory, not a file",
+            OpenError::IsAVolumeLabel => "the entry is the volume label, not a file",
+            OpenError::EntryChanged => {
+                "the slot no longer holds the entry; look the entry up again"
+            }
+            OpenError::Chain(_) => "the entry's directory slot could not be read",
+        })
+    }
+}
+
+impl<E: Error + 'static> Error for OpenError<E> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            OpenError::Chain(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl<E> fmt::Display for FileReadError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

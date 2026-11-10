@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::reader::tests::Image;
-use crate::{NoClock, WritableVolume};
+use crate::{DirectoryCluster, NoClock, WritableVolume};
 
 fn feed(count: u32, kinds: &[SlotKind]) -> Option<u32> {
     let mut finder = RunFinder::new(count);
@@ -105,35 +105,48 @@ fn an_alias_past_the_first_window_is_the_next_free_number() {
     let mut device = Blank(vec![0; sectors as usize * 512]);
     plan.write_to(&mut device).unwrap();
     let mut volume = WritableVolume::open(device, NoClock).unwrap();
-    let directory = volume.create_directory(0, "MANY").unwrap().first_cluster();
+    let directory = volume
+        .create_directory(DirectoryCluster::ROOT, "MANY")
+        .unwrap()
+        .first_cluster();
     let long = LongName::new("Long File.txt").unwrap();
     let mut seventh = None;
     for number in 1..=ALIAS_WINDOW + 6 {
         let alias = long.alias_numbered(number).unwrap();
-        let entry = volume.create_file(directory, &spelled(alias)).unwrap();
+        let entry = volume
+            .create_file(DirectoryCluster(directory), &spelled(alias))
+            .unwrap();
         assert_eq!(entry.short_name(), alias);
         if number == 7 {
             seventh = Some(entry);
         }
     }
-    let entry = volume.create_file(directory, "Long File.txt").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster(directory), "Long File.txt")
+        .unwrap();
     assert_eq!(entry.short_name(), *b"LON~1031TXT");
     // A rename past the first window may keep its own number there.
     let entry = volume
-        .rename(&entry, directory, "Long File Renamed.txt")
+        .rename(&entry, DirectoryCluster(directory), "Long File Renamed.txt")
         .unwrap();
     assert_eq!(entry.short_name(), *b"LON~1031TXT");
     volume.remove_file(&seventh.unwrap()).unwrap();
-    let entry = volume.create_file(directory, "Long File 2.txt").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster(directory), "Long File 2.txt")
+        .unwrap();
     assert_eq!(entry.short_name(), *b"LONGFI~7TXT");
 }
 
 #[test]
 fn a_rename_may_keep_its_own_alias() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let one = volume.create_file(0, "Long File One.txt").unwrap();
+    let one = volume
+        .create_file(DirectoryCluster::ROOT, "Long File One.txt")
+        .unwrap();
     assert_eq!(one.short_name(), *b"LONGFI~1TXT");
-    let renamed = volume.rename(&one, 0, "Long File Two.txt").unwrap();
+    let renamed = volume
+        .rename(&one, DirectoryCluster::ROOT, "Long File Two.txt")
+        .unwrap();
     assert_eq!(renamed.short_name(), *b"LONGFI~1TXT");
     assert!(volume.lookup("Long File One.txt").is_err());
 }
@@ -143,12 +156,12 @@ fn a_rename_may_keep_its_own_alias() {
 #[test]
 fn the_entry_a_create_returns_is_the_one_a_read_joins() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    volume.create_file(0, "A.TXT").unwrap();
+    volume.create_file(DirectoryCluster::ROOT, "A.TXT").unwrap();
     let mut stray = [0xFFu8; SLOT_BYTES];
     LongName::new("stray").unwrap().entry(0, 0x5A, &mut stray);
     volume.write_slot(0, 1, &stray).unwrap();
     for name in ["A long name after a stray piece.txt", "B.TXT"] {
-        let made = volume.create_file(0, name).unwrap();
+        let made = volume.create_file(DirectoryCluster::ROOT, name).unwrap();
         let read = volume.entry_at(0, made.place().short_slot).unwrap();
         assert_eq!(made, read);
     }
@@ -164,13 +177,18 @@ fn the_entry_a_create_returns_is_the_one_a_read_joins() {
 #[test]
 fn a_stale_slot_after_the_end_marker_is_ended_in_the_same_sector_or_the_next() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let directory = volume.create_directory(0, "SUB").unwrap().first_cluster();
+    let directory = volume
+        .create_directory(DirectoryCluster::ROOT, "SUB")
+        .unwrap()
+        .first_cluster();
     let mut stale = [0u8; SLOT_BYTES];
     stale[..11].copy_from_slice(b"STALE   TXT");
     stale[11] = ARCHIVE;
     // Slot 3 holds stale bytes after the end marker at 2, in the cluster's one sector.
     volume.write_slot(directory, 3, &stale).unwrap();
-    volume.create_file(directory, "B.TXT").unwrap();
+    volume
+        .create_file(DirectoryCluster(directory), "B.TXT")
+        .unwrap();
     assert_eq!(volume.read_slot(directory, 3).unwrap().unwrap()[0], 0);
     assert_eq!(
         volume.read_slot(directory, 3).unwrap().unwrap()[1..],
@@ -179,16 +197,18 @@ fn a_stale_slot_after_the_end_marker_is_ended_in_the_same_sector_or_the_next() {
     // Fill the sector to slot 14, then put stale bytes at 16, in the next cluster's sector.
     for name in "CDEFGHIJKLMN".chars() {
         volume
-            .create_file(directory, &format!("{name}.TXT"))
+            .create_file(DirectoryCluster(directory), &format!("{name}.TXT"))
             .unwrap();
     }
     assert!(volume.grow_directory(directory).unwrap());
     volume.write_slot(directory, 16, &stale).unwrap();
-    let last = volume.create_file(directory, "O.TXT").unwrap();
+    let last = volume
+        .create_file(DirectoryCluster(directory), "O.TXT")
+        .unwrap();
     assert_eq!(last.place().short_slot, 15);
     assert_eq!(volume.read_slot(directory, 16).unwrap().unwrap()[0], 0);
     let names = volume
-        .named_entries(directory)
+        .named_entries(DirectoryCluster(directory))
         .map(|entry| entry.unwrap().short_name())
         .filter(|name| name[0] != b'.')
         .count();
@@ -198,16 +218,22 @@ fn a_stale_slot_after_the_end_marker_is_ended_in_the_same_sector_or_the_next() {
 #[test]
 fn colliding_long_names_take_successive_aliases_and_a_freed_alias_is_reused() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let first = volume.create_file(0, "Long File One.txt").unwrap();
-    let second = volume.create_file(0, "Long File Two.txt").unwrap();
+    let first = volume
+        .create_file(DirectoryCluster::ROOT, "Long File One.txt")
+        .unwrap();
+    let second = volume
+        .create_file(DirectoryCluster::ROOT, "Long File Two.txt")
+        .unwrap();
     assert_eq!(first.short_name(), *b"LONGFI~1TXT");
     assert_eq!(second.short_name(), *b"LONGFI~2TXT");
     volume.remove_file(&first).unwrap();
-    let third = volume.create_file(0, "Long File Three.txt").unwrap();
+    let third = volume
+        .create_file(DirectoryCluster::ROOT, "Long File Three.txt")
+        .unwrap();
     assert_eq!(third.short_name(), *b"LONGFI~1TXT");
     assert!(volume.lookup("long file three.TXT").is_ok());
     assert_eq!(
-        volume.create_file(0, "LONG FILE TWO.txt"),
+        volume.create_file(DirectoryCluster::ROOT, "LONG FILE TWO.txt"),
         Err(WriteError::AlreadyExists)
     );
 }
@@ -215,21 +241,28 @@ fn colliding_long_names_take_successive_aliases_and_a_freed_alias_is_reused() {
 #[test]
 fn a_long_run_fits_a_gap_of_deleted_slots_and_not_a_shorter_one() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let a = volume.create_file(0, "A.TXT").unwrap();
-    volume.create_file(0, "B.TXT").unwrap();
-    let c = volume.create_file(0, "C.TXT").unwrap();
-    volume.create_file(0, "D.TXT").unwrap();
+    let a = volume.create_file(DirectoryCluster::ROOT, "A.TXT").unwrap();
+    volume.create_file(DirectoryCluster::ROOT, "B.TXT").unwrap();
+    let c = volume.create_file(DirectoryCluster::ROOT, "C.TXT").unwrap();
+    volume.create_file(DirectoryCluster::ROOT, "D.TXT").unwrap();
     volume.remove_file(&a).unwrap();
     volume.remove_file(&c).unwrap();
     // One slot gaps at 0 and 2; a two-piece name needs three slots, so it goes after D.
     let long = volume
-        .create_file(0, "A name that needs two long pieces.txt")
+        .create_file(
+            DirectoryCluster::ROOT,
+            "A name that needs two long pieces.txt",
+        )
         .unwrap();
     assert_eq!(long.place().first_slot, 4);
     assert_eq!(long.place().short_slot, 7);
     // A short name takes the first gap.
     assert_eq!(
-        volume.create_file(0, "E.TXT").unwrap().place().short_slot,
+        volume
+            .create_file(DirectoryCluster::ROOT, "E.TXT")
+            .unwrap()
+            .place()
+            .short_slot,
         0
     );
 }
@@ -238,17 +271,19 @@ fn a_long_run_fits_a_gap_of_deleted_slots_and_not_a_shorter_one() {
 fn a_directory_holds_dot_entries_and_is_removed_only_when_empty() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     let free = volume.count_free_clusters().unwrap();
-    let directory = volume.create_directory(0, "Sub Directory").unwrap();
+    let directory = volume
+        .create_directory(DirectoryCluster::ROOT, "Sub Directory")
+        .unwrap();
     assert!(directory.is_directory());
     assert_eq!(volume.count_free_clusters().unwrap(), free - 1);
     let names: usize = volume
-        .named_entries(directory.first_cluster())
+        .named_entries(directory.directory_cluster().unwrap())
         .map(|e| e.unwrap())
         .filter(|e| e.is_dot_entry())
         .count();
     assert_eq!(names, 2);
     let inner = volume
-        .create_file(directory.first_cluster(), "inner.txt")
+        .create_file(directory.directory_cluster().unwrap(), "inner.txt")
         .unwrap();
     assert_eq!(
         volume.remove_directory(&directory),
@@ -258,7 +293,7 @@ fn a_directory_holds_dot_entries_and_is_removed_only_when_empty() {
     volume.remove_directory(&directory).unwrap();
     assert_eq!(volume.count_free_clusters().unwrap(), free);
     assert!(volume.lookup("Sub Directory").is_err());
-    let file = volume.create_file(0, "F.TXT").unwrap();
+    let file = volume.create_file(DirectoryCluster::ROOT, "F.TXT").unwrap();
     assert_eq!(
         volume.remove_directory(&file),
         Err(WriteError::NotADirectory)
@@ -268,14 +303,16 @@ fn a_directory_holds_dot_entries_and_is_removed_only_when_empty() {
 #[test]
 fn a_failed_create_directory_gives_its_cluster_back() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    volume.create_directory(0, "D").unwrap();
+    volume
+        .create_directory(DirectoryCluster::ROOT, "D")
+        .unwrap();
     let free = volume.count_free_clusters().unwrap();
     assert_eq!(
-        volume.create_directory(0, "d"),
+        volume.create_directory(DirectoryCluster::ROOT, "d"),
         Err(WriteError::AlreadyExists)
     );
     assert_eq!(
-        volume.create_directory(0, "bad*name"),
+        volume.create_directory(DirectoryCluster::ROOT, "bad*name"),
         Err(WriteError::NameRefused)
     );
     assert_eq!(volume.count_free_clusters().unwrap(), free);
@@ -284,9 +321,15 @@ fn a_failed_create_directory_gives_its_cluster_back() {
 #[test]
 fn a_rename_keeps_the_data_and_a_moved_directory_gets_a_new_dotdot() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let a = volume.create_directory(0, "A").unwrap();
-    let b = volume.create_directory(0, "B").unwrap();
-    let file = volume.create_file(a.first_cluster(), "data.bin").unwrap();
+    let a = volume
+        .create_directory(DirectoryCluster::ROOT, "A")
+        .unwrap();
+    let b = volume
+        .create_directory(DirectoryCluster::ROOT, "B")
+        .unwrap();
+    let file = volume
+        .create_file(a.directory_cluster().unwrap(), "data.bin")
+        .unwrap();
     volume
         .open_file_writer(&file)
         .unwrap()
@@ -294,7 +337,7 @@ fn a_rename_keeps_the_data_and_a_moved_directory_gets_a_new_dotdot() {
         .unwrap();
     let file = volume.lookup("A/data.bin").unwrap();
     let moved = volume
-        .rename(&file, b.first_cluster(), "Data Renamed.bin")
+        .rename(&file, b.directory_cluster().unwrap(), "Data Renamed.bin")
         .unwrap();
     assert_eq!(
         (moved.first_cluster(), moved.size_bytes()),
@@ -309,7 +352,9 @@ fn a_rename_keeps_the_data_and_a_moved_directory_gets_a_new_dotdot() {
     assert_eq!(reader.read(&mut out).unwrap(), 600);
     assert!(out[..600].iter().all(|b| *b == 7));
     let a = volume.lookup("A").unwrap();
-    volume.rename(&a, b.first_cluster(), "A Inside B").unwrap();
+    volume
+        .rename(&a, b.directory_cluster().unwrap(), "A Inside B")
+        .unwrap();
     let dotdot = volume.read_slot(a.first_cluster(), 1).unwrap().unwrap();
     assert_eq!(
         u16::from_le_bytes([dotdot[26], dotdot[27]]) as u32,
@@ -318,7 +363,9 @@ fn a_rename_keeps_the_data_and_a_moved_directory_gets_a_new_dotdot() {
     assert!(volume.lookup("B/A Inside B").is_ok());
     // And back to the root, where `..` is 0.
     let inside = volume.lookup("B/A Inside B").unwrap();
-    volume.rename(&inside, 0, "A Again").unwrap();
+    volume
+        .rename(&inside, DirectoryCluster::ROOT, "A Again")
+        .unwrap();
     let dotdot = volume.read_slot(a.first_cluster(), 1).unwrap().unwrap();
     assert_eq!(u16::from_le_bytes([dotdot[26], dotdot[27]]), 0);
 }
@@ -326,10 +373,14 @@ fn a_rename_keeps_the_data_and_a_moved_directory_gets_a_new_dotdot() {
 #[test]
 fn a_directory_cannot_move_into_itself_or_below_and_dots_cannot_be_renamed() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let a = volume.create_directory(0, "A").unwrap();
-    let inner = volume.create_directory(a.first_cluster(), "Inner").unwrap();
+    let a = volume
+        .create_directory(DirectoryCluster::ROOT, "A")
+        .unwrap();
+    let inner = volume
+        .create_directory(a.directory_cluster().unwrap(), "Inner")
+        .unwrap();
     let innermost = volume
-        .create_directory(inner.first_cluster(), "Innermost")
+        .create_directory(inner.directory_cluster().unwrap(), "Innermost")
         .unwrap();
     for target in [
         a.first_cluster(),
@@ -337,17 +388,20 @@ fn a_directory_cannot_move_into_itself_or_below_and_dots_cannot_be_renamed() {
         innermost.first_cluster(),
     ] {
         assert_eq!(
-            volume.rename(&a, target, "X"),
+            volume.rename(&a, DirectoryCluster(target), "X"),
             Err(WriteError::MovedIntoItself)
         );
     }
-    assert!(volume.rename(&inner, 0, "Out").is_ok());
+    assert!(volume.rename(&inner, DirectoryCluster::ROOT, "Out").is_ok());
     let dot = volume
-        .named_entries(a.first_cluster())
+        .named_entries(a.directory_cluster().unwrap())
         .map(|e| e.unwrap())
         .find(|e| e.is_dot_entry())
         .unwrap();
-    assert_eq!(volume.rename(&dot, 0, "Dot"), Err(WriteError::NotAFile));
+    assert_eq!(
+        volume.rename(&dot, DirectoryCluster::ROOT, "Dot"),
+        Err(WriteError::NotAFile)
+    );
     assert_eq!(
         volume.remove_directory(&dot),
         Err(WriteError::NotADirectory)
@@ -357,8 +411,12 @@ fn a_directory_cannot_move_into_itself_or_below_and_dots_cannot_be_renamed() {
 #[test]
 fn a_rename_that_only_changes_case_keeps_one_entry() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let file = volume.create_file(0, "Mixed Case Name.txt").unwrap();
-    let again = volume.rename(&file, 0, "MIXED case NAME.txt").unwrap();
+    let file = volume
+        .create_file(DirectoryCluster::ROOT, "Mixed Case Name.txt")
+        .unwrap();
+    let again = volume
+        .rename(&file, DirectoryCluster::ROOT, "MIXED case NAME.txt")
+        .unwrap();
     assert_ne!(again.place().short_slot, file.place().short_slot);
     let listed = volume
         .root_named_entries()
@@ -371,13 +429,15 @@ fn a_rename_that_only_changes_case_keeps_one_entry() {
 #[test]
 fn a_stale_entry_is_refused_by_a_directory_remove_and_a_rename() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let directory = volume.create_directory(0, "D").unwrap();
-    let file = volume.create_file(0, "F.TXT").unwrap();
+    let directory = volume
+        .create_directory(DirectoryCluster::ROOT, "D")
+        .unwrap();
+    let file = volume.create_file(DirectoryCluster::ROOT, "F.TXT").unwrap();
     // The directory's slot becomes a long-name piece; the file's slot is freed and reused.
     let slot = directory.place().short_slot as usize;
     volume.remove_file(&file).unwrap();
     assert_eq!(
-        volume.rename(&file, 0, "G.TXT"),
+        volume.rename(&file, DirectoryCluster::ROOT, "G.TXT"),
         Err(WriteError::EntryChanged)
     );
     let mut image = volume.into_device();
@@ -388,7 +448,7 @@ fn a_stale_entry_is_refused_by_a_directory_remove_and_a_rename() {
         Err(WriteError::EntryChanged)
     );
     assert_eq!(
-        volume.rename(&directory, 0, "E"),
+        volume.rename(&directory, DirectoryCluster::ROOT, "E"),
         Err(WriteError::EntryChanged)
     );
 }
@@ -396,7 +456,7 @@ fn a_stale_entry_is_refused_by_a_directory_remove_and_a_rename() {
 #[test]
 fn a_volume_label_cannot_be_renamed() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let file = volume.create_file(0, "L.TXT").unwrap();
+    let file = volume.create_file(DirectoryCluster::ROOT, "L.TXT").unwrap();
     let mut image = volume.into_device();
     image.bytes[5 * 512 + 11] = 0x08;
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
@@ -406,7 +466,10 @@ fn a_volume_label_cannot_be_renamed() {
         .next()
         .unwrap();
     assert!(label.is_volume_label());
-    assert_eq!(volume.rename(&label, 0, "NEW"), Err(WriteError::NotAFile));
+    assert_eq!(
+        volume.rename(&label, DirectoryCluster::ROOT, "NEW"),
+        Err(WriteError::NotAFile)
+    );
     let _ = file;
 }
 
@@ -529,7 +592,7 @@ fn an_end_marker_beside_the_new_entry_rides_in_its_write() {
     stale[..11].copy_from_slice(b"STALE   TXT");
     volume.write_slot(0, 1, &stale).unwrap();
     let before = volume.device.writes;
-    volume.create_file(0, "A.TXT").unwrap();
+    volume.create_file(DirectoryCluster::ROOT, "A.TXT").unwrap();
     assert_eq!(volume.device.writes - before, 1);
     assert_eq!(volume.read_slot(0, 1).unwrap().unwrap()[0], 0);
 }
@@ -543,10 +606,12 @@ fn a_taken_directory_name_is_refused_before_anything_is_written() {
         writes: 0,
     };
     let mut volume = WritableVolume::open(device, NoClock).unwrap();
-    volume.create_directory(0, "Sub Directory").unwrap();
+    volume
+        .create_directory(DirectoryCluster::ROOT, "Sub Directory")
+        .unwrap();
     let before = volume.device.writes;
     assert_eq!(
-        volume.create_directory(0, "SUB DIRECTORY"),
+        volume.create_directory(DirectoryCluster::ROOT, "SUB DIRECTORY"),
         Err(WriteError::AlreadyExists)
     );
     assert_eq!(volume.device.writes, before);

@@ -14,8 +14,8 @@
 #![no_main]
 
 use file_allocation_table::{
-    BootSector, ChainError, FileReadError, MasterBootRecord, RootDirectory, SectorDevice,
-    SectorSize, Volume,
+    BootSector, ChainError, DirectoryCluster, FileReadError, MasterBootRecord, RootDirectory,
+    SectorDevice, SectorSize, Volume,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -129,7 +129,7 @@ fn walk(bytes: &[u8], sector: SectorSize) {
         }
     }
     let mut budget = BUDGET;
-    directory(&mut volume, 0, DEPTH, &mut budget);
+    directory(&mut volume, DirectoryCluster::ROOT, DEPTH, &mut budget);
 }
 
 /// Open each partition a table in sector 0 names, and walk the volume inside it.
@@ -191,8 +191,13 @@ fn read_file(
     let _ = file.read(&mut buffer);
 }
 
-/// Read the directory starting at `first` (0 for the root) and what it names.
-fn directory(volume: &mut Volume<Image<'_>>, first: u32, depth: u32, budget: &mut u32) {
+/// Read the directory `first` and what it names.
+fn directory(
+    volume: &mut Volume<Image<'_>>,
+    first: DirectoryCluster,
+    depth: u32,
+    budget: &mut u32,
+) {
     let mut entries = Vec::new();
     let mut read = volume.named_entries(first);
     loop {
@@ -236,8 +241,10 @@ fn directory(volume: &mut Volume<Image<'_>>, first: u32, depth: u32, budget: &mu
         if !entry.is_directory() {
             read_file(volume, &entry, budget);
         }
-        if entry.is_directory() && depth > 0 {
-            directory(volume, entry.first_cluster(), depth - 1, budget);
+        if let Some(inner) = entry.directory_cluster()
+            && depth > 0
+        {
+            directory(volume, inner, depth - 1, budget);
         }
     }
 }

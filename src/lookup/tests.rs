@@ -2,6 +2,7 @@
 //! subdirectory of a small FAT12 volume.
 
 use super::*;
+use crate::DirectoryCluster;
 use crate::long_name::{LongName, checksum};
 use crate::reader::tests::{FIRST_DATA, Image};
 
@@ -143,13 +144,16 @@ fn paths_walk_into_subdirectories_by_long_or_short_name() {
     assert_eq!(directory.first_cluster(), 20);
     assert_eq!(
         volume
-            .find_in_directory(20, "inner file.dat")
+            .find_in_directory(DirectoryCluster(20), "inner file.dat")
             .unwrap()
             .unwrap()
             .size_bytes(),
         5
     );
-    assert_eq!(volume.find_in_directory(0, "inner file.dat"), Ok(None));
+    assert_eq!(
+        volume.find_in_directory(DirectoryCluster::ROOT, "inner file.dat"),
+        Ok(None)
+    );
 }
 
 #[test]
@@ -170,7 +174,10 @@ fn what_is_not_there_is_not_found_and_the_label_is_called_nothing() {
             "{path:?}"
         );
     }
-    assert_eq!(volume.find_in_directory(0, ""), Ok(None));
+    assert_eq!(
+        volume.find_in_directory(DirectoryCluster::ROOT, ""),
+        Ok(None)
+    );
 }
 
 #[test]

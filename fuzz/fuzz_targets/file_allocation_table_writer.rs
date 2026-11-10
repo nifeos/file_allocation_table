@@ -13,7 +13,7 @@
 
 #![no_main]
 
-use file_allocation_table::{
+use file_allocation_table::{DirectoryCluster, 
     CivilDateTime, Clock, FormatOptions, FormatPlan, NamedEntry, NoClock, SectorDevice, SectorSize,
     WritableSectorDevice, WritableVolume,
 };
@@ -103,14 +103,16 @@ impl Clock for Fed {
         if next[0] < 32 {
             return None;
         }
-        Some(CivilDateTime {
-            year: u16::from_le_bytes([next[0], next[1]]),
-            month: next[2],
-            day: next[3],
-            hour: next[4],
-            minute: next[5],
-            second: next[6],
-        })
+        // A date no calendar holds is no time, the zero timestamp.
+        CivilDateTime::new(
+            u16::from_le_bytes([next[0], next[1]]),
+            next[2],
+            next[3],
+            next[4],
+            next[5],
+            next[6],
+        )
+        .ok()
     }
 }
 
@@ -147,7 +149,7 @@ fuzz_target!(|data: &[u8]| {
         };
         match op[0] % 8 {
             0 => {
-                if volume.create_file(0, &picked).is_ok() {
+                if volume.create_file(DirectoryCluster::ROOT, &picked).is_ok() {
                     made.push(picked);
                 }
             }
@@ -180,7 +182,10 @@ fuzz_target!(|data: &[u8]| {
                 }
             }
             5 => {
-                if volume.create_directory(0, &picked).is_ok() {
+                if volume
+                    .create_directory(DirectoryCluster::ROOT, &picked)
+                    .is_ok()
+                {
                     made.push(picked);
                 }
             }
@@ -192,7 +197,7 @@ fuzz_target!(|data: &[u8]| {
             _ => {
                 if let Some(entry) = found(&mut volume, &picked) {
                     let to = name(&op[1..]);
-                    let _ = volume.rename(&entry, 0, &to);
+                    let _ = volume.rename(&entry, DirectoryCluster::ROOT, &to);
                 }
             }
         }

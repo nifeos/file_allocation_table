@@ -16,8 +16,8 @@ use std::path::Path;
 use std::process::Command;
 
 use file_allocation_table::{
-    Attributes, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, WritableSectorDevice,
-    WritableVolume, WriteError,
+    Attributes, DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
+    WritableSectorDevice, WritableVolume, WriteError,
 };
 use lamfat::{FatType, FileAttributes};
 
@@ -133,8 +133,12 @@ fn lamfat_label(image: &[u8]) -> String {
 
 fn attributes_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     let mut volume = WritableVolume::open(formatted(mebibytes, fat_type, 512), NoClock).unwrap();
-    let mut file = volume.create_file(0, "Attribute Test File.txt").unwrap();
-    let mut directory = volume.create_directory(0, "Attribute Dir").unwrap();
+    let mut file = volume
+        .create_file(DirectoryCluster::ROOT, "Attribute Test File.txt")
+        .unwrap();
+    let mut directory = volume
+        .create_directory(DirectoryCluster::ROOT, "Attribute Dir")
+        .unwrap();
     let sets = [
         (Attributes::EMPTY, FileAttributes::empty()),
         (Attributes::READ_ONLY, FileAttributes::READ_ONLY),
@@ -217,7 +221,7 @@ fn labels_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     );
     volume.set_volume_label("LAMFAT LBL").unwrap();
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trimmed(),
+        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
         b"LAMFAT LBL"
     );
     volume.mark_clean().unwrap();
@@ -293,7 +297,7 @@ fn a_label_the_format_wrote_reads_back_and_changes() {
         assert_eq!(lamfat_label(&image.bytes), "FORMATTED");
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
         assert_eq!(
-            volume.volume_label().unwrap().unwrap().trimmed(),
+            volume.volume_label().unwrap().unwrap().trim_ascii_end(),
             b"FORMATTED"
         );
         volume.set_volume_label("CHANGED").unwrap();
@@ -335,7 +339,7 @@ fn a_label_mkfs_fat_wrote_reads_back_and_changes() {
     )
     .unwrap();
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trimmed(),
+        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
         b"MKFSLABEL"
     );
     volume.set_volume_label("AFTER").unwrap();

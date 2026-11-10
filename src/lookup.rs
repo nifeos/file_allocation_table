@@ -13,7 +13,7 @@
 //! duplicate would hide.
 
 use crate::named_entry::NamedEntry;
-use crate::reader::{ChainError, Volume};
+use crate::reader::{ChainError, DirectoryCluster, Volume};
 use crate::sector::SectorDevice;
 
 /// **Why a lookup found nothing.**
@@ -90,11 +90,10 @@ impl NamedEntry {
 }
 
 impl<D: SectorDevice> Volume<D> {
-    /// **The entry called `name` in the directory whose first cluster is `directory`** (0 for the
-    /// root), or `Ok(None)`.
+    /// **The entry called `name` in `directory`**, or `Ok(None)`.
     pub fn find_in_directory(
         &mut self,
-        directory: u32,
+        directory: DirectoryCluster,
         name: &str,
     ) -> Result<Option<NamedEntry>, ChainError<D::Error>> {
         for entry in self.named_entries(directory) {
@@ -113,7 +112,7 @@ impl<D: SectorDevice> Volume<D> {
     /// its match, bounded by the volume's cluster count, and the number of directories read is
     /// the number of components.
     pub fn lookup(&mut self, path: &str) -> Result<NamedEntry, LookupError<D::Error>> {
-        let mut directory = 0;
+        let mut directory = DirectoryCluster::ROOT;
         let mut components = path.split(['/', '\\']).filter(|part| !part.is_empty());
         let Some(mut name) = components.next() else {
             return Err(LookupError::RootHasNoEntry);
@@ -126,10 +125,10 @@ impl<D: SectorDevice> Volume<D> {
             let Some(next) = components.next() else {
                 return Ok(entry);
             };
-            if !entry.is_directory() {
+            let Some(next_directory) = entry.directory_cluster() else {
                 return Err(LookupError::NotADirectory);
-            }
-            directory = entry.first_cluster();
+            };
+            directory = next_directory;
             name = next;
         }
     }

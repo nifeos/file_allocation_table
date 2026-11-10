@@ -15,10 +15,10 @@
 use core::ops::{Deref, DerefMut};
 
 use crate::attributes::Attributes;
-use crate::file::FileOpenError;
+use crate::file::OpenError;
 use crate::file_writer::FileWriter;
 use crate::named_entry::NamedEntry;
-use crate::reader::{ChainError, Volume};
+use crate::reader::{ChainError, DirectoryCluster, Volume};
 use crate::sector::WritableSectorDevice;
 use crate::time::{Clock, Stamp};
 use crate::write_cursor::WriteError;
@@ -29,7 +29,7 @@ use crate::write_cursor::WriteError;
 ///
 /// ```
 /// use file_allocation_table::{
-///     FormatPlan, FormatOptions, NoClock, SectorDevice, SectorSize, WritableSectorDevice,
+///     DirectoryCluster, FormatPlan, FormatOptions, NoClock, SectorDevice, SectorSize, WritableSectorDevice,
 ///     WritableVolume,
 /// };
 ///
@@ -57,7 +57,7 @@ use crate::write_cursor::WriteError;
 /// format.write_to(&mut device).unwrap();
 /// // No time source here, so the caller says so.
 /// let mut volume = WritableVolume::open(device, NoClock).unwrap();
-/// volume.create_file(0, "HELLO.TXT").unwrap();
+/// volume.create_file(DirectoryCluster::ROOT, "HELLO.TXT").unwrap();
 /// ```
 #[derive(Debug)]
 pub struct WritableVolume<D, C> {
@@ -98,26 +98,25 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
         self.volume.mark_clean()
     }
 
-    /// **Create an empty file called `name`** in `directory` (0 for the root), created, written
-    /// and accessed now.
+    /// **Create an empty file called `name`** in `directory`, created, written and accessed now.
     pub fn create_file(
         &mut self,
-        directory: u32,
+        directory: DirectoryCluster,
         name: &str,
     ) -> Result<NamedEntry, WriteError<D::Error>> {
         self.tick()?;
-        self.volume.create_file(directory, name)
+        self.volume.create_file(directory.0, name)
     }
 
-    /// **Create an empty directory called `name`** in `directory` (0 for the root), created,
-    /// written and accessed now, with the same times on its `.` and `..`.
+    /// **Create an empty directory called `name`** in `directory`, created, written and accessed
+    /// now, with the same times on its `.` and `..`.
     pub fn create_directory(
         &mut self,
-        directory: u32,
+        directory: DirectoryCluster,
         name: &str,
     ) -> Result<NamedEntry, WriteError<D::Error>> {
         self.tick()?;
-        self.volume.create_directory(directory, name)
+        self.volume.create_directory(directory.0, name)
     }
 
     /// **Remove the empty directory `entry` names.**
@@ -129,10 +128,10 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     pub fn rename(
         &mut self,
         entry: &NamedEntry,
-        directory: u32,
+        directory: DirectoryCluster,
         new_name: &str,
     ) -> Result<NamedEntry, WriteError<D::Error>> {
-        self.volume.rename(entry, directory, new_name)
+        self.volume.rename(entry, directory.0, new_name)
     }
 
     /// **Delete the file `entry` names.**
@@ -157,16 +156,15 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     }
 
     /// **Open the file `entry` names for writing**, at its start. The writer reads this volume's
-    /// clock on each write. Refuses a directory and the volume label, saying which.
-    ///
-    /// The writer's first write or resize checks that the slot still holds `entry`, and refuses
-    /// with [`WriteError::EntryChanged`] when it does not. The entry [`Self::create_file`] returns
-    /// says size 0 and no cluster, so after writing through it, call
-    /// [`lookup`](crate::Volume::lookup) again before opening another writer.
+    /// clock on each write. Refuses a directory and the volume label, saying which, and an entry
+    /// its directory slot no longer holds ([`OpenError::EntryChanged`]), which it reads to check,
+    /// as [`Volume::open_file_reader`] does. The entry [`Self::create_file`] returns says size 0
+    /// and no cluster, so after writing through it, call [`lookup`](crate::Volume::lookup) again
+    /// before opening another reader or writer.
     pub fn open_file_writer(
         &mut self,
         entry: &NamedEntry,
-    ) -> Result<FileWriter<'_, D, C>, FileOpenError> {
+    ) -> Result<FileWriter<'_, D, C>, OpenError<D::Error>> {
         FileWriter::new(&mut self.volume, &mut self.clock, entry)
     }
 }

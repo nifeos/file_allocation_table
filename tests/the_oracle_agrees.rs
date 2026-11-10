@@ -22,8 +22,8 @@ use std::process::Command;
 
 use file_allocation_table::efi_system_partition::BYTES_PER_SECTOR;
 use file_allocation_table::{
-    LookupError, MasterBootRecord, NamedEntry, NoClock, SectorDevice, SectorSize, ShortEntry,
-    TableEntry, Volume, VolumeLayout,
+    DirectoryCluster, LookupError, MasterBootRecord, NamedEntry, NoClock, SectorDevice, SectorSize,
+    ShortEntry, TableEntry, Volume, VolumeLayout,
 };
 use lamfat::{Read, Write};
 
@@ -211,8 +211,12 @@ fn read_file(volume: &mut Volume<Memory<'_>>, image: &[u8], first: u32, size: u6
     out
 }
 
-/// Everything this crate reads under the directory starting at `first` (0 for the root).
-fn our_records(volume: &mut Volume<Memory<'_>>, image: &[u8], first: u32) -> Vec<Record> {
+/// Everything this crate reads under the directory `first`.
+fn our_records(
+    volume: &mut Volume<Memory<'_>>,
+    image: &[u8],
+    first: DirectoryCluster,
+) -> Vec<Record> {
     // The specification caps a directory at 65,536 slots; a reader that stops advancing then fails
     // the comparison rather than hanging the suite.
     let entries: Vec<NamedEntry> = volume
@@ -242,7 +246,11 @@ fn our_records(volume: &mut Volume<Memory<'_>>, image: &[u8], first: u32) -> Vec
             children: Vec::new(),
         };
         if short.is_directory() {
-            record.children = our_records(volume, image, short.first_cluster());
+            record.children = our_records(
+                volume,
+                image,
+                entry.directory_cluster().expect("a directory"),
+            );
         } else {
             let raw = read_file(volume, image, short.first_cluster(), record.size_bytes);
             let mut file = volume.open_file_reader(&entry).expect("a file opens");
@@ -363,7 +371,7 @@ fn agree(label: &str, mebibytes: usize, fat_type: lamfat::FatType, sector: u16) 
         bytes_per_sector: size,
     })
     .expect("this crate opens rust-fatfs's volume");
-    let ours = our_records(&mut volume, &image, 0);
+    let ours = our_records(&mut volume, &image, DirectoryCluster::ROOT);
     assert_eq!(
         ours, expected,
         "{label}: the two readers list different trees"
@@ -499,7 +507,7 @@ fn rust_fatfs_reads_what_this_crate_wrote() {
         bytes_per_sector: SectorSize::Bytes512,
     })
     .unwrap();
-    let records = our_records(&mut volume, &image, 0);
+    let records = our_records(&mut volume, &image, DirectoryCluster::ROOT);
     assert_eq!(records.len(), 1);
     let boot = &records[0].children[0];
     assert_eq!(boot.short, "BOOT");

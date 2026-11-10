@@ -9,9 +9,9 @@ Expected to fail: the harness's `assert!(!legal)`.
 diff --git a/src/time.rs b/src/time.rs
 --- a/src/time.rs
 +++ b/src/time.rs
-@@ -221,7 +221,7 @@
- /// count, or `None` when a field is outside its range. The zero timestamp has month 0, so it is
- /// `None`: the entry carries no time.
+@@ -318,7 +318,7 @@ impl Stamp {
+ /// count, or `None` when a field is outside its range or the day is past the end of its month. The
+ /// zero timestamp has month 0, so it is `None`: the entry carries no time.
  pub(crate) const fn unpack(date: u16, time: u16, odd_second: u8) -> Option<CivilDateTime> {
 -    let month = ((date >> 5) & 0xF) as u8;
 +    let month = ((date >> 5) & 0x1F) as u8;

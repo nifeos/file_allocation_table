@@ -159,9 +159,13 @@ fn a_subdirectory_lists_by_its_cluster() {
     let at = (crate::reader::tests::FIRST_DATA + 18) * 512;
     image.bytes[at..at + 32].copy_from_slice(&short(b"CHILD   TXT", 0x20, 30, 3));
     let mut volume = Volume::open(image).unwrap();
-    let child = volume.named_entries(20).next().unwrap().unwrap();
+    let child = volume
+        .named_entries(DirectoryCluster(20))
+        .next()
+        .unwrap()
+        .unwrap();
     assert_eq!(&child.short_name(), b"CHILD   TXT");
-    assert_eq!(volume.named_entries(0).count(), 0);
+    assert_eq!(volume.named_entries(DirectoryCluster::ROOT).count(), 0);
 }
 
 #[test]
@@ -174,7 +178,7 @@ fn a_listing_yields_nothing_after_an_error_however_often_it_is_asked() {
     image.bytes[(6 + 40 - 2) * 512..(6 + 41 - 2) * 512].fill(0xE5);
     image.refuse = Some(6 + 41 - 2);
     let mut volume = crate::Volume::open(image).unwrap();
-    let mut entries = volume.named_entries(40);
+    let mut entries = volume.named_entries(DirectoryCluster(40));
     let mut errors = 0;
     for _ in 0..20 {
         if let Some(Err(_)) = entries.next() {
@@ -183,4 +187,33 @@ fn a_listing_yields_nothing_after_an_error_however_often_it_is_asked() {
     }
     assert_eq!(errors, 1);
     assert!(entries.next().is_none());
+}
+
+#[test]
+fn a_directory_entry_names_its_directory_and_a_file_or_the_label_names_none() {
+    use crate::reader::tests::Image;
+    use crate::{DirectoryCluster, NoClock, WritableVolume};
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    volume.set_volume_label("LABEL").unwrap();
+    let directory = volume
+        .create_directory(DirectoryCluster::ROOT, "Inner")
+        .unwrap();
+    let file = volume
+        .create_file(DirectoryCluster::ROOT, "FILE.TXT")
+        .unwrap();
+    let inner = directory.directory_cluster().unwrap();
+    assert_eq!(inner, DirectoryCluster(directory.first_cluster()));
+    assert_eq!(file.directory_cluster(), None);
+    let label = volume
+        .root_named_entries()
+        .map(|entry| entry.unwrap())
+        .find(NamedEntry::is_volume_label)
+        .unwrap();
+    assert_eq!(label.directory_cluster(), None);
+    // In a subdirectory of the root, `.` names the subdirectory and `..` names the root.
+    let mut dots = volume
+        .named_entries(inner)
+        .map(|entry| entry.unwrap().directory_cluster());
+    assert_eq!(dots.next(), Some(Some(inner)));
+    assert_eq!(dots.next(), Some(Some(DirectoryCluster::ROOT)));
 }

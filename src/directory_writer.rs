@@ -14,12 +14,12 @@
 //! the first [`ALIAS_WINDOW`] numbers reads the directory again.
 
 use crate::boot_sector::FileAllocationTableType;
-use crate::directory::{DirectoryEntry, SLOT_BYTES, ShortEntry, Slot};
+use crate::directory::{SLOT_BYTES, Slot};
 use crate::file_writer::{ARCHIVE, FREE, MOST_SLOTS, short_name_bytes};
 use crate::long_name::{self, LongName};
 use crate::lookup::LookupError;
 use crate::named_entry::{EntryPlace, Joiner, NamedEntry};
-use crate::reader::{ChainError, Volume};
+use crate::reader::{ChainError, DirectoryCluster, Volume};
 use crate::sector::{SectorSize, WritableSectorDevice};
 use crate::write_cursor::{Medium, WriteError};
 
@@ -227,7 +227,7 @@ impl<D: WritableSectorDevice> Volume<D> {
     ) -> Result<Run, WriteError<D::Error>> {
         let mut finder = RunFinder::new(count);
         let mut run = None;
-        let mut entries = self.named_entries(directory);
+        let mut entries = self.named_entries(DirectoryCluster(directory));
         loop {
             let Some(step) = entries.advance_slot() else {
                 break;
@@ -280,7 +280,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         except: Option<EntryPlace>,
         window: &mut DirectoryAliasWindow,
     ) -> Result<(), WriteError<D::Error>> {
-        for entry in self.named_entries(directory) {
+        for entry in self.named_entries(DirectoryCluster(directory)) {
             let entry = entry?;
             if Some(entry.place()) != except {
                 window.note(long, entry.short_name());
@@ -299,7 +299,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         if short_name_bytes(name).is_none() && LongName::new(name).is_none() {
             return Err(WriteError::NameRefused);
         }
-        for entry in self.named_entries(directory) {
+        for entry in self.named_entries(DirectoryCluster(directory)) {
             let entry = entry?;
             if entry.is_called(name) && Some(entry.place()) != except {
                 return Err(WriteError::AlreadyExists);
@@ -314,7 +314,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         directory: u32,
         short_slot: u32,
     ) -> Result<NamedEntry, WriteError<D::Error>> {
-        for entry in self.named_entries(directory) {
+        for entry in self.named_entries(DirectoryCluster(directory)) {
             let entry = entry?;
             if entry.place().short_slot == short_slot {
                 return Ok(entry);
@@ -553,37 +553,13 @@ impl<D: WritableSectorDevice> Volume<D> {
         Ok(())
     }
 
-    /// Check the slot `entry` names still holds it. See [`Volume::verify_short`].
+    /// Check the slot `entry` names still holds it, or `EntryChanged`. See
+    /// [`Volume::slot_holds`].
     pub(crate) fn verify(&mut self, entry: &NamedEntry) -> Result<(), WriteError<D::Error>> {
-        self.verify_short(entry.place(), entry.short_entry())
-    }
-
-    /// **Check the short slot at `place` still holds `short`**: a short entry with the same name,
-    /// attributes, first cluster and size, or `EntryChanged`.
-    ///
-    /// An entry is a copy of its slot when it was read. After a write, a resize, a rename or an
-    /// attribute change through another copy, this one names the old chain and the old size, and
-    /// an operation through it would free, replace or point a new entry at clusters the file no
-    /// longer owns. The times are not compared: an overwrite in place changes only them, and no
-    /// operation acts on them.
-    pub(crate) fn verify_short(
-        &mut self,
-        place: EntryPlace,
-        short: &ShortEntry,
-    ) -> Result<(), WriteError<D::Error>> {
-        let slot = self
-            .read_slot(place.directory, place.short_slot)?
-            .ok_or(WriteError::EntryChanged)?;
-        match Slot::parse(&slot, self.boot.file_allocation_table_type()) {
-            Slot::Used(DirectoryEntry::Short(stored))
-                if stored.name() == short.name()
-                    && stored.attributes() == short.attributes()
-                    && stored.first_cluster() == short.first_cluster()
-                    && stored.size_bytes() == short.size_bytes() =>
-            {
-                Ok(())
-            }
-            _ => Err(WriteError::EntryChanged),
+        if self.slot_holds(entry.place(), entry.short_entry())? {
+            Ok(())
+        } else {
+            Err(WriteError::EntryChanged)
         }
     }
 
@@ -610,7 +586,7 @@ impl<D: WritableSectorDevice> Volume<D> {
             return Err(WriteError::NotADirectory);
         }
         self.verify(entry)?;
-        for inner in self.named_entries(entry.first_cluster()) {
+        for inner in self.named_entries(DirectoryCluster(entry.first_cluster())) {
             if !inner?.is_dot_entry() {
                 return Err(WriteError::DirectoryNotEmpty);
             }
