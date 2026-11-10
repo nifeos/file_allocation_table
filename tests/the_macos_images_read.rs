@@ -12,6 +12,7 @@
 // the crate has no `unsafe`; the library's unit tests walk the same reader.
 #![cfg(not(miri))]
 
+use file_allocation_table::DirectoryCluster;
 use file_allocation_table::{MasterBootRecord, NamedEntry, SectorDevice, SectorSize, Volume};
 
 const BARE: &[u8] = include_bytes!("fixtures/macos/fat32.img.zst");
@@ -70,7 +71,7 @@ where
 /// Every file under `first`, as its path (each part its long name when it has one) and bytes.
 fn files<D: SectorDevice>(
     volume: &mut Volume<D>,
-    first: u32,
+    first: DirectoryCluster,
     prefix: &str,
     out: &mut Vec<(String, Vec<u8>)>,
 ) where
@@ -98,7 +99,12 @@ fn files<D: SectorDevice>(
         };
         let path = format!("{prefix}{name}");
         if entry.is_directory() {
-            files(volume, entry.first_cluster(), &format!("{path}/"), out);
+            files(
+                volume,
+                entry.directory_cluster().expect("a directory"),
+                &format!("{path}/"),
+                out,
+            );
         } else {
             out.push((path, read(volume, &entry)));
         }
@@ -110,7 +116,7 @@ where
     D::Error: std::fmt::Debug,
 {
     let mut out = Vec::new();
-    files(volume, 0, "", &mut out);
+    files(volume, DirectoryCluster::ROOT, "", &mut out);
     out.sort();
     out
 }

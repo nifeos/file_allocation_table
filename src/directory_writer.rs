@@ -19,7 +19,7 @@ use crate::file_writer::{ARCHIVE, FREE, MOST_SLOTS, short_name_bytes};
 use crate::long_name::{self, LongName};
 use crate::lookup::LookupError;
 use crate::named_entry::{EntryPlace, Joiner, NamedEntry};
-use crate::reader::{ChainError, Volume};
+use crate::reader::{ChainError, DirectoryCluster, Volume};
 use crate::sector::{SectorSize, WritableSectorDevice};
 use crate::write_cursor::{Medium, WriteError};
 
@@ -227,7 +227,7 @@ impl<D: WritableSectorDevice> Volume<D> {
     ) -> Result<Run, WriteError<D::Error>> {
         let mut finder = RunFinder::new(count);
         let mut run = None;
-        let mut entries = self.named_entries(directory);
+        let mut entries = self.named_entries(DirectoryCluster(directory));
         loop {
             let Some(step) = entries.advance_slot() else {
                 break;
@@ -280,7 +280,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         except: Option<EntryPlace>,
         window: &mut DirectoryAliasWindow,
     ) -> Result<(), WriteError<D::Error>> {
-        for entry in self.named_entries(directory) {
+        for entry in self.named_entries(DirectoryCluster(directory)) {
             let entry = entry?;
             if Some(entry.place()) != except {
                 window.note(long, entry.short_name());
@@ -299,7 +299,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         if short_name_bytes(name).is_none() && LongName::new(name).is_none() {
             return Err(WriteError::NameRefused);
         }
-        for entry in self.named_entries(directory) {
+        for entry in self.named_entries(DirectoryCluster(directory)) {
             let entry = entry?;
             if entry.is_called(name) && Some(entry.place()) != except {
                 return Err(WriteError::AlreadyExists);
@@ -314,7 +314,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         directory: u32,
         short_slot: u32,
     ) -> Result<NamedEntry, WriteError<D::Error>> {
-        for entry in self.named_entries(directory) {
+        for entry in self.named_entries(DirectoryCluster(directory)) {
             let entry = entry?;
             if entry.place().short_slot == short_slot {
                 return Ok(entry);
@@ -610,7 +610,7 @@ impl<D: WritableSectorDevice> Volume<D> {
             return Err(WriteError::NotADirectory);
         }
         self.verify(entry)?;
-        for inner in self.named_entries(entry.first_cluster()) {
+        for inner in self.named_entries(DirectoryCluster(entry.first_cluster())) {
             if !inner?.is_dot_entry() {
                 return Err(WriteError::DirectoryNotEmpty);
             }

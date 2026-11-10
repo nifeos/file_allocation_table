@@ -3,6 +3,7 @@
 //! root, a stale entry, and a device that refuses a write.
 
 use super::*;
+use crate::DirectoryCluster;
 use crate::directory::ShortEntry;
 use crate::named_entry::NamedEntry;
 use crate::reader::tests::Image;
@@ -31,7 +32,9 @@ fn read_back(volume: &mut WritableVolume<Image, NoClock>, name: &str, out: &mut 
 fn a_file_written_in_odd_chunks_reads_back_and_its_entry_is_true() {
     for chunk in [1usize, 7, 100, 511, 512, 513, 1500] {
         let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-        let entry = volume.create_file(0, "DATA.BIN").unwrap();
+        let entry = volume
+            .create_file(DirectoryCluster::ROOT, "DATA.BIN")
+            .unwrap();
         let mut writer = volume.open_file_writer(&entry).unwrap();
         let bytes: [u8; 1500] = core::array::from_fn(pattern);
         for piece in bytes.chunks(chunk) {
@@ -58,7 +61,7 @@ fn an_overwrite_keeps_the_rest_and_a_partial_sector_zeroes_the_slack() {
     // Stale bytes where the new file's first cluster will be.
     image.bytes[6 * 512..7 * 512].fill(0xEE);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let entry = volume.create_file(0, "A.BIN").unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "A.BIN").unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.write(&[1; 10]).unwrap();
     writer.set_position(4);
@@ -74,7 +77,7 @@ fn an_overwrite_keeps_the_rest_and_a_partial_sector_zeroes_the_slack() {
 #[test]
 fn a_seek_past_the_end_stops_at_the_end() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "S.BIN").unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "S.BIN").unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.set_position(99);
     assert_eq!(writer.position(), 0);
@@ -86,7 +89,7 @@ fn a_seek_past_the_end_stops_at_the_end() {
 #[test]
 fn set_len_grows_with_zeros_and_shrinks_by_freeing_clusters() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "L.BIN").unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "L.BIN").unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.write(&[9; 600]).unwrap();
     writer.set_len(1200).unwrap();
@@ -115,7 +118,9 @@ fn set_len_grows_with_zeros_and_shrinks_by_freeing_clusters() {
 fn a_removed_file_frees_its_slots_and_clusters_and_a_new_file_takes_the_slot() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     let free = volume.count_free_clusters().unwrap();
-    let entry = volume.create_file(0, "GONE.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "GONE.BIN")
+        .unwrap();
     volume
         .open_file_writer(&entry)
         .unwrap()
@@ -125,14 +130,16 @@ fn a_removed_file_frees_its_slots_and_clusters_and_a_new_file_takes_the_slot() {
     volume.remove_file(&entry).unwrap();
     assert_eq!(volume.count_free_clusters().unwrap(), free);
     assert!(volume.lookup("GONE.BIN").is_err());
-    let again = volume.create_file(0, "NEW.BIN").unwrap();
+    let again = volume
+        .create_file(DirectoryCluster::ROOT, "NEW.BIN")
+        .unwrap();
     assert_eq!(again.place().short_slot, 0);
 }
 
 #[test]
 fn a_directory_or_label_is_not_a_file_to_write_or_remove() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "X.BIN").unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "X.BIN").unwrap();
     let directory =
         NamedEntry::from_parts(ShortEntry::new(*b"DIR        ", 0x10, 0, 0), entry.place());
     assert_eq!(
@@ -151,17 +158,19 @@ fn a_directory_or_label_is_not_a_file_to_write_or_remove() {
 fn the_fixed_root_fills_and_a_refused_write_is_the_devices_error() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     for i in 0..16 {
-        volume.create_file(0, &format_name(i)).unwrap();
+        volume
+            .create_file(DirectoryCluster::ROOT, &format_name(i))
+            .unwrap();
     }
     assert_eq!(
-        volume.create_file(0, "ONEMORE"),
+        volume.create_file(DirectoryCluster::ROOT, "ONEMORE"),
         Err(WriteError::DirectoryFull)
     );
 
     let mut image = Image::fat12();
     image.refuse_write = Some(6);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let entry = volume.create_file(0, "E.BIN").unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "E.BIN").unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     assert_eq!(
         writer.write(b"x"),
@@ -219,7 +228,7 @@ fn claimed(
     size_bytes: u32,
 ) -> (WritableVolume<Image, NoClock>, NamedEntry) {
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    volume.create_file(0, name).unwrap();
+    volume.create_file(DirectoryCluster::ROOT, name).unwrap();
     let mut image = volume.into_device();
     // The root's first slot starts at sector 5: 26..28 is the first cluster, 28..32 the size.
     image.bytes[5 * 512 + 26..5 * 512 + 28].copy_from_slice(&first_cluster.to_le_bytes());
@@ -254,7 +263,9 @@ fn the_dirty_bit_is_set_by_the_first_change_and_the_sync_restores_it() {
 #[test]
 fn a_write_after_seeking_back_and_forth_lands_where_it_says() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "SEEK.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "SEEK.BIN")
+        .unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.write(&[0; 1400]).unwrap();
     for (at, byte) in [
@@ -334,18 +345,23 @@ fn a_write_at_the_four_gibibyte_limit_is_refused_and_nothing_is_written() {
 fn the_longest_and_shortest_short_names_are_legal_and_the_next_longer_is_not() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     for good in ["A", "ABCDEFGH", "A.B", "ABCDEFGH.XYZ", "$A-B_C~1.!#&"] {
-        volume.create_file(0, good).expect(good);
+        volume
+            .create_file(DirectoryCluster::ROOT, good)
+            .expect(good);
     }
     for bad in ["", "A/B", "ENDS.", "has*star", "tab	here"] {
         assert_eq!(
-            volume.create_file(0, bad),
+            volume.create_file(DirectoryCluster::ROOT, bad),
             Err(WriteError::NameRefused),
             "{bad}"
         );
     }
     // One unit more than 8.3 allows makes a long name with an alias, not a refusal.
     assert_eq!(
-        volume.create_file(0, "ABCDEFGHI").unwrap().short_name(),
+        volume
+            .create_file(DirectoryCluster::ROOT, "ABCDEFGHI")
+            .unwrap()
+            .short_name(),
         *b"ABCDEF~1   "
     );
     assert_eq!(
@@ -357,7 +373,9 @@ fn the_longest_and_shortest_short_names_are_legal_and_the_next_longer_is_not() {
 #[test]
 fn setting_the_length_it_already_has_changes_nothing() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "SAME.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "SAME.BIN")
+        .unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.write(&[3; 700]).unwrap();
     let free = volume.count_free_clusters().unwrap();
@@ -403,9 +421,13 @@ fn a_whole_sector_overwrite_never_reads_the_sector() {
 #[test]
 fn an_entry_that_no_longer_matches_its_slot_is_stale_for_every_operation() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "OLD.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "OLD.BIN")
+        .unwrap();
     volume.remove_file(&entry).unwrap();
-    let other = volume.create_file(0, "NEW.BIN").unwrap();
+    let other = volume
+        .create_file(DirectoryCluster::ROOT, "NEW.BIN")
+        .unwrap();
     assert_eq!(other.place(), entry.place());
     let mut writer = volume.open_file_writer(&entry).unwrap();
     assert_eq!(writer.write(b"x"), Err(WriteError::EntryChanged));
@@ -419,7 +441,9 @@ fn a_shrink_to_a_cluster_boundary_forgets_the_cluster_a_cursor_had_reached() {
     // Image clusters are one sector. The writer reached chain index 2; shrinking to two sectors
     // frees that cluster, and the next write at the new end needs a fresh one.
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "CUT.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "CUT.BIN")
+        .unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.write(&[1; 1025]).unwrap();
     writer.set_len(1024).unwrap();
@@ -437,7 +461,9 @@ fn a_shrink_to_a_cluster_boundary_forgets_the_cluster_a_cursor_had_reached() {
 #[test]
 fn a_partial_overwrite_inside_the_last_sector_keeps_the_bytes_around_it() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "MID.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "MID.BIN")
+        .unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     let bytes: [u8; 300] = core::array::from_fn(pattern);
     writer.write(&bytes).unwrap();
@@ -458,10 +484,12 @@ fn a_root_whose_entry_count_ends_inside_a_sector_stops_there() {
     image.bytes[17..19].copy_from_slice(&8u16.to_le_bytes());
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     for i in 0..8 {
-        volume.create_file(0, &format_name(i)).unwrap();
+        volume
+            .create_file(DirectoryCluster::ROOT, &format_name(i))
+            .unwrap();
     }
     assert_eq!(
-        volume.create_file(0, "NINTH"),
+        volume.create_file(DirectoryCluster::ROOT, "NINTH"),
         Err(WriteError::DirectoryFull)
     );
 }
@@ -469,7 +497,9 @@ fn a_root_whose_entry_count_ends_inside_a_sector_stops_there() {
 #[test]
 fn a_slot_that_became_a_long_name_piece_is_stale_for_a_write_and_a_remove() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "LFN.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "LFN.BIN")
+        .unwrap();
     let mut image = volume.into_device();
     // The root's first slot starts at sector 5; byte 11 is the attribute.
     image.bytes[5 * 512 + 11] = 0x0F;
@@ -482,7 +512,9 @@ fn a_slot_that_became_a_long_name_piece_is_stale_for_a_write_and_a_remove() {
 #[test]
 fn a_write_keeps_the_attributes_the_entry_already_has() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "RO.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "RO.BIN")
+        .unwrap();
     let mut image = volume.into_device();
     image.bytes[5 * 512 + 11] = 0x02;
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
@@ -501,11 +533,11 @@ fn a_write_keeps_the_attributes_the_entry_already_has() {
 #[test]
 fn a_reused_free_slot_does_not_end_the_directory_and_stale_bytes_after_the_end_are_ended() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let first = volume.create_file(0, "A.TXT").unwrap();
-    volume.create_file(0, "B.TXT").unwrap();
-    volume.create_file(0, "C.TXT").unwrap();
+    let first = volume.create_file(DirectoryCluster::ROOT, "A.TXT").unwrap();
+    volume.create_file(DirectoryCluster::ROOT, "B.TXT").unwrap();
+    volume.create_file(DirectoryCluster::ROOT, "C.TXT").unwrap();
     volume.remove_file(&first).unwrap();
-    let reused = volume.create_file(0, "D.TXT").unwrap();
+    let reused = volume.create_file(DirectoryCluster::ROOT, "D.TXT").unwrap();
     assert_eq!(reused.place().short_slot, 0);
     for name in ["D.TXT", "B.TXT", "C.TXT"] {
         assert!(volume.lookup(name).is_ok(), "{name}");
@@ -514,7 +546,9 @@ fn a_reused_free_slot_does_not_end_the_directory_and_stale_bytes_after_the_end_a
     let mut image = Image::fat12();
     image.bytes[5 * 512 + 32..5 * 512 + 43].copy_from_slice(b"GHOST   TXT");
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let made = volume.create_file(0, "REAL.TXT").unwrap();
+    let made = volume
+        .create_file(DirectoryCluster::ROOT, "REAL.TXT")
+        .unwrap();
     assert_eq!(made.place().short_slot, 0);
     assert!(volume.lookup("REAL.TXT").is_ok());
     assert!(volume.lookup("GHOST.TXT").is_err());
@@ -526,7 +560,9 @@ fn a_reused_free_slot_does_not_end_the_directory_and_stale_bytes_after_the_end_a
 #[test]
 fn an_overwrite_in_a_later_sector_zeroes_stale_bytes_past_the_end_of_the_file() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "TAIL.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "TAIL.BIN")
+        .unwrap();
     volume
         .open_file_writer(&entry)
         .unwrap()
@@ -549,7 +585,9 @@ fn an_overwrite_in_a_later_sector_zeroes_stale_bytes_past_the_end_of_the_file() 
 #[test]
 fn growing_by_several_buffers_from_empty_and_by_exactly_two_works() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let entry = volume.create_file(0, "GROW.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "GROW.BIN")
+        .unwrap();
     volume
         .open_file_writer(&entry)
         .unwrap()
@@ -573,7 +611,9 @@ fn growing_by_several_buffers_from_empty_and_by_exactly_two_works() {
 #[test]
 fn a_second_writer_from_the_entry_create_file_returned_is_refused_and_leaks_nothing() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let created = volume.create_file(0, "TWICE.BIN").unwrap();
+    let created = volume
+        .create_file(DirectoryCluster::ROOT, "TWICE.BIN")
+        .unwrap();
     volume
         .open_file_writer(&created)
         .unwrap()
@@ -603,7 +643,9 @@ fn a_second_writer_from_the_entry_create_file_returned_is_refused_and_leaks_noth
 #[test]
 fn an_entry_read_before_a_write_is_stale_for_a_remove_a_rename_and_an_attribute_change() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let created = volume.create_file(0, "OLD.BIN").unwrap();
+    let created = volume
+        .create_file(DirectoryCluster::ROOT, "OLD.BIN")
+        .unwrap();
     volume
         .open_file_writer(&created)
         .unwrap()
@@ -612,7 +654,7 @@ fn an_entry_read_before_a_write_is_stale_for_a_remove_a_rename_and_an_attribute_
     let free = volume.count_free_clusters().unwrap();
     assert_eq!(volume.remove_file(&created), Err(WriteError::EntryChanged));
     assert_eq!(
-        volume.rename(&created, 0, "NEW.BIN"),
+        volume.rename(&created, DirectoryCluster::ROOT, "NEW.BIN"),
         Err(WriteError::EntryChanged)
     );
     assert_eq!(
@@ -629,7 +671,9 @@ fn an_entry_read_before_a_write_is_stale_for_a_remove_a_rename_and_an_attribute_
 /// A file of 10 bytes in the root's first slot, the entry read for it, and the volume.
 fn one_written_file() -> (WritableVolume<Image, NoClock>, NamedEntry) {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let created = volume.create_file(0, "ONE.BIN").unwrap();
+    let created = volume
+        .create_file(DirectoryCluster::ROOT, "ONE.BIN")
+        .unwrap();
     volume
         .open_file_writer(&created)
         .unwrap()
@@ -676,7 +720,7 @@ fn a_file_whose_stored_name_starts_with_0x05_is_written_and_keeps_its_name() {
     image.bytes[5 * 512] = 0x05;
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     let entry = volume
-        .named_entries(0)
+        .named_entries(DirectoryCluster::ROOT)
         .next()
         .expect("one entry")
         .expect("it parses");
@@ -689,7 +733,11 @@ fn a_file_whose_stored_name_starts_with_0x05_is_written_and_keeps_its_name() {
     assert_eq!(image.bytes[5 * 512], 0x05);
     // The write landed in the entry, and the slot is still in use.
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let entry = volume.named_entries(0).next().unwrap().unwrap();
+    let entry = volume
+        .named_entries(DirectoryCluster::ROOT)
+        .next()
+        .unwrap()
+        .unwrap();
     assert_eq!(entry.size_bytes(), 10);
     assert_eq!(volume.remove_file(&entry), Ok(()));
     image = volume.into_device();

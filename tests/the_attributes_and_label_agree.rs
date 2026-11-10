@@ -11,6 +11,7 @@
 // tests run under Miri.
 #![cfg(not(miri))]
 
+use file_allocation_table::DirectoryCluster;
 use std::io::Cursor;
 use std::path::Path;
 use std::process::Command;
@@ -133,8 +134,12 @@ fn lamfat_label(image: &[u8]) -> String {
 
 fn attributes_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     let mut volume = WritableVolume::open(formatted(mebibytes, fat_type, 512), NoClock).unwrap();
-    let mut file = volume.create_file(0, "Attribute Test File.txt").unwrap();
-    let mut directory = volume.create_directory(0, "Attribute Dir").unwrap();
+    let mut file = volume
+        .create_file(DirectoryCluster::ROOT, "Attribute Test File.txt")
+        .unwrap();
+    let mut directory = volume
+        .create_directory(DirectoryCluster::ROOT, "Attribute Dir")
+        .unwrap();
     let sets = [
         (Attributes::EMPTY, FileAttributes::empty()),
         (Attributes::READ_ONLY, FileAttributes::READ_ONLY),

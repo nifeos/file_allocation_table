@@ -11,6 +11,7 @@
 // tests run under Miri.
 #![cfg(not(miri))]
 
+use file_allocation_table::DirectoryCluster;
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::process::Command;
@@ -152,7 +153,9 @@ fn write_in_chunks(
     bytes: &[u8],
     chunk: usize,
 ) {
-    let entry = volume.create_file(0, name).expect("create");
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, name)
+        .expect("create");
     let mut writer = volume.open_file_writer(&entry).unwrap();
     for piece in bytes.chunks(chunk.max(1)) {
         assert_eq!(writer.write(piece).unwrap(), piece.len());
@@ -324,7 +327,9 @@ fn a_fat32_root_grows_past_one_cluster_and_a_fat16_root_refuses() {
     let mut volume = WritableVolume::open(formatted(64, FatType::Fat32, 512), NoClock).unwrap();
     let per_cluster = volume.boot_sector().bytes_per_cluster() as usize / 32;
     for i in 0..per_cluster + 3 {
-        volume.create_file(0, &format!("N{i}.TXT")).unwrap();
+        volume
+            .create_file(DirectoryCluster::ROOT, &format!("N{i}.TXT"))
+            .unwrap();
     }
     volume.mark_clean().unwrap();
     let image = volume.into_device();
@@ -334,7 +339,7 @@ fn a_fat32_root_grows_past_one_cluster_and_a_fat16_root_refuses() {
     let mut volume = WritableVolume::open(formatted(32, FatType::Fat16, 512), NoClock).unwrap();
     let mut made = 0;
     let refused = loop {
-        match volume.create_file(0, &format!("M{made}.TXT")) {
+        match volume.create_file(DirectoryCluster::ROOT, &format!("M{made}.TXT")) {
             Ok(_) => made += 1,
             Err(error) => break error,
         }
@@ -348,19 +353,23 @@ fn names_and_stale_entries_are_refused() {
     let mut volume = WritableVolume::open(formatted(4, FatType::Fat12, 512), NoClock).unwrap();
     for bad in ["", "a/b", "ends.", "has*star"] {
         assert_eq!(
-            volume.create_file(0, bad),
+            volume.create_file(DirectoryCluster::ROOT, bad),
             Err(WriteError::NameRefused),
             "{bad}"
         );
     }
-    let entry = volume.create_file(0, "ONE.TXT").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "ONE.TXT")
+        .unwrap();
     assert_eq!(
-        volume.create_file(0, "ONE.TXT"),
+        volume.create_file(DirectoryCluster::ROOT, "ONE.TXT"),
         Err(WriteError::AlreadyExists)
     );
     volume.remove_file(&entry).unwrap();
     assert_eq!(volume.remove_file(&entry), Err(WriteError::EntryChanged));
-    let again = volume.create_file(0, "TWO.TXT").unwrap();
+    let again = volume
+        .create_file(DirectoryCluster::ROOT, "TWO.TXT")
+        .unwrap();
     assert!(volume.open_file_writer(&again).is_ok());
     // The freed slot is reused.
     assert!(volume.lookup("ONE.TXT").is_err());
@@ -369,7 +378,9 @@ fn names_and_stale_entries_are_refused() {
 #[test]
 fn a_second_writer_from_the_entry_create_file_returned_is_refused_and_nothing_leaks() {
     let mut volume = WritableVolume::open(formatted(8, FatType::Fat16, 512), NoClock).unwrap();
-    let created = volume.create_file(0, "HELLO.TXT").unwrap();
+    let created = volume
+        .create_file(DirectoryCluster::ROOT, "HELLO.TXT")
+        .unwrap();
     volume
         .open_file_writer(&created)
         .unwrap()
@@ -392,7 +403,9 @@ fn a_full_volume_writes_what_fits_then_refuses_and_deleting_restores_the_space()
     let mut volume = WritableVolume::open(formatted(1, FatType::Fat12, 512), NoClock).unwrap();
     let total = volume.count_free_clusters().unwrap() as usize;
     let cluster = volume.boot_sector().bytes_per_cluster() as usize;
-    let entry = volume.create_file(0, "BIG.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "BIG.BIN")
+        .unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     let data = vec![0xA5u8; (total + 5) * cluster];
     let written = writer.write(&data).unwrap();
@@ -428,7 +441,7 @@ fn a_volume_found_dirty_stays_dirty_after_a_sync() {
         image.bytes[top] &= !bit;
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
         assert_eq!(volume.is_clean().unwrap(), Some(false));
-        volume.create_file(0, "A.TXT").unwrap();
+        volume.create_file(DirectoryCluster::ROOT, "A.TXT").unwrap();
         volume.mark_clean().unwrap();
         assert_eq!(volume.is_clean().unwrap(), Some(false), "{fat_type:?}");
     }
@@ -453,7 +466,11 @@ fn files_in_a_subdirectory_write_and_the_subdirectory_grows() {
             fs.unmount().unwrap();
         }
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
-        let directory = volume.lookup("Sub Directory").unwrap().first_cluster();
+        let directory = volume
+            .lookup("Sub Directory")
+            .unwrap()
+            .directory_cluster()
+            .unwrap();
         let cluster = volume.boot_sector().bytes_per_cluster() as usize;
         // Slot 0 and 1 are `.` and `..`; this many files fill the first cluster and spill over.
         let count = cluster / 32 + 5;
@@ -502,7 +519,9 @@ fn files_in_a_subdirectory_write_and_the_subdirectory_grows() {
 fn a_full_fixed_root_reads_back_every_entry() {
     let mut volume = WritableVolume::open(formatted(32, FatType::Fat16, 512), NoClock).unwrap();
     for i in 0..512 {
-        let entry = volume.create_file(0, &format!("R{i}.TXT")).unwrap();
+        let entry = volume
+            .create_file(DirectoryCluster::ROOT, &format!("R{i}.TXT"))
+            .unwrap();
         volume
             .open_file_writer(&entry)
             .unwrap()
@@ -554,7 +573,9 @@ fn a_directory_that_grows_into_a_multi_sector_cluster_zeroes_all_of_it() {
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     let slots = 2048 / 32;
     for i in 0..slots + 40 {
-        volume.create_file(0, &format!("G{i}.TXT")).unwrap();
+        volume
+            .create_file(DirectoryCluster::ROOT, &format!("G{i}.TXT"))
+            .unwrap();
     }
     volume.mark_clean().unwrap();
     let image = volume.into_device();
@@ -577,12 +598,16 @@ fn a_fat32_file_beyond_cluster_65535_keeps_its_high_cluster_bits() {
     .unwrap();
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     let filler = vec![0x5Au8; 1 << 20];
-    let entry = volume.create_file(0, "FILL.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "FILL.BIN")
+        .unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     for _ in 0..34 {
         writer.write(&filler).unwrap();
     }
-    let late = volume.create_file(0, "LATE.TXT").unwrap();
+    let late = volume
+        .create_file(DirectoryCluster::ROOT, "LATE.TXT")
+        .unwrap();
     volume
         .open_file_writer(&late)
         .unwrap()

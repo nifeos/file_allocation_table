@@ -2,6 +2,7 @@
 //! cluster chains on the reader tests' volume.
 
 use super::*;
+use crate::DirectoryCluster;
 use crate::reader::tests::{FIRST_DATA, Image};
 use crate::table::TableEntry;
 
@@ -185,7 +186,10 @@ fn the_root_region_yields_used_slots_and_stops_at_the_end_slot() {
     assert_eq!(sub.first_cluster(), 20);
     assert!(root.next().is_none());
     assert!(root.next().is_none());
-    assert_eq!(volume.directory(0).take(MOST).count(), 3);
+    assert_eq!(
+        volume.directory(DirectoryCluster::ROOT).take(MOST).count(),
+        3
+    );
 }
 
 #[test]
@@ -213,7 +217,7 @@ fn a_subdirectory_reads_across_its_clusters() {
     );
     let mut volume = Volume::open(image).unwrap();
     let mut count = 0;
-    for entry in volume.directory(20).take(MOST) {
+    for entry in volume.directory(DirectoryCluster(20)).take(MOST) {
         assert!(matches!(entry, Ok(DirectoryEntry::Short(_))));
         count += 1;
     }
@@ -230,7 +234,10 @@ fn a_subdirectory_without_an_end_slot_ends_with_its_chain() {
         &[short(b"FILE    TXT", 0x20, 0, 3, 1); 16],
     );
     let mut volume = Volume::open(image).unwrap();
-    assert_eq!(volume.directory(20).take(MOST).count(), 16);
+    assert_eq!(
+        volume.directory(DirectoryCluster(20)).take(MOST).count(),
+        16
+    );
 }
 
 #[test]
@@ -245,7 +252,7 @@ fn a_looping_directory_chain_ends_with_an_error() {
     let mut volume = Volume::open(image).unwrap();
     let mut entries = 0usize;
     let mut last = None;
-    for entry in volume.directory(20).take(MOST) {
+    for entry in volume.directory(DirectoryCluster(20)).take(MOST) {
         match entry {
             Ok(_) => entries += 1,
             Err(error) => last = Some(error),
@@ -265,7 +272,7 @@ fn a_broken_directory_chain_and_a_failing_device_end_the_read() {
         &[short(b"FILE    TXT", 0x20, 0, 3, 1); 16],
     );
     let mut volume = Volume::open(image).unwrap();
-    let mut read = volume.directory(20);
+    let mut read = volume.directory(DirectoryCluster(20));
     assert_eq!(read.by_ref().take(16).filter(Result::is_ok).count(), 16);
     assert_eq!(
         read.next(),
@@ -285,7 +292,7 @@ fn a_broken_directory_chain_and_a_failing_device_end_the_read() {
 
     let mut volume = Volume::open(Image::fat12()).unwrap();
     assert_eq!(
-        volume.directory(1).next(),
+        volume.directory(DirectoryCluster(1)).next(),
         Some(Err(ChainError::NotADataCluster(1)))
     );
 }

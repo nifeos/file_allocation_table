@@ -35,8 +35,8 @@ from a disk.
 
 ```rust
 use file_allocation_table::{
-    Attributes, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, WritableSectorDevice,
-    WritableVolume,
+    Attributes, DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
+    WritableSectorDevice, WritableVolume,
 };
 
 /// A volume held in memory. A real caller wraps a block device the same way.
@@ -80,9 +80,11 @@ fn main() {
 
     // Open it, make a directory and a file with a long name, and write some bytes.
     let mut volume = WritableVolume::open(device, NoClock).unwrap();
-    let docs = volume.create_directory(0, "Documents").unwrap();
+    let docs = volume
+        .create_directory(DirectoryCluster::ROOT, "Documents")
+        .unwrap();
     let file = volume
-        .create_file(docs.first_cluster(), "A long file name.txt")
+        .create_file(docs.directory_cluster().unwrap(), "A long file name.txt")
         .unwrap();
     volume
         .open_file_writer(&file)
@@ -124,7 +126,8 @@ through it. The example below does this.
 
 ```rust
 use file_allocation_table::{
-    NoClock, Partition, SectorDevice, SectorSize, WritableSectorDevice, WritableVolume,
+    DirectoryCluster, NoClock, Partition, SectorDevice, SectorSize, WritableSectorDevice,
+    WritableVolume,
 };
 
 /// Shows a disk from sector `first` on, as a device whose sector 0 is that sector.
@@ -157,7 +160,7 @@ fn create_in_partition<D: WritableSectorDevice>(disk: D, partition: Partition) {
     let Ok(mut volume) = WritableVolume::open(Offset { device: disk, first }, NoClock) else {
         return;
     };
-    let _ = volume.create_file(0, "NOTE.TXT");
+    let _ = volume.create_file(DirectoryCluster::ROOT, "NOTE.TXT");
 }
 ```
 

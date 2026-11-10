@@ -1,6 +1,7 @@
 //! Every stamped field, and every operation that stamps or does not, on the small FAT12 volume
 //! `reader::tests` builds, with a clock the test sets and counts.
 
+use crate::DirectoryCluster;
 use core::cell::Cell;
 
 use super::*;
@@ -64,7 +65,9 @@ fn a_new_file_is_created_written_and_accessed_at_the_time_of_its_creation() {
         },
     )
     .unwrap();
-    volume.create_file(0, "NEW.TXT").unwrap();
+    volume
+        .create_file(DirectoryCluster::ROOT, "NEW.TXT")
+        .unwrap();
     assert_eq!(readings.get(), 1, "one reading for the operation");
     let image = volume.into_device();
     assert_eq!(fields(&image.bytes, ROOT), packed(time.get()));
@@ -82,7 +85,7 @@ fn a_write_and_a_resize_set_the_write_and_access_times_and_keep_the_creation_tim
         },
     )
     .unwrap();
-    let entry = volume.create_file(0, "W.TXT").unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "W.TXT").unwrap();
     time.set(at(2027, 2, 3, 4, 5, 6));
     let before = readings.get();
     let mut writer = volume.open_file_writer(&entry).unwrap();
@@ -116,7 +119,7 @@ fn a_write_of_no_bytes_and_a_resize_to_the_same_length_stamp_nothing() {
         },
     )
     .unwrap();
-    let entry = volume.create_file(0, "Z.TXT").unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "Z.TXT").unwrap();
     let before = fields(&volume.into_device().bytes, ROOT);
     let mut volume = WritableVolume::open(
         Image::fat12(),
@@ -126,7 +129,7 @@ fn a_write_of_no_bytes_and_a_resize_to_the_same_length_stamp_nothing() {
         },
     )
     .unwrap();
-    let entry2 = volume.create_file(0, "Z.TXT").unwrap();
+    let entry2 = volume.create_file(DirectoryCluster::ROOT, "Z.TXT").unwrap();
     assert_eq!(entry2.place(), entry.place());
     time.set(at(2030, 1, 1, 1, 1, 2));
     let mut writer = volume.open_file_writer(&entry2).unwrap();
@@ -146,7 +149,7 @@ fn no_time_stamps_zero_and_a_modify_zeroes_only_the_write_and_access_fields() {
         },
     )
     .unwrap();
-    let entry = volume.create_file(0, "N.TXT").unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "N.TXT").unwrap();
     time.set(None);
     volume
         .open_file_writer(&entry)
@@ -164,7 +167,7 @@ fn no_time_stamps_zero_and_a_modify_zeroes_only_the_write_and_access_fields() {
     assert_eq!((access, write_time, write_date), (0, 0, 0));
     // And NoClock writes the zero timestamp from the start.
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    volume.create_file(0, "Z.TXT").unwrap();
+    volume.create_file(DirectoryCluster::ROOT, "Z.TXT").unwrap();
     assert_eq!(
         fields(&volume.into_device().bytes, ROOT),
         (0, 0, 0, 0, 0, 0)
@@ -182,7 +185,9 @@ fn a_directory_and_its_dot_entries_carry_the_creation_time() {
         },
     )
     .unwrap();
-    let directory = volume.create_directory(0, "D").unwrap();
+    let directory = volume
+        .create_directory(DirectoryCluster::ROOT, "D")
+        .unwrap();
     assert_eq!(readings.get(), 1);
     let cluster = directory.first_cluster() as usize;
     let image = volume.into_device();
@@ -204,10 +209,14 @@ fn a_rename_keeps_the_times_and_a_label_takes_the_time_it_was_set() {
         },
     )
     .unwrap();
-    let entry = volume.create_file(0, "OLD.TXT").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "OLD.TXT")
+        .unwrap();
     time.set(at(2031, 5, 6, 7, 8, 10));
     let before = readings.get();
-    let moved = volume.rename(&entry, 0, "A new longer name.txt").unwrap();
+    let moved = volume
+        .rename(&entry, DirectoryCluster::ROOT, "A new longer name.txt")
+        .unwrap();
     volume.set_attributes(&moved, Attributes::HIDDEN).unwrap();
     assert_eq!(
         readings.get(),
@@ -239,7 +248,7 @@ fn reads_and_removals_read_no_clock_and_leave_the_bytes_alone() {
         },
     )
     .unwrap();
-    let entry = volume.create_file(0, "R.TXT").unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "R.TXT").unwrap();
     volume
         .open_file_writer(&entry)
         .unwrap()
@@ -288,7 +297,7 @@ fn reads_and_removals_read_no_clock_and_leave_the_bytes_alone() {
         },
     )
     .unwrap();
-    let doomed = volume.create_file(0, "D.TXT").unwrap();
+    let doomed = volume.create_file(DirectoryCluster::ROOT, "D.TXT").unwrap();
     let count = readings.get();
     volume.remove_file(&doomed).unwrap();
     assert_eq!(readings.get(), count, "a removal reads no clock");
@@ -330,7 +339,9 @@ fn refused_and_untouched(
             },
         )
         .unwrap();
-        let file = volume.create_file(0, "KEEP.TXT").unwrap();
+        let file = volume
+            .create_file(DirectoryCluster::ROOT, "KEEP.TXT")
+            .unwrap();
         volume
             .open_file_writer(&file)
             .unwrap()
@@ -362,17 +373,25 @@ fn refused_and_untouched(
 
 #[test]
 fn creating_a_file_at_a_time_fat_cannot_store_is_refused_and_writes_nothing() {
-    refused_and_untouched(|volume| volume.create_file(0, "NEW.TXT").map(|_| ()));
     refused_and_untouched(|volume| {
         volume
-            .create_file(0, "A long new file name.txt")
+            .create_file(DirectoryCluster::ROOT, "NEW.TXT")
+            .map(|_| ())
+    });
+    refused_and_untouched(|volume| {
+        volume
+            .create_file(DirectoryCluster::ROOT, "A long new file name.txt")
             .map(|_| ())
     });
 }
 
 #[test]
 fn making_a_directory_at_a_time_fat_cannot_store_is_refused_and_writes_nothing() {
-    refused_and_untouched(|volume| volume.create_directory(0, "NEWDIR").map(|_| ()));
+    refused_and_untouched(|volume| {
+        volume
+            .create_directory(DirectoryCluster::ROOT, "NEWDIR")
+            .map(|_| ())
+    });
 }
 
 #[test]
@@ -424,7 +443,7 @@ fn a_refused_writer_stays_usable_once_the_clock_is_right() {
         },
     )
     .unwrap();
-    let file = volume.create_file(0, "W.TXT").unwrap();
+    let file = volume.create_file(DirectoryCluster::ROOT, "W.TXT").unwrap();
     let mut writer = volume.open_file_writer(&file).unwrap();
     time.set(at(2108, 1, 1, 0, 0, 0));
     assert_eq!(writer.write(b"x"), Err(WriteError::TimeOutOfRange));
@@ -451,11 +470,15 @@ fn the_boundaries_through_a_volume_refuse_one_second_outside_and_accept_the_edge
         (at(2108, 1, 1, 0, 0, 0), false, "D.TXT"),
     ] {
         time.set(moment);
-        assert_eq!(volume.create_file(0, name).is_ok(), ok, "{moment:?}");
+        assert_eq!(
+            volume.create_file(DirectoryCluster::ROOT, name).is_ok(),
+            ok,
+            "{moment:?}"
+        );
     }
     // A clock with no time is never out of range.
     time.set(None);
-    assert!(volume.create_file(0, "E.TXT").is_ok());
+    assert!(volume.create_file(DirectoryCluster::ROOT, "E.TXT").is_ok());
 }
 
 #[test]

@@ -10,6 +10,7 @@
 // tests run under Miri.
 #![cfg(not(miri))]
 
+use file_allocation_table::DirectoryCluster;
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::process::Command;
@@ -145,9 +146,11 @@ fn check(label: &str, format: &FormatPlan, image: Memory) {
             - u32::from(format.file_allocation_table_type() == FileAllocationTableType::Fat32)
     );
     let bytes: Vec<u8> = (0..20_000u32).map(|i| (i * 7) as u8).collect();
-    let entry = volume.create_directory(0, "Made By Us").unwrap();
+    let entry = volume
+        .create_directory(DirectoryCluster::ROOT, "Made By Us")
+        .unwrap();
     let file = volume
-        .create_file(entry.first_cluster(), "payload.bin")
+        .create_file(entry.directory_cluster().unwrap(), "payload.bin")
         .unwrap();
     volume
         .open_file_writer(&file)
@@ -339,9 +342,14 @@ fn volumes_mkfs_fat_made_take_this_crates_writer() {
             bytes_per_sector: SectorSize::Bytes512,
         };
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
-        let entry = volume.create_directory(0, "Written By Us").unwrap();
+        let entry = volume
+            .create_directory(DirectoryCluster::ROOT, "Written By Us")
+            .unwrap();
         let file = volume
-            .create_file(entry.first_cluster(), "a rather long file name.txt")
+            .create_file(
+                entry.directory_cluster().unwrap(),
+                "a rather long file name.txt",
+            )
             .unwrap();
         volume
             .open_file_writer(&file)

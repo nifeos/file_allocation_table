@@ -10,6 +10,7 @@
 // tests run under Miri.
 #![cfg(not(miri))]
 
+use file_allocation_table::DirectoryCluster;
 use std::cell::Cell;
 use std::io::Cursor;
 use std::path::Path;
@@ -186,9 +187,11 @@ fn times_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     let mut volume =
         WritableVolume::open(formatted(mebibytes, fat_type, 512), Shared(&now)).unwrap();
     volume
-        .create_file(0, "Stamped File With A Long Name.txt")
+        .create_file(DirectoryCluster::ROOT, "Stamped File With A Long Name.txt")
         .unwrap();
-    volume.create_directory(0, "Stamped Dir").unwrap();
+    volume
+        .create_directory(DirectoryCluster::ROOT, "Stamped Dir")
+        .unwrap();
     // A later write: the write and access times move, the creation time stays.
     now.set(at(2027, 2, 3, 4, 5, 6));
     let entry = volume.lookup("Stamped File With A Long Name.txt").unwrap();
@@ -269,7 +272,7 @@ fn a_time_fat_cannot_store_is_refused_and_the_edges_pass_fsck() {
         )
         .unwrap();
         assert_eq!(
-            volume.create_file(0, "REFUSED.TXT"),
+            volume.create_file(DirectoryCluster::ROOT, "REFUSED.TXT"),
             Err(WriteError::TimeOutOfRange),
             "{label}"
         );
@@ -290,7 +293,9 @@ fn a_time_fat_cannot_store_is_refused_and_the_edges_pass_fsck() {
         let now = Cell::new(time);
         let mut volume =
             WritableVolume::open(formatted(4, FatType::Fat12, 512), Shared(&now)).unwrap();
-        volume.create_file(0, "EDGE.TXT").unwrap();
+        volume
+            .create_file(DirectoryCluster::ROOT, "EDGE.TXT")
+            .unwrap();
         let image = volume.into_device();
         assert_eq!(creation(&image.bytes, "EDGE.TXT"), expected, "{label}");
         check_with_fsck(&image.bytes, &format!("edge-{label}"));
@@ -302,10 +307,14 @@ fn no_clock_and_a_clock_with_no_time_write_the_zero_timestamp() {
     let none = Cell::new(None);
     let mut with_empty =
         WritableVolume::open(formatted(4, FatType::Fat12, 512), Shared(&none)).unwrap();
-    with_empty.create_file(0, "ZERO.TXT").unwrap();
+    with_empty
+        .create_file(DirectoryCluster::ROOT, "ZERO.TXT")
+        .unwrap();
     let mut with_no_clock =
         WritableVolume::open(formatted(4, FatType::Fat12, 512), NoClock).unwrap();
-    with_no_clock.create_file(0, "ZERO.TXT").unwrap();
+    with_no_clock
+        .create_file(DirectoryCluster::ROOT, "ZERO.TXT")
+        .unwrap();
     let entry = with_no_clock.lookup("ZERO.TXT").unwrap();
     assert_eq!(
         (entry.created(), entry.modified(), entry.accessed()),

@@ -1,6 +1,7 @@
 //! Attribute sets, the stored byte, and the change on the small FAT12 volume `reader::tests` builds.
 
 use super::*;
+use crate::DirectoryCluster;
 use crate::reader::tests::Image;
 use crate::{NoClock, WritableVolume};
 
@@ -33,14 +34,16 @@ fn setting_changes_the_user_bits_and_keeps_the_directory_bit() {
 #[test]
 fn a_file_and_a_directory_take_attributes_and_the_entry_reads_them_back() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let file = volume.create_file(0, "F.TXT").unwrap();
+    let file = volume.create_file(DirectoryCluster::ROOT, "F.TXT").unwrap();
     assert_eq!(file.user_attributes(), Attributes::ARCHIVE);
     let hidden = volume
         .set_attributes(&file, Attributes::HIDDEN.union(Attributes::SYSTEM))
         .unwrap();
     assert_eq!(hidden.user_attributes().bits(), 0x06);
     assert_eq!(hidden.place(), file.place());
-    let directory = volume.create_directory(0, "D").unwrap();
+    let directory = volume
+        .create_directory(DirectoryCluster::ROOT, "D")
+        .unwrap();
     let directory = volume
         .set_attributes(&directory, Attributes::HIDDEN)
         .unwrap();
@@ -55,7 +58,9 @@ fn a_file_and_a_directory_take_attributes_and_the_entry_reads_them_back() {
 #[test]
 fn a_read_only_file_refuses_a_write_a_resize_and_a_remove_until_the_bit_clears() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let file = volume.create_file(0, "RO.TXT").unwrap();
+    let file = volume
+        .create_file(DirectoryCluster::ROOT, "RO.TXT")
+        .unwrap();
     volume
         .open_file_writer(&file)
         .unwrap()
@@ -76,9 +81,11 @@ fn a_read_only_file_refuses_a_write_a_resize_and_a_remove_until_the_bit_clears()
 #[test]
 fn the_label_dots_and_a_stale_entry_are_refused() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let directory = volume.create_directory(0, "D").unwrap();
+    let directory = volume
+        .create_directory(DirectoryCluster::ROOT, "D")
+        .unwrap();
     let dot = volume
-        .named_entries(directory.first_cluster())
+        .named_entries(directory.directory_cluster().unwrap())
         .map(|e| e.unwrap())
         .find(NamedEntry::is_dot_entry)
         .unwrap();
@@ -86,7 +93,7 @@ fn the_label_dots_and_a_stale_entry_are_refused() {
         volume.set_attributes(&dot, Attributes::HIDDEN),
         Err(WriteError::NotAFile)
     );
-    let file = volume.create_file(0, "S.TXT").unwrap();
+    let file = volume.create_file(DirectoryCluster::ROOT, "S.TXT").unwrap();
     volume.remove_file(&file).unwrap();
     assert_eq!(
         volume.set_attributes(&file, Attributes::HIDDEN),

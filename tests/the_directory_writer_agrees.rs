@@ -10,13 +10,13 @@
 // tests run under Miri.
 #![cfg(not(miri))]
 
+use file_allocation_table::DirectoryCluster;
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::process::Command;
 
 use file_allocation_table::{
-    NoClock, RootDirectory, SectorDevice, SectorSize, WritableSectorDevice, WritableVolume,
-    WriteError,
+    NoClock, SectorDevice, SectorSize, WritableSectorDevice, WritableVolume, WriteError,
 };
 use lamfat::FatType;
 
@@ -147,7 +147,12 @@ fn lamfat_tree(image: &[u8]) -> Vec<(String, bool, Vec<u8>)> {
     out
 }
 
-fn put(volume: &mut WritableVolume<Memory, NoClock>, directory: u32, name: &str, bytes: &[u8]) {
+fn put(
+    volume: &mut WritableVolume<Memory, NoClock>,
+    directory: DirectoryCluster,
+    name: &str,
+    bytes: &[u8],
+) {
     let entry = volume.create_file(directory, name).expect(name);
     volume
         .open_file_writer(&entry)
@@ -181,14 +186,24 @@ fn long_names(label: &str, mebibytes: usize, fat_type: FatType) -> Memory {
         long_255.as_str(),
     ];
     for (i, name) in names.iter().enumerate() {
-        put(&mut volume, 0, name, format!("body {i}").as_bytes());
+        put(
+            &mut volume,
+            DirectoryCluster::ROOT,
+            name,
+            format!("body {i}").as_bytes(),
+        );
     }
     // Fifteen names with one alias base: ALONGN~1 to ALONGN~9, then ALONG~10 and up.
     for i in 0..15 {
-        put(&mut volume, 0, &format!("A Long Name Number {i}.txt"), b"n");
+        put(
+            &mut volume,
+            DirectoryCluster::ROOT,
+            &format!("A Long Name Number {i}.txt"),
+            b"n",
+        );
     }
     assert_eq!(
-        volume.create_file(0, "HELLO world.TXT"),
+        volume.create_file(DirectoryCluster::ROOT, "HELLO world.TXT"),
         Err(WriteError::AlreadyExists)
     );
     volume.mark_clean().unwrap();
@@ -210,14 +225,19 @@ fn long_names(label: &str, mebibytes: usize, fat_type: FatType) -> Memory {
 fn directories_and_moves(label: &str, image: Memory) -> Memory {
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     let docs = volume
-        .create_directory(0, "Documents And Settings")
+        .create_directory(DirectoryCluster::ROOT, "Documents And Settings")
         .unwrap();
-    let docs_cluster = docs.first_cluster();
+    let docs_cluster = docs.directory_cluster().unwrap();
     let sub = volume.create_directory(docs_cluster, "Sub").unwrap();
     put(&mut volume, docs_cluster, "notes.txt", b"notes");
-    put(&mut volume, sub.first_cluster(), "deep file.txt", b"deep");
+    put(
+        &mut volume,
+        sub.directory_cluster().unwrap(),
+        "deep file.txt",
+        b"deep",
+    );
     assert_eq!(
-        volume.create_directory(0, "documents and settings"),
+        volume.create_directory(DirectoryCluster::ROOT, "documents and settings"),
         Err(WriteError::AlreadyExists)
     );
     assert_eq!(
@@ -225,7 +245,7 @@ fn directories_and_moves(label: &str, image: Memory) -> Memory {
         Err(WriteError::DirectoryNotEmpty)
     );
     assert_eq!(
-        volume.rename(&docs, sub.first_cluster(), "Moved"),
+        volume.rename(&docs, sub.directory_cluster().unwrap(), "Moved"),
         Err(WriteError::MovedIntoItself)
     );
     assert_eq!(
@@ -233,15 +253,21 @@ fn directories_and_moves(label: &str, image: Memory) -> Memory {
         Err(WriteError::MovedIntoItself)
     );
     let notes = volume.lookup("Documents And Settings/notes.txt").unwrap();
-    let moved = volume.rename(&notes, 0, "Renamed Notes.txt").unwrap();
+    let moved = volume
+        .rename(&notes, DirectoryCluster::ROOT, "Renamed Notes.txt")
+        .unwrap();
     assert_eq!(moved.size_bytes(), 5);
     // The directory with its contents moves under another parent, and its `..` follows.
     let sub = volume.lookup("Documents And Settings/Sub").unwrap();
-    volume.rename(&sub, 0, "Sub Moved").unwrap();
+    volume
+        .rename(&sub, DirectoryCluster::ROOT, "Sub Moved")
+        .unwrap();
     let case_only = volume.lookup("lower.txt").unwrap();
-    volume.rename(&case_only, 0, "LOWER.txt").unwrap();
+    volume
+        .rename(&case_only, DirectoryCluster::ROOT, "LOWER.txt")
+        .unwrap();
     assert_eq!(
-        volume.rename(&moved, 0, "Hello World.txt"),
+        volume.rename(&moved, DirectoryCluster::ROOT, "Hello World.txt"),
         Err(WriteError::AlreadyExists)
     );
     volume.mark_clean().unwrap();
@@ -328,7 +354,9 @@ fn high_volume() -> WritableVolume<Memory, NoClock> {
     .unwrap();
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     let filler = vec![0x5Au8; 1 << 20];
-    let entry = volume.create_file(0, "FILL.BIN").unwrap();
+    let entry = volume
+        .create_file(DirectoryCluster::ROOT, "FILL.BIN")
+        .unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     for _ in 0..34 {
         writer.write(&filler).unwrap();
@@ -339,35 +367,45 @@ fn high_volume() -> WritableVolume<Memory, NoClock> {
 #[test]
 fn directories_above_cluster_65535_keep_their_high_bits_through_a_move() {
     let mut volume = high_volume();
-    let RootDirectory::Cluster(root_cluster) = volume.boot_sector().root_directory() else {
-        panic!("FAT32 keeps its root in a chain");
-    };
-    // The root named by its cluster number is the root.
-    let a = volume.create_directory(root_cluster, "High A").unwrap();
+    let a = volume
+        .create_directory(DirectoryCluster::ROOT, "High A")
+        .unwrap();
     assert!(a.first_cluster() > 65_535);
     let b = volume
-        .create_directory(a.first_cluster(), "High B")
+        .create_directory(a.directory_cluster().unwrap(), "High B")
         .unwrap();
-    let c = volume.create_directory(0, "High C").unwrap();
-    put(&mut volume, b.first_cluster(), "inside b.txt", b"b");
+    let c = volume
+        .create_directory(DirectoryCluster::ROOT, "High C")
+        .unwrap();
+    put(
+        &mut volume,
+        b.directory_cluster().unwrap(),
+        "inside b.txt",
+        b"b",
+    );
     // A move below itself is refused even when every `..` on the way needs its high half.
     assert_eq!(
-        volume.rename(&a, b.first_cluster(), "x"),
+        volume.rename(&a, b.directory_cluster().unwrap(), "x"),
         Err(WriteError::MovedIntoItself)
     );
     // And a move to a high parent rewrites `..` with its high half.
     let moved = volume
-        .rename(&b, c.first_cluster(), "High B Moved")
+        .rename(&b, c.directory_cluster().unwrap(), "High B Moved")
         .unwrap();
     assert_eq!(moved.first_cluster(), b.first_cluster());
-    put(&mut volume, moved.first_cluster(), "second.txt", b"2");
+    put(
+        &mut volume,
+        moved.directory_cluster().unwrap(),
+        "second.txt",
+        b"2",
+    );
     // High C sat under the root (its `..` is 0); moving it under High A gives it a `..` that needs
     // its high half, and High A is then an ancestor of everything below.
     let c_moved = volume
-        .rename(&c, a.first_cluster(), "High C Moved")
+        .rename(&c, a.directory_cluster().unwrap(), "High C Moved")
         .unwrap();
     assert_eq!(
-        volume.rename(&a, moved.first_cluster(), "y"),
+        volume.rename(&a, moved.directory_cluster().unwrap(), "y"),
         Err(WriteError::MovedIntoItself)
     );
     let _ = c_moved;
@@ -416,7 +454,9 @@ fn a_new_directory_in_a_multi_sector_cluster_is_zeroed_past_its_dots() {
     let data = boot.first_data_sector() as usize * 512;
     image.bytes[data + 2048..].fill(0xAA);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    volume.create_directory(0, "Fresh").unwrap();
+    volume
+        .create_directory(DirectoryCluster::ROOT, "Fresh")
+        .unwrap();
     volume.mark_clean().unwrap();
     let image = volume.into_device();
     let tree = lamfat_tree(&image.bytes);

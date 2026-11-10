@@ -5,6 +5,7 @@
 //! type system forbids a write), and a device whose write method panics, both read through a
 //! `Volume` and nothing else. After every kind of read the image is byte for byte what it was.
 
+use file_allocation_table::DirectoryCluster;
 use file_allocation_table::{
     FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, Volume, WritableSectorDevice,
     WritableVolume,
@@ -81,9 +82,14 @@ fn populated(sectors: u32) -> Vec<u8> {
     let mut device = Memory(vec![0; sectors as usize * 512]);
     format.write_to(&mut device).unwrap();
     let mut volume = WritableVolume::open(device, NoClock).unwrap();
-    let directory = volume.create_directory(0, "Some Directory").unwrap();
+    let directory = volume
+        .create_directory(DirectoryCluster::ROOT, "Some Directory")
+        .unwrap();
     let file = volume
-        .create_file(directory.first_cluster(), "A file with a long name.txt")
+        .create_file(
+            directory.directory_cluster().unwrap(),
+            "A file with a long name.txt",
+        )
         .unwrap();
     volume
         .open_file_writer(&file)

@@ -1,6 +1,7 @@
 //! Labels on the small FAT12 volume `reader::tests` builds.
 
 use super::*;
+use crate::DirectoryCluster;
 use crate::reader::tests::Image;
 use crate::{NoClock, WritableVolume};
 
@@ -85,7 +86,7 @@ fn a_full_fixed_root_has_no_room_for_a_first_label() {
     for i in 0..16u8 {
         let name = [b'A' + i];
         volume
-            .create_file(0, core::str::from_utf8(&name).unwrap())
+            .create_file(DirectoryCluster::ROOT, core::str::from_utf8(&name).unwrap())
             .unwrap();
     }
     assert_eq!(volume.set_volume_label("X"), Err(WriteError::DirectoryFull));
