@@ -15,7 +15,7 @@
 use core::ops::{Deref, DerefMut};
 
 use crate::attributes::Attributes;
-use crate::file::FileOpenError;
+use crate::file::OpenError;
 use crate::file_writer::FileWriter;
 use crate::named_entry::NamedEntry;
 use crate::reader::{ChainError, DirectoryCluster, Volume};
@@ -156,16 +156,15 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     }
 
     /// **Open the file `entry` names for writing**, at its start. The writer reads this volume's
-    /// clock on each write. Refuses a directory and the volume label, saying which.
-    ///
-    /// The writer's first write or resize checks that the slot still holds `entry`, and refuses
-    /// with [`WriteError::EntryChanged`] when it does not. The entry [`Self::create_file`] returns
-    /// says size 0 and no cluster, so after writing through it, call
-    /// [`lookup`](crate::Volume::lookup) again before opening another writer.
+    /// clock on each write. Refuses a directory and the volume label, saying which, and an entry
+    /// its directory slot no longer holds ([`OpenError::EntryChanged`]), which it reads to check,
+    /// as [`Volume::open_file_reader`] does. The entry [`Self::create_file`] returns says size 0
+    /// and no cluster, so after writing through it, call [`lookup`](crate::Volume::lookup) again
+    /// before opening another reader or writer.
     pub fn open_file_writer(
         &mut self,
         entry: &NamedEntry,
-    ) -> Result<FileWriter<'_, D, C>, FileOpenError> {
+    ) -> Result<FileWriter<'_, D, C>, OpenError<D::Error>> {
         FileWriter::new(&mut self.volume, &mut self.clock, entry)
     }
 }

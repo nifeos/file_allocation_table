@@ -13,9 +13,9 @@
 
 #![no_main]
 
-use file_allocation_table::{
-    CivilDateTime, Clock, DirectoryCluster, FormatOptions, FormatPlan, NamedEntry, NoClock,
-    SectorDevice, SectorSize, WritableSectorDevice, WritableVolume,
+use file_allocation_table::{DirectoryCluster, 
+    CivilDateTime, Clock, FormatOptions, FormatPlan, NamedEntry, NoClock, SectorDevice, SectorSize,
+    WritableSectorDevice, WritableVolume,
 };
 use libfuzzer_sys::fuzz_target;
 

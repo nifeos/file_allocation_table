@@ -241,10 +241,9 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
   `created`, `modified` and `accessed` read them back: the creation time to the second, the write
   time to two seconds, and the access date at midnight, since FAT keeps no access time of day. The
   zero timestamp reads as `None`.
-- An entry is a copy of its directory slot at the time it was read, and a write does not update it.
-  A write, a resize, a rename, a removal or an attribute change through a stale entry refuses with
-  `EntryChanged`, but a reader opened from one reads the old size with no error: the entry
-  `create_file` returns reads 0 bytes. Call `lookup` again after a write.
+- An entry is a copy of its directory slot at the time it was read, and a write does not update it,
+  so look the entry up again after a write. Opening a reader or a writer, a rename, a removal or
+  an attribute change through a stale entry refuses with `EntryChanged`.
 - The crate refuses a name with a character outside the Basic Multilingual Plane. It stores a
   lower-case 8.3 name as a long name, since it writes no lower-case flag.
 - Names compare by simple Unicode upper-casing, not the volume's code page or upcase table.

@@ -16,8 +16,8 @@ use std::path::Path;
 use std::process::Command;
 
 use file_allocation_table::{
-    DirectoryCluster, NoClock, SectorDevice, SectorSize, WritableSectorDevice, WritableVolume,
-    WriteError,
+    DirectoryCluster, NoClock, OpenError, SectorDevice, SectorSize, WritableSectorDevice,
+    WritableVolume, WriteError,
 };
 use lamfat::FatType;
 
@@ -387,8 +387,10 @@ fn a_second_writer_from_the_entry_create_file_returned_is_refused_and_nothing_le
         .write(b"first")
         .unwrap();
     // `created` says no cluster and size 0, and the slot no longer does.
-    let mut stale = volume.open_file_writer(&created).unwrap();
-    assert_eq!(stale.write(b"X"), Err(WriteError::EntryChanged));
+    assert_eq!(
+        volume.open_file_writer(&created).err(),
+        Some(OpenError::EntryChanged)
+    );
     volume.mark_clean().unwrap();
     let image = volume.into_device();
     assert_eq!(

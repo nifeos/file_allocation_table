@@ -13,25 +13,46 @@ use crate::named_entry::NamedEntry;
 use crate::reader::{ChainError, Links, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize};
 
-/// **Why an entry could not be opened as a file**, for reading or for writing.
+/// **Why an entry could not be opened as a file**, for reading
+/// ([`Volume::open_file_reader`]) or for writing
+/// ([`WritableVolume::open_file_writer`](crate::WritableVolume::open_file_writer)). Each variant
+/// means the same for both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum FileOpenError {
+pub enum OpenError<E> {
     /// The entry is a directory, whose slots [`Volume::named_entries`] reads.
     IsADirectory,
     /// The entry is the volume label, which names no file and owns no cluster.
     IsAVolumeLabel,
+    /// The entry's directory slot no longer holds the entry the caller passed: a write, a resize,
+    /// a rename, a removal or an attribute change since it was read changed the slot. Look the
+    /// entry up again.
+    EntryChanged,
+    /// The entry's directory slot could not be read.
+    Chain(ChainError<E>),
 }
 
-impl FileOpenError {
-    /// Why `entry` cannot be opened as a file, or `Ok` when it can.
-    pub(crate) const fn check(entry: &NamedEntry) -> Result<(), FileOpenError> {
+impl<E> From<ChainError<E>> for OpenError<E> {
+    fn from(error: ChainError<E>) -> OpenError<E> {
+        OpenError::Chain(error)
+    }
+}
+
+impl<E> OpenError<E> {
+    /// Why `entry` cannot be opened as a file on `volume`, or `Ok` when it can: it is a file, and
+    /// its slot still holds it.
+    pub(crate) fn check<D: SectorDevice<Error = E>>(
+        volume: &mut Volume<D>,
+        entry: &NamedEntry,
+    ) -> Result<(), OpenError<E>> {
         if entry.is_directory() {
-            Err(FileOpenError::IsADirectory)
+            Err(OpenError::IsADirectory)
         } else if entry.is_volume_label() {
-            Err(FileOpenError::IsAVolumeLabel)
-        } else {
+            Err(OpenError::IsAVolumeLabel)
+        } else if volume.slot_holds(entry.place(), entry.short_entry())? {
             Ok(())
+        } else {
+            Err(OpenError::EntryChanged)
         }
     }
 }
@@ -259,14 +280,15 @@ impl<'v, D: SectorDevice> FileReader<'v, D> {
 impl<D: SectorDevice> Volume<D> {
     /// **Open the file `entry` names for reading.**
     ///
-    /// Refuses a directory and the volume label. `entry` is trusted for its first cluster and its
-    /// size, which came off the volume: a first cluster that is not a data cluster, and a size the
-    /// chain cannot cover, surface as errors on the first read that needs them.
+    /// Refuses a directory, the volume label, and an entry its directory slot no longer holds
+    /// ([`OpenError::EntryChanged`]), which it reads to check. The entry's first cluster and size
+    /// came off the volume: a first cluster that is not a data cluster, and a size the chain cannot
+    /// cover, surface as errors on the first read that needs them.
     pub fn open_file_reader(
         &mut self,
         entry: &NamedEntry,
-    ) -> Result<FileReader<'_, D>, FileOpenError> {
-        FileOpenError::check(entry)?;
+    ) -> Result<FileReader<'_, D>, OpenError<D::Error>> {
+        OpenError::check(self, entry)?;
         Ok(FileReader::new(
             self,
             entry.first_cluster(),

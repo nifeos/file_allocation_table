@@ -143,12 +143,12 @@ fn a_directory_or_label_is_not_a_file_to_write_or_remove() {
         NamedEntry::from_parts(ShortEntry::new(*b"DIR        ", 0x10, 0, 0), entry.place());
     assert_eq!(
         volume.open_file_writer(&directory).err(),
-        Some(FileOpenError::IsADirectory)
+        Some(OpenError::IsADirectory)
     );
     let label = NamedEntry::from_parts(ShortEntry::new(*b"LABEL      ", 0x08, 0, 0), entry.place());
     assert_eq!(
         volume.open_file_writer(&label).err(),
-        Some(FileOpenError::IsAVolumeLabel)
+        Some(OpenError::IsAVolumeLabel)
     );
     assert_eq!(volume.remove_file(&directory), Err(WriteError::NotAFile));
 }
@@ -428,8 +428,14 @@ fn an_entry_that_no_longer_matches_its_slot_is_stale_for_every_operation() {
         .create_file(DirectoryCluster::ROOT, "NEW.BIN")
         .unwrap();
     assert_eq!(other.place(), entry.place());
-    let mut writer = volume.open_file_writer(&entry).unwrap();
-    assert_eq!(writer.write(b"x"), Err(WriteError::EntryChanged));
+    assert_eq!(
+        volume.open_file_writer(&entry).err(),
+        Some(OpenError::EntryChanged)
+    );
+    assert_eq!(
+        volume.open_file_reader(&entry).err(),
+        Some(OpenError::EntryChanged)
+    );
     assert_eq!(volume.remove_file(&entry), Err(WriteError::EntryChanged));
     // The live entry was not touched.
     assert_eq!(volume.lookup("NEW.BIN").unwrap().size_bytes(), 0);
@@ -503,8 +509,14 @@ fn a_slot_that_became_a_long_name_piece_is_stale_for_a_write_and_a_remove() {
     // The root's first slot starts at sector 5; byte 11 is the attribute.
     image.bytes[5 * 512 + 11] = 0x0F;
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let mut writer = volume.open_file_writer(&entry).unwrap();
-    assert_eq!(writer.write(b"x"), Err(WriteError::EntryChanged));
+    assert_eq!(
+        volume.open_file_writer(&entry).err(),
+        Some(OpenError::EntryChanged)
+    );
+    assert_eq!(
+        volume.open_file_reader(&entry).err(),
+        Some(OpenError::EntryChanged)
+    );
     assert_eq!(volume.remove_file(&entry), Err(WriteError::EntryChanged));
 }
 
@@ -620,11 +632,15 @@ fn a_second_writer_from_the_entry_create_file_returned_is_refused_and_leaks_noth
         .unwrap();
     let free = volume.count_free_clusters().unwrap();
     // `created` still says no cluster and size 0; the slot now says one cluster and 5 bytes.
-    let mut stale = volume.open_file_writer(&created).unwrap();
-    assert_eq!(stale.write(b"X"), Err(WriteError::EntryChanged));
-    assert_eq!(stale.set_len(0), Err(WriteError::EntryChanged));
-    // A refusal is not a failure: the writer refuses again, still before touching the volume.
-    assert_eq!(stale.write(b"X"), Err(WriteError::EntryChanged));
+    // The open refuses it for writing and for reading alike, before touching the volume.
+    assert_eq!(
+        volume.open_file_writer(&created).err(),
+        Some(OpenError::EntryChanged)
+    );
+    assert_eq!(
+        volume.open_file_reader(&created).err(),
+        Some(OpenError::EntryChanged)
+    );
     assert_eq!(volume.count_free_clusters().unwrap(), free);
     let mut out = [0u8; 16];
     assert_eq!(read_back(&mut volume, "TWICE.BIN", &mut out), 5);
@@ -691,10 +707,14 @@ fn a_slot_that_differs_from_the_entry_in_one_field_is_stale() {
         let mut image = volume.into_device();
         image.bytes[5 * 512 + at] = value;
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
-        let mut writer = volume.open_file_writer(&entry).unwrap();
         assert_eq!(
-            writer.write(b"x"),
-            Err(WriteError::EntryChanged),
+            volume.open_file_writer(&entry).err(),
+            Some(OpenError::EntryChanged),
+            "byte {at}"
+        );
+        assert_eq!(
+            volume.open_file_reader(&entry).err(),
+            Some(OpenError::EntryChanged),
             "byte {at}"
         );
         assert_eq!(

@@ -14,7 +14,7 @@
 //! the first [`ALIAS_WINDOW`] numbers reads the directory again.
 
 use crate::boot_sector::FileAllocationTableType;
-use crate::directory::{DirectoryEntry, SLOT_BYTES, ShortEntry, Slot};
+use crate::directory::{SLOT_BYTES, Slot};
 use crate::file_writer::{ARCHIVE, FREE, MOST_SLOTS, short_name_bytes};
 use crate::long_name::{self, LongName};
 use crate::lookup::LookupError;
@@ -553,37 +553,13 @@ impl<D: WritableSectorDevice> Volume<D> {
         Ok(())
     }
 
-    /// Check the slot `entry` names still holds it. See [`Volume::verify_short`].
+    /// Check the slot `entry` names still holds it, or `EntryChanged`. See
+    /// [`Volume::slot_holds`].
     pub(crate) fn verify(&mut self, entry: &NamedEntry) -> Result<(), WriteError<D::Error>> {
-        self.verify_short(entry.place(), entry.short_entry())
-    }
-
-    /// **Check the short slot at `place` still holds `short`**: a short entry with the same name,
-    /// attributes, first cluster and size, or `EntryChanged`.
-    ///
-    /// An entry is a copy of its slot when it was read. After a write, a resize, a rename or an
-    /// attribute change through another copy, this one names the old chain and the old size, and
-    /// an operation through it would free, replace or point a new entry at clusters the file no
-    /// longer owns. The times are not compared: an overwrite in place changes only them, and no
-    /// operation acts on them.
-    pub(crate) fn verify_short(
-        &mut self,
-        place: EntryPlace,
-        short: &ShortEntry,
-    ) -> Result<(), WriteError<D::Error>> {
-        let slot = self
-            .read_slot(place.directory, place.short_slot)?
-            .ok_or(WriteError::EntryChanged)?;
-        match Slot::parse(&slot, self.boot.file_allocation_table_type()) {
-            Slot::Used(DirectoryEntry::Short(stored))
-                if stored.name() == short.name()
-                    && stored.attributes() == short.attributes()
-                    && stored.first_cluster() == short.first_cluster()
-                    && stored.size_bytes() == short.size_bytes() =>
-            {
-                Ok(())
-            }
-            _ => Err(WriteError::EntryChanged),
+        if self.slot_holds(entry.place(), entry.short_entry())? {
+            Ok(())
+        } else {
+            Err(WriteError::EntryChanged)
         }
     }
 

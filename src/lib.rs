@@ -114,7 +114,7 @@ mod write_cursor;
 pub use attributes::Attributes;
 pub use boot_sector::{BootSector, FileAllocationTableType, ParseError, ReadError, RootDirectory};
 pub use directory::{Directory, DirectoryEntry, LongNameEntry, SLOT_BYTES, ShortEntry, Slot};
-pub use file::{FileOpenError, FileReadError, FileReader};
+pub use file::{FileReadError, FileReader, OpenError};
 pub use file_system_information::{FileSystemInformation, FileSystemInformationError};
 pub use file_writer::FileWriter;
 pub use format::{FormatError, FormatOptions, FormatPlan};

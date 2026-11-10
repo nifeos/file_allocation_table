@@ -217,11 +217,11 @@ fn open_file_refuses_a_directory_and_the_label_and_opens_a_file() {
     };
     assert!(matches!(
         volume.open_file_reader(&directory),
-        Err(FileOpenError::IsADirectory)
+        Err(OpenError::IsADirectory)
     ));
     assert!(matches!(
         volume.open_file_reader(&label),
-        Err(FileOpenError::IsAVolumeLabel)
+        Err(OpenError::IsAVolumeLabel)
     ));
     let mut reader = volume.open_file_reader(&file).unwrap();
     let mut buffer = [0u8; 200];
