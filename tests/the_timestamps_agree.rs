@@ -20,7 +20,8 @@ use file_allocation_table::efi_system_partition::{
 };
 use file_allocation_table::{
     CivilDateTime, Clock, DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice,
-    SectorSize, Volume, VolumeLayout, WritableSectorDevice, WritableVolume, WriteError,
+    SectorSize, Volume, VolumeLayout, VolumeLayoutOptions, WritableSectorDevice, WritableVolume,
+    WriteError,
 };
 use lamfat::FatType;
 
@@ -353,16 +354,12 @@ fn the_formats_label_and_the_efi_volumes_directories_carry_the_clocks_time() {
     check_with_fsck(&image.bytes, "stamped-label");
 
     // The EFI volume: the label, EFI, BOOT and the file all carry the time.
-    let efi = VolumeLayout::new(
-        1024 * 1024,
-        0,
-        4096,
-        1,
-        "EFI SYSTEM",
-        "BOOTX64.EFI",
-        &mut Shared(&now),
-    )
-    .unwrap();
+    let efi = VolumeLayoutOptions::new(1024 * 1024)
+        .with_volume_id(1)
+        .with_label("EFI SYSTEM")
+        .and_then(|o| o.with_file("BOOTX64.EFI", 4096))
+        .and_then(|o| VolumeLayout::new(o, &mut Shared(&now)))
+        .unwrap();
     // The root directory's cluster, three clusters ahead of the file's first.
     let root = |layout: &VolumeLayout| {
         layout.file_first_sector() - u64::from((FILE_CLUSTER - ROOT_CLUSTER) * SECTORS_PER_CLUSTER)
@@ -376,16 +373,12 @@ fn the_formats_label_and_the_efi_volumes_directories_carry_the_clocks_time() {
             (46 << 9) + (11 << 5) + 1
         );
     }
-    let zero = VolumeLayout::new(
-        1024 * 1024,
-        0,
-        4096,
-        1,
-        "EFI SYSTEM",
-        "BOOTX64.EFI",
-        &mut NoClock,
-    )
-    .unwrap();
+    let zero = VolumeLayoutOptions::new(1024 * 1024)
+        .with_volume_id(1)
+        .with_label("EFI SYSTEM")
+        .and_then(|o| o.with_file("BOOTX64.EFI", 4096))
+        .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+        .unwrap();
     assert!(zero.fill_sector(root(&zero), &mut sector));
     assert_eq!(sector[22..26], [0, 0, 0, 0]);
 }

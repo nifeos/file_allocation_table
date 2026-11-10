@@ -10,7 +10,9 @@
 // interpreter, and the crate has no `unsafe`; the library's unit tests run the same formatter.
 #![cfg(not(miri))]
 
-use file_allocation_table::{FormatOptions, FormatPlan, NoClock, SectorSize, VolumeLayout};
+use file_allocation_table::{
+    FormatOptions, FormatPlan, NoClock, SectorSize, VolumeLayout, VolumeLayoutOptions,
+};
 
 fn fnv(mut hash: u64, bytes: &[u8]) -> u64 {
     for byte in bytes {
@@ -23,16 +25,13 @@ fn fnv(mut hash: u64, bytes: &[u8]) -> u64 {
 const START: u64 = 0xcbf2_9ce4_8422_2325;
 
 fn efi(sectors: u64, file: &str) -> u64 {
-    let volume = VolumeLayout::new(
-        sectors,
-        2048,
-        9_000_000,
-        0x1234_5678,
-        "EFI SYSTEM",
-        file,
-        &mut NoClock,
-    )
-    .unwrap();
+    let volume = VolumeLayoutOptions::new(sectors)
+        .with_hidden_sectors(2048)
+        .with_volume_id(0x1234_5678)
+        .with_label("EFI SYSTEM")
+        .and_then(|o| o.with_file(file, 9_000_000))
+        .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+        .unwrap();
     let mut sector = [0u8; 512];
     let mut hash = START;
     for index in 0..volume.metadata_sectors() {

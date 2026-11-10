@@ -482,7 +482,10 @@ fn the_boundaries_through_a_volume_refuse_one_second_outside_and_accept_the_edge
 
 #[test]
 fn the_format_and_the_efi_volume_refuse_a_time_fat_cannot_store() {
-    use crate::{FormatError, FormatOptions, FormatPlan, LayoutError, SectorSize, VolumeLayout};
+    use crate::{
+        FormatError, FormatOptions, FormatPlan, LayoutError, SectorSize, VolumeLayout,
+        VolumeLayoutOptions,
+    };
     let (time, readings) = (Cell::new(at(2108, 1, 1, 0, 0, 0)), Cell::new(0));
     let mut clock = Shared {
         time: &time,
@@ -494,16 +497,12 @@ fn the_format_and_the_efi_volume_refuse_a_time_fat_cannot_store() {
         Some(FormatError::TimeOutOfRange)
     );
     assert_eq!(
-        VolumeLayout::new(
-            1024 * 1024,
-            0,
-            4096,
-            1,
-            "EFI SYSTEM",
-            "BOOTX64.EFI",
-            &mut clock
-        )
-        .err(),
+        VolumeLayoutOptions::new(1024 * 1024)
+            .with_volume_id(1)
+            .with_label("EFI SYSTEM")
+            .and_then(|o| o.with_file("BOOTX64.EFI", 4096))
+            .and_then(|o| VolumeLayout::new(o, &mut clock))
+            .err(),
         Some(LayoutError::TimeOutOfRange)
     );
     time.set(at(2107, 12, 31, 23, 59, 58));

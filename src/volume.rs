@@ -60,7 +60,107 @@ pub enum LayoutError {
     FileTooBig,
 }
 
+/// The boot sector's label when the layout was given none.
+const NO_NAME: [u8; 11] = *b"NO NAME    ";
+
+/// The one file a layout holds at `EFI\BOOT\<name>`, checked when it was named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LayoutFile {
+    /// The 8.3 name, or the alias of `long_name`.
+    name: [u8; 11],
+    /// The long name written ahead of `name`; `None` for an 8.3 name.
+    long_name: Option<LongName>,
+    size_bytes: u64,
+}
+
+/// **What to lay out**: the partition's size, and optionally the sectors ahead of it on its disk,
+/// the serial number, the label and the one boot file. Built as [`crate::FormatOptions`] is, and
+/// passed to [`VolumeLayout::new`].
+///
+/// Without a label, the boot sector holds `NO NAME` and the root has no volume-label entry, which
+/// every reader takes as no label. Without a file, the layout is an empty FAT32 volume: a root
+/// directory and nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VolumeLayoutOptions {
+    total_sectors: u64,
+    hidden_sectors: u64,
+    volume_id: u32,
+    label: Option<[u8; 11]>,
+    file: Option<LayoutFile>,
+}
+
+impl VolumeLayoutOptions {
+    /// Options for a partition of `total_sectors` 512-byte sectors, with every other choice left
+    /// out: no hidden sectors, serial number 0, no label and no file.
+    pub const fn new(total_sectors: u64) -> VolumeLayoutOptions {
+        VolumeLayoutOptions {
+            total_sectors,
+            hidden_sectors: 0,
+            volume_id: 0,
+            label: None,
+            file: None,
+        }
+    }
+
+    /// The partition's own first LBA on the disk, which goes into `BPB_HiddSec`. It is a field
+    /// some boot code reads and nothing here does; passing the wrong value does not move a single
+    /// byte this crate places, because every other offset is partition-relative.
+    #[must_use]
+    pub const fn with_hidden_sectors(mut self, hidden_sectors: u64) -> VolumeLayoutOptions {
+        self.hidden_sectors = hidden_sectors;
+        self
+    }
+
+    /// The serial number, which a caller should draw from a random source; nothing depends on it
+    /// being unique and this crate will not invent one.
+    #[must_use]
+    pub const fn with_volume_id(mut self, volume_id: u32) -> VolumeLayoutOptions {
+        self.volume_id = volume_id;
+        self
+    }
+
+    /// The volume label, written to the boot sector's `BS_VolLab` and as the root directory's
+    /// volume-label entry: up to eleven upper-case letters, digits, spaces and the punctuation a
+    /// short name admits, as [`crate::FormatOptions::with_label`] takes.
+    pub fn with_label(mut self, label: &str) -> Result<VolumeLayoutOptions, LayoutError> {
+        self.label = Some(label_bytes(label).ok_or(LayoutError::LabelRefused)?);
+        Ok(self)
+    }
+
+    /// The one file the volume holds, at `EFI\BOOT\<name>`, of `size_bytes` bytes. An 8.3 name
+    /// is stored as a short entry; any other legal name gets a long-name run ahead of a short
+    /// alias. Whether the file fits is checked by [`VolumeLayout::new`], against the volume.
+    pub fn with_file(
+        mut self,
+        name: &str,
+        size_bytes: u64,
+    ) -> Result<VolumeLayoutOptions, LayoutError> {
+        let (name, long_name) = match short_name(name) {
+            Some(name) => (name, None),
+            None => {
+                let long = LongName::new(name).ok_or(LayoutError::NameRefused)?;
+                (long.alias().ok_or(LayoutError::NameRefused)?, Some(long))
+            }
+        };
+        self.file = Some(LayoutFile {
+            name,
+            long_name,
+            size_bytes,
+        });
+        Ok(self)
+    }
+}
+
 /// **A volume, laid out but not written.** Every method is arithmetic; nothing here touches a disk.
+///
+/// This is the writer for one shape: a FAT32 Extensible Firmware Interface (EFI) system partition
+/// of 512-byte sectors and 4096-byte clusters, holding at most one file, at `EFI\BOOT\<name>`
+/// (see [`crate::efi_system_partition`]). It needs no device. [`VolumeLayout::fill_sector`] says
+/// what each metadata sector holds, and the file's bytes go, contiguous, at a sector the layout
+/// names, so a caller can stream an image or a partition in one pass from first sector to last.
+/// For any other volume (FAT12 or FAT16, another sector or cluster size, a tree of files), format
+/// with [`crate::FormatPlan`] from [`crate::FormatOptions`] onto a device, and write files through
+/// [`crate::WritableVolume`].
 ///
 /// # Examples
 ///
@@ -69,18 +169,15 @@ pub enum LayoutError {
 ///
 /// ```
 /// use file_allocation_table::efi_system_partition::BYTES_PER_SECTOR;
-/// use file_allocation_table::{NoClock, VolumeLayout};
+/// use file_allocation_table::{NoClock, VolumeLayout, VolumeLayoutOptions};
 ///
-/// let volume = VolumeLayout::new(
-///     1024 * 1024,
-///     2048,
-///     9_000_000,
-///     0x1234_5678,
-///     "EFI SYSTEM",
-///     "BOOTX64.EFI",
-///     &mut NoClock,
-/// )
-/// .expect("512 MiB is a FAT32 volume");
+/// let options = VolumeLayoutOptions::new(1024 * 1024)
+///     .with_hidden_sectors(2048)
+///     .with_volume_id(0x1234_5678)
+///     .with_label("EFI SYSTEM")
+///     .and_then(|options| options.with_file("BOOTX64.EFI", 9_000_000))
+///     .expect("a legal label and name");
+/// let volume = VolumeLayout::new(options, &mut NoClock).expect("512 MiB is a FAT32 volume");
 ///
 /// let mut sector = [0u8; BYTES_PER_SECTOR];
 /// for index in 0..volume.metadata_sectors() {
@@ -101,47 +198,38 @@ pub struct VolumeLayout {
     geometry: Geometry,
     stamp: Stamp,
     volume_id: u32,
+    /// The boot sector's label: the caller's, or `NO NAME` when there is none.
     label: [u8; 11],
+    /// Whether the root holds a volume-label entry.
+    has_label: bool,
+    /// Whether the volume holds `EFI\BOOT\<name>`; without it the root is the only directory.
+    has_file: bool,
     name: [u8; 11],
     /// The long name written ahead of `name`, which is then its alias; `None` for an 8.3 name.
     long_name: Option<LongName>,
 }
 
 impl VolumeLayout {
-    /// **Lay out a FAT32 volume of `total_sectors` holding one file of `file_size_bytes` bytes** at
-    /// `EFI\BOOT\<file_name>`.
+    /// **Lay out a FAT32 volume** as `options` describes: of its total sectors, holding its one
+    /// file if it names one, stamped with the time `clock` reports.
     ///
-    /// `hidden_sectors` is the partition's own first LBA on the disk, which goes into
-    /// `BPB_HiddSec`. It is a field some boot code reads and nothing here does; passing the wrong
-    /// value does not move a single byte this crate places, because every other offset is
-    /// partition-relative.
-    ///
-    /// `volume_id` is the serial number, which a caller should draw from a random source; nothing
-    /// depends on it being unique and this crate will not invent one.
-    ///
-    /// `label` is the volume label, written to the boot sector's `BS_VolLab` and as the root
-    /// directory's volume-label entry: up to eleven upper-case letters, digits, spaces and the
-    /// punctuation a short name admits, as [`crate::FormatOptions::with_label`] takes.
+    /// Refuses a partition too small to be FAT32 or larger than it addresses, a time FAT cannot
+    /// store, and a file over 4 GiB less one byte or larger than the volume holds after its three
+    /// directories.
     pub fn new(
-        total_sectors: u64,
-        hidden_sectors: u64,
-        file_size_bytes: u64,
-        volume_id: u32,
-        label: &str,
-        file_name: &str,
+        options: VolumeLayoutOptions,
         clock: &mut impl Clock,
     ) -> Result<VolumeLayout, LayoutError> {
+        let VolumeLayoutOptions {
+            total_sectors,
+            hidden_sectors,
+            volume_id,
+            label,
+            file,
+        } = options;
         if total_sectors > u32::MAX as u64 || hidden_sectors > u32::MAX as u64 {
             return Err(LayoutError::TooLarge);
         }
-        let label = label_bytes(label).ok_or(LayoutError::LabelRefused)?;
-        let (name, long_name) = match short_name(file_name) {
-            Some(name) => (name, None),
-            None => {
-                let long = LongName::new(file_name).ok_or(LayoutError::NameRefused)?;
-                (long.alias().ok_or(LayoutError::NameRefused)?, Some(long))
-            }
-        };
         let total_sectors = total_sectors as u32;
 
         let stamp = Stamp::pack(clock.now()).map_err(|_| LayoutError::TimeOutOfRange)?;
@@ -159,10 +247,11 @@ impl VolumeLayout {
         })?;
         let (fat_sectors, clusters) = (geometry.table_sectors, geometry.clusters);
 
-        if file_size_bytes > u32::MAX as u64 {
+        let size_bytes = file.map_or(0, |file| file.size_bytes);
+        if size_bytes > u32::MAX as u64 {
             return Err(LayoutError::FileTooBig);
         }
-        let file_size_bytes = file_size_bytes as u32;
+        let file_size_bytes = size_bytes as u32;
         let file_clusters = (file_size_bytes as u64).div_ceil(BYTES_PER_CLUSTER as u64) as u32;
         // Clusters are numbered 2..clusters+2, and 2, 3 and 4 are the three directories.
         if file_clusters > clusters.saturating_sub(FILE_CLUSTER - ROOT_CLUSTER) {
@@ -179,9 +268,11 @@ impl VolumeLayout {
             geometry,
             stamp,
             volume_id,
-            label,
-            name,
-            long_name,
+            label: label.unwrap_or(NO_NAME),
+            has_label: label.is_some(),
+            has_file: file.is_some(),
+            name: file.map_or([b' '; 11], |file| file.name),
+            long_name: file.and_then(|file| file.long_name),
         })
     }
 
@@ -216,16 +307,22 @@ impl VolumeLayout {
     }
 
     /// **How many leading sectors the caller must write from [`VolumeLayout::fill_sector`]**:
-    /// everything from the boot sector through the last directory cluster. The boot file's own
-    /// bytes go at [`VolumeLayout::file_first_sector`], which is the next sector after these.
+    /// everything from the boot sector through the last directory cluster (the root's, when the
+    /// volume holds no file). The boot file's own bytes go at
+    /// [`VolumeLayout::file_first_sector`], which is the next sector after these.
     pub const fn metadata_sectors(&self) -> u64 {
-        self.cluster_first_sector(FILE_CLUSTER)
+        if self.has_file {
+            self.cluster_first_sector(FILE_CLUSTER)
+        } else {
+            self.cluster_first_sector(EFI_CLUSTER)
+        }
     }
 
-    /// The partition-relative sector the boot file's first byte lands on. Its data is contiguous
-    /// from here.
+    /// The partition-relative sector the boot file's first byte lands on, the one after
+    /// [`VolumeLayout::metadata_sectors`]. Its data is contiguous from here. Without a file,
+    /// [`VolumeLayout::file_sectors`] is 0 and nothing goes here.
     pub const fn file_first_sector(&self) -> u64 {
-        self.cluster_first_sector(FILE_CLUSTER)
+        self.metadata_sectors()
     }
 
     /// How many sectors the boot file occupies, rounded up to whole clusters. The tail of the last
@@ -287,9 +384,17 @@ impl VolumeLayout {
     /// the file system information sector, whose two counts are hints a driver is allowed to ignore
     /// or disbelieve.
     fn file_system_information(&self, out: &mut [u8]) {
-        // Three directories and the file. Written once; see this crate's BUGS.
-        let used = (FILE_CLUSTER - ROOT_CLUSTER) + self.file_clusters;
-        write_fs_info(self.clusters - used, FILE_CLUSTER + self.file_clusters, out);
+        // The root, and with a file the two directories above it and the file. Written once; see
+        // this crate's BUGS.
+        let (used, next) = if self.has_file {
+            (
+                (FILE_CLUSTER - ROOT_CLUSTER) + self.file_clusters,
+                FILE_CLUSTER + self.file_clusters,
+            )
+        } else {
+            (1, EFI_CLUSTER)
+        };
+        write_fs_info(self.clusters - used, next, out);
     }
 
     /// One sector of the table, `within` sectors into a copy of it.
@@ -308,8 +413,9 @@ impl VolumeLayout {
                 // at 2 for exactly this reason.
                 0 => 0x0FFF_FFF8,
                 1 => END_OF_CHAIN,
-                // The three directories are one cluster each.
-                ROOT_CLUSTER | EFI_CLUSTER | BOOT_CLUSTER => END_OF_CHAIN,
+                // The directories are one cluster each, and only the root without a file.
+                ROOT_CLUSTER => END_OF_CHAIN,
+                EFI_CLUSTER | BOOT_CLUSTER if self.has_file => END_OF_CHAIN,
                 c if c >= FILE_CLUSTER && c < FILE_CLUSTER + self.file_clusters => {
                     if c + 1 == FILE_CLUSTER + self.file_clusters {
                         END_OF_CHAIN
@@ -323,12 +429,19 @@ impl VolumeLayout {
         }
     }
 
-    /// The root directory: the volume label, then `EFI`.
+    /// The root directory: the volume label if there is one, then `EFI` if there is a file.
     fn root_cluster(&self, out: &mut [u8]) {
-        directory_entry(out, 0, &self.label, ATTR_VOLUME_ID, 0, 0, &self.stamp);
+        let mut slot = 0;
+        if self.has_label {
+            directory_entry(out, slot, &self.label, ATTR_VOLUME_ID, 0, 0, &self.stamp);
+            slot += 1;
+        }
+        if !self.has_file {
+            return;
+        }
         directory_entry(
             out,
-            1,
+            slot,
             b"EFI        ",
             ATTR_DIRECTORY,
             EFI_CLUSTER,
@@ -471,16 +584,13 @@ mod tests {
     const ESP_SECTORS: u64 = 1024 * 1024;
 
     fn volume() -> VolumeLayout {
-        VolumeLayout::new(
-            ESP_SECTORS,
-            2048,
-            9_000_000,
-            0xDEAD_BEEF,
-            "EFI SYSTEM",
-            "BOOTX64.EFI",
-            &mut NoClock,
-        )
-        .expect("a FAT32 volume")
+        VolumeLayoutOptions::new(ESP_SECTORS)
+            .with_hidden_sectors(2048)
+            .with_volume_id(0xDEAD_BEEF)
+            .with_label("EFI SYSTEM")
+            .and_then(|o| o.with_file("BOOTX64.EFI", 9_000_000))
+            .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+            .expect("a FAT32 volume")
     }
 
     fn sector(v: &VolumeLayout, index: u64) -> [u8; BYTES_PER_SECTOR] {
@@ -509,27 +619,21 @@ mod tests {
     #[test]
     fn a_volume_too_small_to_be_fat32_is_refused_rather_than_mislabelled() {
         assert_eq!(
-            VolumeLayout::new(
-                200 * 1024 * 2,
-                2048,
-                1024,
-                1,
-                "EFI SYSTEM",
-                "BOOTX64.EFI",
-                &mut NoClock
-            ),
+            VolumeLayoutOptions::new(200 * 1024 * 2)
+                .with_hidden_sectors(2048)
+                .with_volume_id(1)
+                .with_label("EFI SYSTEM")
+                .and_then(|o| o.with_file("BOOTX64.EFI", 1024))
+                .and_then(|o| VolumeLayout::new(o, &mut NoClock)),
             Err(LayoutError::NotFat32)
         );
-        let just_enough = VolumeLayout::new(
-            600 * 1024 * 2,
-            2048,
-            1024,
-            1,
-            "EFI SYSTEM",
-            "BOOTX64.EFI",
-            &mut NoClock,
-        )
-        .expect("300 MiB clears the cluster floor");
+        let just_enough = VolumeLayoutOptions::new(600 * 1024 * 2)
+            .with_hidden_sectors(2048)
+            .with_volume_id(1)
+            .with_label("EFI SYSTEM")
+            .and_then(|o| o.with_file("BOOTX64.EFI", 1024))
+            .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+            .expect("300 MiB clears the cluster floor");
         assert!(just_enough.clusters() >= MINIMUM_FAT32_CLUSTERS);
     }
 
@@ -684,16 +788,13 @@ mod tests {
         // length depends on the size.
         for mebibytes in [300u64, 301, 400, 512, 700, 1024, 4096] {
             let sectors = mebibytes * 1024 * 2;
-            let v = VolumeLayout::new(
-                sectors,
-                2048,
-                9_000_000,
-                1,
-                "EFI SYSTEM",
-                "BOOTX64.EFI",
-                &mut NoClock,
-            )
-            .unwrap_or_else(|e| panic!("{mebibytes} MiB: {e:?}"));
+            let v = VolumeLayoutOptions::new(sectors)
+                .with_hidden_sectors(2048)
+                .with_volume_id(1)
+                .with_label("EFI SYSTEM")
+                .and_then(|o| o.with_file("BOOTX64.EFI", 9_000_000))
+                .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+                .unwrap_or_else(|e| panic!("{mebibytes} MiB: {e:?}"));
             assert_eq!(
                 v.first_data_sector() % u64::from(SECTORS_PER_CLUSTER),
                 0,
@@ -732,50 +833,46 @@ mod tests {
             assert_eq!(short_name(long), None, "{long}");
         }
         assert_eq!(
-            VolumeLayout::new(
-                ESP_SECTORS,
-                2048,
-                1024,
-                1,
-                "EFI SYSTEM",
-                "a:b",
-                &mut NoClock
-            ),
+            VolumeLayoutOptions::new(ESP_SECTORS)
+                .with_hidden_sectors(2048)
+                .with_volume_id(1)
+                .with_label("EFI SYSTEM")
+                .and_then(|o| o.with_file("a:b", 1024))
+                .and_then(|o| VolumeLayout::new(o, &mut NoClock)),
             Err(LayoutError::NameRefused)
         );
         assert_eq!(
-            VolumeLayout::new(ESP_SECTORS, 2048, 1024, 1, "EFI SYSTEM", "", &mut NoClock),
+            VolumeLayoutOptions::new(ESP_SECTORS)
+                .with_hidden_sectors(2048)
+                .with_volume_id(1)
+                .with_label("EFI SYSTEM")
+                .and_then(|o| o.with_file("", 1024))
+                .and_then(|o| VolumeLayout::new(o, &mut NoClock)),
             Err(LayoutError::NameRefused)
         );
     }
 
     #[test]
     fn the_label_is_the_callers_and_a_label_a_short_name_refuses_is_refused() {
-        let v = VolumeLayout::new(
-            ESP_SECTORS,
-            2048,
-            1024,
-            1,
-            "BOOT DISK",
-            "BOOTX64.EFI",
-            &mut NoClock,
-        )
-        .expect("a volume");
+        let v = VolumeLayoutOptions::new(ESP_SECTORS)
+            .with_hidden_sectors(2048)
+            .with_volume_id(1)
+            .with_label("BOOT DISK")
+            .and_then(|o| o.with_file("BOOTX64.EFI", 1024))
+            .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+            .expect("a volume");
         let boot = sector(&v, 0);
         assert_eq!(&boot[71..82], b"BOOT DISK  ");
         let root = sector(&v, v.cluster_first_sector(ROOT_CLUSTER));
         assert_eq!(&root[..11], b"BOOT DISK  ");
         for refused in ["", "TWELVE BYTES", "lower", "A*B"] {
             assert_eq!(
-                VolumeLayout::new(
-                    ESP_SECTORS,
-                    2048,
-                    1024,
-                    1,
-                    refused,
-                    "BOOTX64.EFI",
-                    &mut NoClock
-                ),
+                VolumeLayoutOptions::new(ESP_SECTORS)
+                    .with_hidden_sectors(2048)
+                    .with_volume_id(1)
+                    .with_label(refused)
+                    .and_then(|o| o.with_file("BOOTX64.EFI", 1024))
+                    .and_then(|o| VolumeLayout::new(o, &mut NoClock)),
                 Err(LayoutError::LabelRefused),
                 "{refused:?}"
             );
@@ -803,16 +900,13 @@ mod tests {
     /// bytes as they sit on disk, which is the binding a driver checks.
     #[test]
     fn bootriscv64_efi_is_written_as_a_long_name_run_ahead_of_its_alias() {
-        let v = VolumeLayout::new(
-            ESP_SECTORS,
-            2048,
-            9_000_000,
-            1,
-            "EFI SYSTEM",
-            "BOOTRISCV64.EFI",
-            &mut NoClock,
-        )
-        .expect("a volume");
+        let v = VolumeLayoutOptions::new(ESP_SECTORS)
+            .with_hidden_sectors(2048)
+            .with_volume_id(1)
+            .with_label("EFI SYSTEM")
+            .and_then(|o| o.with_file("BOOTRISCV64.EFI", 9_000_000))
+            .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+            .expect("a volume");
         let slots = boot_directory_slots(&v);
         assert_eq!(&slots[0][..11], b".          ");
         assert_eq!(&slots[1][..11], b"..         ");
@@ -840,16 +934,13 @@ mod tests {
     #[test]
     fn the_longest_name_reaches_the_second_sector_of_the_boot_directory() {
         let name = "n".repeat(251) + ".efi";
-        let v = VolumeLayout::new(
-            ESP_SECTORS,
-            2048,
-            1024,
-            1,
-            "EFI SYSTEM",
-            &name,
-            &mut NoClock,
-        )
-        .expect("a volume");
+        let v = VolumeLayoutOptions::new(ESP_SECTORS)
+            .with_hidden_sectors(2048)
+            .with_volume_id(1)
+            .with_label("EFI SYSTEM")
+            .and_then(|o| o.with_file(&name, 1024))
+            .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+            .expect("a volume");
         let slots = boot_directory_slots(&v);
         assert_eq!(slots[2][0], 0x40 | 20);
         assert_eq!(slots[21][0], 1);
@@ -862,15 +953,12 @@ mod tests {
     #[test]
     fn a_file_larger_than_the_volume_is_refused() {
         assert_eq!(
-            VolumeLayout::new(
-                ESP_SECTORS,
-                2048,
-                600 * 1024 * 1024,
-                1,
-                "EFI SYSTEM",
-                "BOOTX64.EFI",
-                &mut NoClock
-            ),
+            VolumeLayoutOptions::new(ESP_SECTORS)
+                .with_hidden_sectors(2048)
+                .with_volume_id(1)
+                .with_label("EFI SYSTEM")
+                .and_then(|o| o.with_file("BOOTX64.EFI", 600 * 1024 * 1024))
+                .and_then(|o| VolumeLayout::new(o, &mut NoClock)),
             Err(LayoutError::FileTooBig)
         );
     }

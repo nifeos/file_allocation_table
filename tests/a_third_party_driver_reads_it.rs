@@ -23,7 +23,7 @@ use std::path::Path;
 use std::process::Command;
 
 use file_allocation_table::efi_system_partition::BYTES_PER_SECTOR;
-use file_allocation_table::{NoClock, VolumeLayout};
+use file_allocation_table::{NoClock, VolumeLayout, VolumeLayoutOptions};
 
 /// The file the volume carries. Not a round number, so a length the writer got wrong by a cluster
 /// cannot pass by accident.
@@ -55,16 +55,12 @@ fn the_hosts_own_fat_driver_reads_the_long_name_back() {
 
 /// Write the volume to `path`, returning the file's bytes.
 fn write_image(path: &Path) -> Vec<u8> {
-    let volume = VolumeLayout::new(
-        TOTAL_SECTORS,
-        0,
-        FILE_LENGTH_BYTES,
-        0x1234_5678,
-        "EFI SYSTEM",
-        NAME,
-        &mut NoClock,
-    )
-    .expect("700 MiB is a FAT32 volume");
+    let volume = VolumeLayoutOptions::new(TOTAL_SECTORS)
+        .with_volume_id(0x1234_5678)
+        .with_label("EFI SYSTEM")
+        .and_then(|o| o.with_file(NAME, FILE_LENGTH_BYTES))
+        .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+        .expect("700 MiB is a FAT32 volume");
     let mut image = std::fs::File::create(path).expect("create the image");
     let mut sector = [0u8; BYTES_PER_SECTOR];
     for index in 0..volume.metadata_sectors() {

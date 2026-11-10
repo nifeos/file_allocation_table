@@ -38,16 +38,12 @@ fn the_fat32_numbers_are_the_efi_volumes_numbers() {
         &mut NoClock,
     )
     .unwrap();
-    let layout = crate::VolumeLayout::new(
-        1024 * 1024,
-        0,
-        4096,
-        1,
-        "EFI SYSTEM",
-        "BOOTX64.EFI",
-        &mut NoClock,
-    )
-    .unwrap();
+    let layout = crate::VolumeLayoutOptions::new(1024 * 1024)
+        .with_volume_id(1)
+        .with_label("EFI SYSTEM")
+        .and_then(|o| o.with_file("BOOTX64.EFI", 4096))
+        .and_then(|o| crate::VolumeLayout::new(o, &mut NoClock))
+        .unwrap();
     assert_eq!(format.clusters(), layout.clusters());
     assert_eq!(format.table_sectors(), layout.table_sectors());
     assert_eq!(
