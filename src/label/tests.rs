@@ -16,7 +16,10 @@ fn a_volume_with_no_label_reads_as_none_and_a_set_label_reads_back() {
     let first = volume.root_named_entries().next().unwrap().unwrap();
     assert!(first.is_volume_label());
     volume.set_volume_label("OTHER").unwrap();
-    assert_eq!(volume.volume_label().unwrap().unwrap().trim_ascii_end(), b"OTHER");
+    assert_eq!(
+        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
+        b"OTHER"
+    );
     let labels = volume
         .root_named_entries()
         .map(|e| e.unwrap())
