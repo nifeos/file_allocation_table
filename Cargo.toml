@@ -7,8 +7,8 @@ description = "FAT12, FAT16 and FAT32 sans I/O: read, write and format volumes, 
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/nifeos/file_allocation_table"
 readme = "README.md"
-keywords = ["no-std", "fat32", "filesystem", "kani"]
-categories = ["no-std", "filesystem"]
+keywords = ["fat", "fat32", "vfat", "no-std", "filesystem"]
+categories = ["no-std", "filesystem", "embedded"]
 # What the package carries: the crate, its tests and fixtures, the falsification patches that the
 # README tells a reader to apply, and the licenses. The repository's workflows, hooks, fuzz targets,
 # process documents and lint settings stay out.

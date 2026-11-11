@@ -39,7 +39,7 @@ pub enum ChainError<E> {
 /// # Examples
 ///
 /// ```
-/// use file_allocation_table::efi_system_partition::BYTES_PER_SECTOR;
+/// use file_allocation_table::efi_system_partition::FILE_CLUSTER;
 /// use file_allocation_table::{
 ///     NoClock, SectorDevice, SectorSize, Volume, VolumeLayout, VolumeLayoutOptions,
 /// };
@@ -66,8 +66,10 @@ pub enum ChainError<E> {
 /// }
 ///
 /// let mut volume = Volume::open(Image(layout)).unwrap();
-/// let clusters: Vec<u32> = volume.chain(5).map(Result::unwrap).collect();
-/// assert_eq!(clusters, [5, 6]);
+/// // The layout puts the boot file at FILE_CLUSTER (5, after the root, EFI and BOOT), and its
+/// // 5,000 bytes take two clusters of 4,096 bytes.
+/// let clusters: Vec<u32> = volume.chain(FILE_CLUSTER).map(Result::unwrap).collect();
+/// assert_eq!(clusters, [FILE_CLUSTER, FILE_CLUSTER + 1]);
 /// ```
 #[derive(Debug)]
 pub struct Volume<D> {

@@ -45,12 +45,29 @@ pub enum FormatError {
 /// **What to format**: the device's size and sector size, and optionally the type, the cluster
 /// size, the serial number, the label and the sectors ahead of the volume on its disk.
 ///
-/// Without a type or a cluster size the smallest cluster that gives a legal count wins, and the
-/// type follows from the count, as the specification has it. In practice that is one sector to
-/// the cluster, at any sector size, until FAT32 runs out of cluster numbers: about 130 GiB of
-/// 512-byte sectors. With one-sector clusters FAT12 ends near 2 MiB and FAT16 near 32 MiB of
-/// 512-byte sectors. `mkfs.fat` and other formatters pick larger clusters on larger volumes, which
-/// make a smaller table; [`FormatOptions::with_sectors_per_cluster`] asks for one.
+/// Without a cluster size the format picks one by the volume's size, from the specification's
+/// tables (`DskTableFAT16` and `DskTableFAT32` in Microsoft's `fatgen103`), as Windows does and as
+/// `mkfs.fat` does for FAT32. Without a type it picks that by size too, as both of them do:
+///
+/// | volume size | type | cluster |
+/// |---|---|---|
+/// | up to 8,400 sectors of 512 bytes (about 4.1 MiB) | FAT12 | the smallest that gives a legal count |
+/// | to 16 MiB | FAT16 | 1 KiB |
+/// | to 128 MiB | FAT16 | 2 KiB |
+/// | to 256 MiB | FAT16 | 4 KiB |
+/// | below 512 MiB | FAT16 | 8 KiB |
+/// | to 8 GiB | FAT32 | 4 KiB |
+/// | to 16 GiB | FAT32 | 8 KiB |
+/// | to 32 GiB | FAT32 | 16 KiB |
+/// | larger | FAT32 | 32 KiB |
+///
+/// A cluster is never smaller than one sector. A named type takes its own table's row for the
+/// size (FAT16 runs on to 32 KiB at 2 GiB, and FAT32 starts at 512 bytes up to 260 MiB). Where a
+/// row gives no legal count (a sector size above 512 bytes can do that, as can a type named for a
+/// size outside its table), the smallest cluster that gives one wins, and without a named type the
+/// type follows from the count. A named cluster size,
+/// [`FormatOptions::with_sectors_per_cluster`], replaces the table, and the type then follows from
+/// the count: one sector to the cluster is the explicit choice of the smallest table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormatOptions {
     bytes_per_sector: SectorSize,
@@ -316,6 +333,66 @@ pub(crate) fn put32(out: &mut [u8], at: usize, value: u32) {
     out[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }
 
+/// **The type and cluster size a format picks by the volume's size**, when the caller names no
+/// cluster size: `kind` when named, else FAT12 up to 8,400 sectors of 512 bytes, FAT16 below
+/// 512 MiB and FAT32 from there, with the row of the specification's `DskTableFAT16` or
+/// `DskTableFAT32` for the size, in sectors of `sector_size` and at least one. `None` for the
+/// cluster where the table has no row: FAT12, which it does not cover, and a FAT16 or FAT32 size
+/// it calls an error.
+///
+/// The tables count the volume and the cluster in sectors of 512 bytes; another sector size is
+/// converted through bytes, as a formatter on a 4K-native disk keeps the cluster's bytes.
+pub(crate) fn by_volume_size(
+    sector_size: SectorSize,
+    total_sectors: u32,
+    kind: Option<FileAllocationTableType>,
+) -> (FileAllocationTableType, Option<u32>) {
+    /// `DskTableFAT16`: the first row whose size, in 512-byte sectors, the volume does not exceed
+    /// gives the cluster in 512-byte sectors; 0 is the table's "use another type".
+    const FAT16: [(u64, u32); 8] = [
+        (8_400, 0),
+        (32_680, 2),
+        (262_144, 4),
+        (524_288, 8),
+        (1_048_576, 16),
+        (2_097_152, 32),
+        (4_194_304, 64),
+        (u64::MAX, 0),
+    ];
+    /// `DskTableFAT32`, read the same way.
+    const FAT32: [(u64, u32); 6] = [
+        (66_600, 0),
+        (532_480, 1),
+        (16_777_216, 8),
+        (33_554_432, 16),
+        (67_108_864, 32),
+        (u64::MAX, 64),
+    ];
+    let bytes = sector_size.bytes() as u64;
+    let units = u64::from(total_sectors) * bytes / 512;
+    let kind = kind.unwrap_or(if units <= 8_400 {
+        FileAllocationTableType::Fat12
+    } else if units < 1_048_576 {
+        FileAllocationTableType::Fat16
+    } else {
+        FileAllocationTableType::Fat32
+    });
+    let table: &[(u64, u32)] = match kind {
+        FileAllocationTableType::Fat12 => return (kind, None),
+        FileAllocationTableType::Fat16 => &FAT16,
+        FileAllocationTableType::Fat32 => &FAT32,
+    };
+    let units_per_cluster = table
+        .iter()
+        .find(|(most, _)| units <= *most)
+        .map_or(0, |(_, cluster)| *cluster);
+    if units_per_cluster == 0 {
+        return (kind, None);
+    }
+    let sectors = (u64::from(units_per_cluster) * 512 / bytes).max(1) as u32;
+    (kind, Some(sectors))
+}
+
 /// **An empty volume, laid out but not written.** Every method is arithmetic; nothing here touches
 /// a device until [`FormatPlan::write_to`].
 ///
@@ -361,33 +438,47 @@ impl FormatPlan {
             return Err(FormatError::ClusterSizeRefused);
         }
         let stamp = Stamp::pack(clock.now()).map_err(|_| FormatError::TimeOutOfRange)?;
-        let mut seen_small = false;
-        let mut found = None;
-        'search: for sectors in CLUSTERS {
-            if options.cluster_sectors.is_some_and(|only| only != sectors) {
-                continue;
-            }
-            for kind in KINDS {
-                if options
-                    .file_allocation_table_type
-                    .is_some_and(|only| only != kind)
-                {
+        // The smallest cluster of `only_sectors` (any when `None`) that gives a type of
+        // `only_kind` (any when `None`) a legal count, and whether some size was too small.
+        let search = |only_kind: Option<FileAllocationTableType>, only_sectors: Option<u32>| {
+            let mut seen_small = false;
+            for sectors in CLUSTERS {
+                if only_sectors.is_some_and(|only| only != sectors) {
                     continue;
                 }
-                match Geometry::new(
-                    kind,
-                    options.bytes_per_sector,
-                    sectors,
-                    options.total_sectors,
-                ) {
-                    Ok(geometry) => {
-                        found = Some(geometry);
-                        break 'search;
+                for kind in KINDS {
+                    if only_kind.is_some_and(|only| only != kind) {
+                        continue;
                     }
-                    Err(GeometryError::TooSmall) => seen_small = true,
-                    Err(GeometryError::WrongType(_)) => {}
+                    match Geometry::new(
+                        kind,
+                        options.bytes_per_sector,
+                        sectors,
+                        options.total_sectors,
+                    ) {
+                        Ok(geometry) => return (Some(geometry), seen_small),
+                        Err(GeometryError::TooSmall) => seen_small = true,
+                        Err(GeometryError::WrongType(_)) => {}
+                    }
                 }
             }
+            (None, seen_small)
+        };
+        let mut found = None;
+        if options.cluster_sectors.is_none() {
+            let (kind, sectors) = by_volume_size(
+                options.bytes_per_sector,
+                options.total_sectors,
+                options.file_allocation_table_type,
+            );
+            found = search(Some(kind), sectors).0;
+        }
+        // The table's row gave no legal count, or a cluster size was named: the smallest cluster
+        // the options allow.
+        let mut seen_small = false;
+        if found.is_none() {
+            (found, seen_small) =
+                search(options.file_allocation_table_type, options.cluster_sectors);
         }
         let geometry = found.ok_or(if seen_small {
             FormatError::TooSmall

@@ -28,9 +28,10 @@
 //! Writes go through [`WritableVolume`], a [`Volume`] with the [`Clock`] its writes stamp with;
 //! [`NoClock`] is the explicit "no time". A clock supplies UTC, since FAT stores no time zone (see
 //! [`Clock`]). A read stamps nothing and takes no clock. It orders every write so a crash leaks a
-//! cluster and never shares one ([`WritableVolume::mark_clean`] writes the hints in the FAT32 file
-//! system information sector and sets the clean-shutdown bit again,
-//! [`Volume::is_clean`]). It makes and writes files and directories (a name that is not 8.3 gets
+//! cluster and never shares one, except during a rename: that writes the new entry before it frees
+//! the old one, so a crash between the two leaves two entries on one chain
+//! ([`WritableVolume::mark_clean`] writes the hints in the FAT32 file system information sector and
+//! sets the clean-shutdown bit again, [`Volume::is_clean`]). It makes and writes files and directories (a name that is not 8.3 gets
 //! long-name slots and a numbered alias), renames, sets attributes and the label, and grows a full
 //! directory except FAT12's and FAT16's fixed root. Each returns a [`WriteError`].
 //!
