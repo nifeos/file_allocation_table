@@ -227,9 +227,9 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
 ## BUGS
 
 - Not crash-atomic, and there is no journal, since FAT has none. The crate orders its writes so a
-  crash leaks a cluster and never shares one, with one exception: a rename writes the new entry
-  before it frees the old one, so a crash between the two leaves two entries naming one chain,
-  which `fsck.fat` reports as shared clusters. The other order would lose the file on the same
+  crash leaks a cluster and never shares one, with one exception. A rename writes the new entry
+  before it frees the old one, so a crash between the two leaves two entries naming one chain.
+  `fsck.fat` reports that as shared clusters. The other order would lose the file on the same
   crash. A directory grows by a cluster that is zeroed before it is linked, so a crash never shows
   a directory the bytes a device held there. A write has no barrier: the device decides when a
   write reaches the medium.
