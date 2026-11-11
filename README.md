@@ -226,8 +226,8 @@ version may verify differently. After that, `cargo kani` from the crate's direct
 harness; the whole run takes 10 to 20 minutes, and `cargo kani --harness <name>` runs one.
 
 - Hostile input. No parse step panics or reads outside the volume: the boot sector and its
-  geometry fields for every 512-byte sector, FAT entries, directory slots, long-name runs, the
-  partition table and the file system information sector. A cluster chain walk cannot loop. It ends
+  geometry fields for every 512-byte sector, with or without `with_small_fat32`, FAT entries,
+  directory slots, long-name runs, the partition table and the file system information sector. A cluster chain walk cannot loop. It ends
   within the volume's cluster count.
 - Writes. A stored table entry reads back and disturbs nothing else. Allocation takes one free
   cluster and changes nothing else. A release frees only the chain it received and never a bad
@@ -251,10 +251,11 @@ the format proof covers clusters of 1 to 8 sectors. The tests against rust-fatfs
 The tests compare against rust-fatfs (the `lamfat` dev-dependency), an independent FAT library.
 Each library writes trees on FAT12, FAT16 and FAT32 volumes, and the other must read them, name for
 name and byte for byte. If the host has `fsck.fat` or `fsck_msdos`, every image must pass
-`fsck -n`. If the host has `mkfs.fat`, its FAT12 and FAT16 volumes take this crate's writer. If
-the host has mtools, it lists and reads what this crate writes, and this crate reads and writes
-beside what `mmd` and `mcopy` write. The crate reads two FAT32 images that a macOS host formatted
-and wrote, to their recorded hashes. An ignored test has the host's own driver read an image
+`fsck -n`. If the host has `mkfs.fat`, its FAT12 and FAT16 volumes take this crate's writer, and
+so does a FAT32 volume under 65525 clusters opened with `with_small_fat32`. If the host has mtools,
+it lists and reads what this crate writes, and this crate reads and writes beside what `mmd` and
+`mcopy` write. The crate reads two FAT32 images that a macOS host formatted and wrote, to their
+recorded hashes. An ignored test has the host's own driver read an image
 (`cargo test -- --ignored`, on macOS).
 
 Two cargo-fuzz targets in the repository's `fuzz/` directory, which the crates.io package leaves
@@ -318,6 +319,9 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
   3.1. Every `write` call also reads and rewrites the file's directory entry, so small calls cost
   more: 4 MiB in 100-byte calls takes 11.5 writes and 15.6 reads per data sector, against 11.7
   and 15.9. Pass whole sectors where you can.
+- `Volume::open` refuses a FAT32 layout under 65525 clusters, which `mkfs.fat -F 32` makes with a
+  warning, because Linux reads it as FAT32 and the specification as FAT16. `Volume::open_with`
+  and `OpenOptions::new().with_small_fat32(true)` read it as FAT32, as Linux does.
 - The reader does not follow extended partitions and reads no Globally Unique Identifier (GUID)
   partition table.
 - exFAT is out of scope; it is a sibling crate's job.
