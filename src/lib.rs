@@ -42,8 +42,8 @@
 
 //! # BUGS
 //!
-//! - [`VolumeLayout`] numbers its boot file's alias `~1`, right only while `EFI\BOOT` holds that
-//!   one file.
+//! - [`VolumeLayout`] numbers a long boot file name's alias `~1`, right only while `EFI\BOOT`
+//!   holds that one file.
 //! - [`FormatPlan`] and [`VolumeLayout`] write the free-cluster count of the file system
 //!   information sector once. After that only [`WritableVolume::mark_clean`] keeps it; a volume
 //!   dropped without `mark_clean` leaves a stale hint, which the specification lets a driver

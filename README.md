@@ -20,9 +20,11 @@ from a disk.
 - Write. Open a `WritableVolume` with a `Clock`; a read-only `Volume` has no write methods and
   takes no clock. Create, write, extend, truncate, rename and remove files; make and remove
   directories; set attributes (read-only, hidden, system, archive); read and change the volume
-  label. A name that is not 8.3 gets long-name slots and an alias numbered against its directory.
-  The first change clears the clean-shutdown bit, and `WritableVolume::mark_clean` sets it again
-  and updates the hints in the FAT32 file system information sector.
+  label. A name that is not 8.3 gets long-name slots and a short alias: the name in upper case
+  when only its case keeps it from 8.3 (`readme.txt` is `README.TXT`), and otherwise an alias
+  numbered against its directory. The first change clears the clean-shutdown bit, and
+  `WritableVolume::mark_clean` sets it again and updates the hints in the FAT32 file system
+  information sector.
 - Format. `FormatPlan` lays out an empty volume of any size and sector size (512 to 4096 bytes),
   with the cluster size, serial number and label of your choice. Left to choose, it takes one
   sector to the cluster, the smallest legal size, up to about 130 GiB of 512-byte sectors, where

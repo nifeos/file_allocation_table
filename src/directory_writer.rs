@@ -3,10 +3,12 @@
 //! directories.
 //!
 //! A name that is already a legal upper-case 8.3 name takes one slot. Any other legal name takes a
-//! run of long-name slots and then a short entry whose alias is numbered `~1`, `~2` and so on until
-//! no entry in the directory holds it. The run and its short entry go down in directory order,
-//! the short entry last, so a crash leaves orphan pieces that no reader joins and never a short
-//! entry with a wrong name. [`RunFinder`] picks the slots; `verification.rs` proves it first-fit.
+//! run of long-name slots and then a short entry. Its alias is the plain basis when the name is 8.3
+//! but for its case (`readme.txt` is `README.TXT`); no other entry can hold that, since such an
+//! entry would already be called the name. Otherwise the alias is numbered `~1`, `~2` and so on
+//! until no entry in the directory holds it. The run and its short entry go down in directory
+//! order, the short entry last, so a crash leaves orphan pieces that no reader joins and never a
+//! short entry with a wrong name. [`RunFinder`] picks the slots; `verification.rs` proves it first-fit.
 //!
 //! One read of the directory serves a whole create: it refuses a name already there, finds the
 //! first run of free slots, and marks in an [`AliasWindow`] every alias number of the new name's
@@ -349,10 +351,13 @@ impl<D: WritableSectorDevice> Volume<D> {
             Some((new, long.as_ref())),
             &mut window,
         )?;
-        let short = match (&long, short_name) {
-            (_, Some(short)) => short,
-            (Some(long), None) => self.unused_alias(directory, long, new.except, window)?,
-            (None, None) => return Err(WriteError::NameRefused),
+        // No other entry holds the plain basis: one that did would be called `new.name`, which
+        // the survey refuses, so the basis needs no check of its own.
+        let short = match (&long, short_name, long.as_ref().and_then(LongName::basis)) {
+            (_, Some(short), _) => short,
+            (Some(_), None, Some(basis)) => basis,
+            (Some(long), None, None) => self.unused_alias(directory, long, new.except, window)?,
+            (None, None, _) => return Err(WriteError::NameRefused),
         };
         self.begin_change()?;
         let mut slots = [[0u8; SLOT_BYTES]; MOST_RUN_SLOTS];
