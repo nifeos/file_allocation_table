@@ -39,7 +39,7 @@ pub enum ChainError<E> {
 /// # Examples
 ///
 /// ```
-/// use file_allocation_table::efi_system_partition::BYTES_PER_SECTOR;
+/// use file_allocation_table::efi_system_partition::FILE_CLUSTER;
 /// use file_allocation_table::{
 ///     NoClock, SectorDevice, SectorSize, Volume, VolumeLayout, VolumeLayoutOptions,
 /// };
@@ -66,8 +66,10 @@ pub enum ChainError<E> {
 /// }
 ///
 /// let mut volume = Volume::open(Image(layout)).unwrap();
-/// let clusters: Vec<u32> = volume.chain(5).map(Result::unwrap).collect();
-/// assert_eq!(clusters, [5, 6]);
+/// // The layout puts the boot file at FILE_CLUSTER (5, after the root, EFI and BOOT), and its
+/// // 5,000 bytes take two clusters of 4,096 bytes.
+/// let clusters: Vec<u32> = volume.chain(FILE_CLUSTER).map(Result::unwrap).collect();
+/// assert_eq!(clusters, [FILE_CLUSTER, FILE_CLUSTER + 1]);
 /// ```
 #[derive(Debug)]
 pub struct Volume<D> {
@@ -79,6 +81,18 @@ pub struct Volume<D> {
     pub(crate) writer: WriterState,
     /// The time the operation under way stamps: packed from the clock once per operation.
     pub(crate) stamp: Stamp,
+    /// Where the last slot lookup in a cluster chain ended, so the next one in the same chain
+    /// starts there rather than at the chain's first cluster. A table write forgets it.
+    pub(crate) slot_cursor: Option<SlotCursor>,
+}
+
+/// **A place in a directory's chain** that a slot lookup reached: the directory's first cluster,
+/// and the cluster at position `position` of its chain. It stays true until the table changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SlotCursor {
+    pub(crate) first: u32,
+    pub(crate) position: u64,
+    pub(crate) cluster: u32,
 }
 
 impl<D: SectorDevice> Volume<D> {
@@ -104,6 +118,7 @@ impl<D: SectorDevice> Volume<D> {
             buffer: [0; SectorSize::MAXIMUM_BYTES],
             writer: WriterState::new(),
             stamp: Stamp::ZERO,
+            slot_cursor: None,
         })
     }
 

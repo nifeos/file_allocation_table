@@ -104,6 +104,49 @@ impl Image {
     }
 }
 
+/// **A device that loses power after a chosen number of writes**: the first `writes_left` writes
+/// reach the image, and every write after them fails and changes nothing, as on a medium whose
+/// power was cut. What the image holds afterwards is what a crash at that point leaves.
+pub(crate) struct PowerCut {
+    pub(crate) image: Image,
+    pub(crate) writes_left: u32,
+}
+
+/// The error a [`PowerCut`] write returns once the power is gone.
+pub(crate) const POWER_GONE: u64 = u64::MAX;
+
+impl PowerCut {
+    /// `image`, with power for `writes` more writes.
+    pub(crate) fn after(image: Image, writes: u32) -> PowerCut {
+        PowerCut {
+            image,
+            writes_left: writes,
+        }
+    }
+}
+
+impl SectorDevice for PowerCut {
+    type Error = u64;
+
+    fn sector_size(&self) -> SectorSize {
+        SectorSize::Bytes512
+    }
+
+    fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
+        self.image.read_sector(index, buffer)
+    }
+}
+
+impl crate::sector::WritableSectorDevice for PowerCut {
+    fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), u64> {
+        if self.writes_left == 0 {
+            return Err(POWER_GONE);
+        }
+        self.writes_left -= 1;
+        self.image.write_sector(index, buffer)
+    }
+}
+
 /// What a walk yielded, step by step.
 type Steps<const N: usize> = [Option<Result<u32, ChainError<u64>>>; N];
 

@@ -28,9 +28,10 @@
 //! Writes go through [`WritableVolume`], a [`Volume`] with the [`Clock`] its writes stamp with;
 //! [`NoClock`] is the explicit "no time". A clock supplies UTC, since FAT stores no time zone (see
 //! [`Clock`]). A read stamps nothing and takes no clock. It orders every write so a crash leaks a
-//! cluster and never shares one ([`WritableVolume::mark_clean`] writes the hints in the FAT32 file
-//! system information sector and sets the clean-shutdown bit again,
-//! [`Volume::is_clean`]). It makes and writes files and directories (a name that is not 8.3 gets
+//! cluster and never shares one, except during a rename: that writes the new entry before it frees
+//! the old one, so a crash between the two leaves two entries on one chain
+//! ([`WritableVolume::mark_clean`] writes the hints in the FAT32 file system information sector and
+//! sets the clean-shutdown bit again, [`Volume::is_clean`]). It makes and writes files and directories (a name that is not 8.3 gets
 //! long-name slots and a numbered alias), renames, sets attributes and the label, and grows a full
 //! directory except FAT12's and FAT16's fixed root. Each returns a [`WriteError`].
 //!
@@ -57,8 +58,8 @@
 //!   unequal.
 //! - A name with a character outside the Basic Multilingual Plane is refused, and a lower-case 8.3
 //!   name is stored as a long name, since the crate writes no lower-case flag.
-//! - A directory slot is found by walking from the directory's first cluster each time, so creating
-//!   in a directory of n clusters costs n chain steps per slot read.
+//! - A slot lookup walks its directory's chain from the place the last lookup there reached, or
+//!   from the start when the slot lies before it or the table changed since.
 //! - FAT stores no time zone. The crate stores what its clock reports, expected to be UTC, and
 //!   refuses a time outside 1980 to 2107. A reader that treats FAT times as local shows UTC values.
 //! - A file's bytes are read by cluster chain only; there is no cache above the sector and a

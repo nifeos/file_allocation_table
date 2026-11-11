@@ -5,7 +5,7 @@
 use super::*;
 use crate::directory::ShortEntry;
 use crate::named_entry::NamedEntry;
-use crate::reader::tests::Image;
+use crate::reader::tests::{FIRST_DATA, Image, POWER_GONE, PowerCut};
 use crate::{DirectoryCluster, NoClock, WritableVolume};
 
 /// A byte that tells its file offset.
@@ -778,4 +778,163 @@ fn an_update_for_a_name_the_slot_no_longer_holds_is_refused_and_writes_nothing()
         Err(WriteError::EntryChanged)
     );
     assert_eq!(volume.into_device().bytes, before);
+}
+
+/// The volume-relative sector of data cluster `cluster` on the test volume.
+fn sector_of(cluster: u32) -> u32 {
+    crate::reader::tests::FIRST_DATA as u32 + cluster - 2
+}
+
+#[test]
+fn a_lookup_at_or_past_the_last_one_in_a_chain_starts_where_it_ended() {
+    // Sixteen slots to a cluster: slot 40 is in the chain's third cluster, at byte 256.
+    let mut image = Image::fat12();
+    image.link(&[10, 11, 12, 13]);
+    let mut volume = Volume::open(image).unwrap();
+    assert_eq!(volume.slot_location(10, 40), Ok(Some((sector_of(12), 256))));
+    // With the table unreadable, a lookup that starts at the place reached still answers, and one
+    // that must read the table, either onward or from the chain's start, fails.
+    volume.device.refuse = Some(1);
+    volume.cached = None;
+    assert_eq!(volume.slot_location(10, 41), Ok(Some((sector_of(12), 288))));
+    assert_eq!(volume.slot_location(10, 47), Ok(Some((sector_of(12), 480))));
+    assert_eq!(volume.slot_location(10, 48), Err(ChainError::Device(1)));
+    assert_eq!(volume.slot_location(10, 16), Err(ChainError::Device(1)));
+    // A failed lookup changes nothing on the volume, so the place reached before it stays.
+    assert_eq!(volume.slot_location(10, 41), Ok(Some((sector_of(12), 288))));
+    volume.device.refuse = None;
+    assert_eq!(volume.slot_location(10, 63), Ok(Some((sector_of(13), 480))));
+    assert_eq!(volume.slot_location(10, 64), Ok(None));
+}
+
+#[test]
+fn a_place_reached_in_one_chain_is_not_used_in_another() {
+    let mut image = Image::fat12();
+    image.link(&[10, 11, 12]);
+    image.link(&[20, 21, 22]);
+    let mut volume = Volume::open(image).unwrap();
+    assert_eq!(volume.slot_location(10, 40), Ok(Some((sector_of(12), 256))));
+    assert_eq!(volume.slot_location(20, 40), Ok(Some((sector_of(22), 256))));
+    assert_eq!(volume.slot_location(20, 16), Ok(Some((sector_of(21), 0))));
+    assert_eq!(volume.slot_location(10, 32), Ok(Some((sector_of(12), 0))));
+}
+
+#[test]
+fn a_table_write_forgets_the_place_a_lookup_reached() {
+    let mut image = Image::fat12();
+    image.link(&[10, 11, 12]);
+    let mut volume = Volume::open(image).unwrap();
+    assert_eq!(volume.slot_location(10, 40), Ok(Some((sector_of(12), 256))));
+    // The chain now runs 10, 11, 30: the third cluster is another one.
+    volume
+        .write_table_entry(30, crate::table::TableEntry::EndOfChain)
+        .unwrap();
+    volume
+        .write_table_entry(11, crate::table::TableEntry::Next(30))
+        .unwrap();
+    assert_eq!(volume.slot_location(10, 40), Ok(Some((sector_of(30), 256))));
+}
+
+/// The test volume with every stored data cluster full of slots that parse as a file, so a
+/// directory that reaches a cluster before it is zeroed lists them.
+fn image_with_stale_clusters() -> Image {
+    let mut image = Image::fat12();
+    let mut stale = [0u8; SLOT_BYTES];
+    stale[..11].copy_from_slice(b"STALE   TXT");
+    stale[11] = ARCHIVE;
+    for slot in image.bytes[FIRST_DATA * 512..].chunks_mut(SLOT_BYTES) {
+        slot.copy_from_slice(&stale);
+    }
+    image
+}
+
+/// How many entries `directory` lists, and whether any of them is a stale slot.
+fn count_and_stale(volume: &mut Volume<Image>, directory: DirectoryCluster) -> (usize, bool) {
+    let mut count = 0;
+    let mut stale = false;
+    for entry in volume.named_entries(directory) {
+        let entry = entry.expect("the directory reads");
+        stale |= &entry.short_name() == b"STALE   TXT";
+        count += 1;
+    }
+    (count, stale)
+}
+
+/// A directory grows by a cluster it zeroed before it linked it: a power cut after any number of
+/// the grow's writes leaves the directory listing exactly the entries it held, or those and the
+/// new one, and never the bytes the cluster held before. The cut cluster is at worst leaked.
+#[test]
+fn a_power_cut_while_a_directory_grows_never_exposes_stale_bytes() {
+    let mut volume = WritableVolume::open(image_with_stale_clusters(), NoClock).unwrap();
+    let sub = volume
+        .create_directory(DirectoryCluster::ROOT, "SUB")
+        .unwrap()
+        .directory_cluster()
+        .expect("a directory");
+    // One-sector clusters hold 16 slots: `.`, `..` and 14 files fill the first.
+    for i in 0..14 {
+        volume.create_file(sub, &format_name(i)).unwrap();
+    }
+    let full = volume.into_device().bytes;
+    let mut volume = Volume::open(Image {
+        bytes: full,
+        refuse: None,
+        refuse_write: None,
+    })
+    .unwrap();
+    assert_eq!(volume.chain(sub.0).count(), 1);
+    assert_eq!(count_and_stale(&mut volume, sub), (16, false));
+
+    let mut writes = 0;
+    loop {
+        let image = Image {
+            bytes: full,
+            refuse: None,
+            refuse_write: None,
+        };
+        let mut volume = WritableVolume::open(PowerCut::after(image, writes), NoClock).unwrap();
+        let made = volume.create_file(sub, "LAST.BIN");
+        let mut volume = Volume::open(volume.into_device().image).unwrap();
+        let (count, stale) = count_and_stale(&mut volume, sub);
+        assert!(!stale, "a cut after {writes} writes lists a stale slot");
+        match made {
+            Ok(_) => {
+                assert_eq!(count, 17);
+                assert_eq!(volume.chain(sub.0).count(), 2);
+                break;
+            }
+            Err(error) => {
+                assert_eq!(error, WriteError::Chain(ChainError::Device(POWER_GONE)));
+                assert_eq!(count, 16, "a cut after {writes} writes");
+            }
+        }
+        writes += 1;
+    }
+    // Taking the cluster, zeroing it, linking it and writing the entry are separate writes.
+    assert!(writes >= 4, "the grow took {writes} writes");
+}
+
+/// A grow whose zeros the device refuses gives the cluster back and leaves the chain as it was.
+#[test]
+fn a_grow_whose_zeroing_fails_frees_the_cluster_it_took() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    let sub = volume
+        .create_directory(DirectoryCluster::ROOT, "SUB")
+        .unwrap()
+        .directory_cluster()
+        .expect("a directory");
+    for i in 0..14 {
+        volume.create_file(sub, &format_name(i)).unwrap();
+    }
+    let free = volume.count_free_clusters().unwrap();
+    let mut image = volume.into_device();
+    // The directory took cluster 2, so the grow takes cluster 3, at sector 7.
+    image.refuse_write = Some(FIRST_DATA as u64 + 1);
+    let mut volume = WritableVolume::open(image, NoClock).unwrap();
+    assert_eq!(
+        volume.create_file(sub, "LAST.BIN"),
+        Err(WriteError::Chain(ChainError::Device(FIRST_DATA as u64 + 1)))
+    );
+    assert_eq!(volume.count_free_clusters().unwrap(), free);
+    assert_eq!(volume.chain(sub.0).count(), 1);
 }
