@@ -30,6 +30,11 @@ const LONG_NAME: u8 = READ_ONLY | HIDDEN | SYSTEM | VOLUME_ID;
 const LONG_NAME_MASK: u8 = 0x3F;
 /// The first name byte of a free slot.
 const FREE: u8 = 0xE5;
+/// `DIR_NTRes` bit 3: the base of the short name reads in lower case. Windows and Linux write it
+/// for a lower-case name that fits 8.3, with no long name.
+const LOWER_CASE_BASE: u8 = 0x08;
+/// `DIR_NTRes` bit 4: the extension of the short name reads in lower case.
+const LOWER_CASE_EXTENSION: u8 = 0x10;
 /// The ordinal bit that marks a long name's last piece, which comes first on disk.
 const LAST_LONG_ENTRY: u8 = 0x40;
 
@@ -62,6 +67,8 @@ pub enum DirectoryEntry {
 pub struct ShortEntry {
     name: [u8; 11],
     attributes: u8,
+    /// `DIR_NTRes`, as stored; only its two lower-case bits are read.
+    case: u8,
     first_cluster: u32,
     size_bytes: u32,
     times: Stamp,
@@ -117,6 +124,7 @@ impl Slot {
         Slot::Used(DirectoryEntry::Short(ShortEntry {
             name,
             attributes,
+            case: slot[12],
             first_cluster: (high << 16) | low,
             size_bytes: u32::from_le_bytes([slot[28], slot[29], slot[30], slot[31]]),
             times: Stamp::read(slot),
@@ -136,6 +144,7 @@ impl ShortEntry {
         ShortEntry {
             name,
             attributes,
+            case: 0,
             first_cluster,
             size_bytes: size,
             times: Stamp::ZERO,
@@ -146,6 +155,21 @@ impl ShortEntry {
     /// with a stored `0x05` read back as `0xE5`.
     pub const fn name(&self) -> [u8; 11] {
         self.name
+    }
+
+    /// **The name as a reader shows it**: [`ShortEntry::name`], with the base, the extension or
+    /// both in lower case where the entry's `DIR_NTRes` flags say so. Only ASCII letters change;
+    /// the padding and any byte above 0x7F stay as stored. An entry with neither flag reads the
+    /// same as [`ShortEntry::name`].
+    pub fn cased_name(&self) -> [u8; 11] {
+        let mut name = self.name;
+        let (base, extension) = name.split_at_mut(8);
+        for (part, flag) in [(base, LOWER_CASE_BASE), (extension, LOWER_CASE_EXTENSION)] {
+            if self.case & flag != 0 {
+                part.make_ascii_lowercase();
+            }
+        }
+        name
     }
 
     /// `DIR_Attr`, every bit as stored.

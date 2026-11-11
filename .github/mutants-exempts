@@ -3,8 +3,9 @@
 # A line without a reason is refused, and a line naming a survivor that no longer exists is
 # refused too, so this list can only shrink by a diff that says why.
 
-# Mutation census row carried from the source tree, as counts: caught 137, missed 0, timeout 0, unviable 0.
-# No mutant was missed, so no line is expected below.
+# Every line below names a survivor of the full weekly run that was read against its source and
+# found equivalent, or a mutant that only times out. Any other survivor fails the run until a test
+# catches it or a line here says why it cannot.
 
 # The Kani harness files, `src/**/verification.rs`, are not mutated at all: `.cargo/mutants.toml`
 # excludes them, since each is a module declared under `#[cfg(kani)]` that `cargo test` never
@@ -27,5 +28,5 @@ src/write_cursor.rs:162 # `steps` reaches the cluster count only on a chain long
 src/file_writer.rs:444 # `passes` only bounds a loop that ends when `step` is 0; a larger bound runs no more passes (on a 64-bit host, below 4 GiB of length plus size)
 # Hangs: the mutant takes away what ends a loop, and every test that reaches it runs to the timeout.
 src/write_cursor.rs:140 # `<=` meets `at == index` only after the early return took it; `false` or `==` drops the cursor, so every reach walks from the first cluster and the tests run past the timeout
-src/reader.rs:301 # a step that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
-src/reader.rs:310 # an advance that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
+src/reader.rs:303 # a step that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
+src/reader.rs:312 # an advance that always yields a cluster makes every walk endless; the tests that walk hang to the timeout

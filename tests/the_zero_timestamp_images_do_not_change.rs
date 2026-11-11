@@ -41,8 +41,11 @@ fn efi(sectors: u64, file: &str) -> u64 {
     hash
 }
 
-fn formatted(sectors: u32, label: Option<&str>) -> u64 {
+fn formatted(sectors: u32, cluster: Option<u32>, label: Option<&str>) -> u64 {
     let mut options = FormatOptions::new(SectorSize::Bytes512, sectors).with_volume_id(0xC0FF_EE11);
+    if let Some(cluster) = cluster {
+        options = options.with_sectors_per_cluster(cluster);
+    }
     if let Some(label) = label {
         options = options.with_label(label).unwrap();
     }
@@ -68,12 +71,38 @@ fn the_efi_volumes_are_the_bytes_they_were() {
 
 #[test]
 fn the_formatted_volumes_are_the_bytes_they_were() {
-    assert_eq!(formatted(16 * 1024, Some("EXAMPLE")), 0x41e0_d0b5_8660_3ad1);
-    assert_eq!(formatted(16 * 1024, None), 0xd68a_ae2d_ad81_49b7);
-    assert_eq!(formatted(64 * 1024, Some("SIXTEEN")), 0x9e2a_64e6_32b6_3606);
+    // The default cluster, by the volume's size: FAT12, FAT16 and FAT32.
     assert_eq!(
-        formatted(200 * 1024, Some("THIRTYTWO")),
+        formatted(4 * 1024, None, Some("TWELVE")),
+        0x4638_547f_6365_5393
+    );
+    assert_eq!(
+        formatted(16 * 1024, None, Some("EXAMPLE")),
+        0xc2b1_6efe_1ef4_980f
+    );
+    assert_eq!(formatted(16 * 1024, None, None), 0xf996_9281_09e5_ea71);
+    assert_eq!(
+        formatted(64 * 1024, None, Some("SIXTEEN")),
+        0x5a1b_93b1_eb21_fab6
+    );
+    assert_eq!(formatted(200 * 1024, None, None), 0x914c_cd6e_e343_0876);
+    assert_eq!(
+        formatted(1024 * 1024, None, Some("THIRTYTWO")),
+        0xb6d2_55c0_0577_3be7
+    );
+    // One sector to the cluster, named.
+    assert_eq!(
+        formatted(16 * 1024, Some(1), Some("EXAMPLE")),
+        0x41e0_d0b5_8660_3ad1
+    );
+    assert_eq!(formatted(16 * 1024, Some(1), None), 0xd68a_ae2d_ad81_49b7);
+    assert_eq!(
+        formatted(64 * 1024, Some(1), Some("SIXTEEN")),
+        0x9e2a_64e6_32b6_3606
+    );
+    assert_eq!(
+        formatted(200 * 1024, Some(1), Some("THIRTYTWO")),
         0xb0f0_ce40_72c3_15bb
     );
-    assert_eq!(formatted(200 * 1024, None), 0xe9e9_73ac_21d9_6985);
+    assert_eq!(formatted(200 * 1024, Some(1), None), 0xe9e9_73ac_21d9_6985);
 }
