@@ -151,6 +151,40 @@ impl LongName {
         Some(out)
     }
 
+    /// **The plain basis**: the short name the long name is when only its ASCII case changes, with
+    /// no numeric tail, or `None` when the name is not one.
+    ///
+    /// The specification's numeric-tail step leaves the tail off when the conversion lost nothing
+    /// and the name fits 8.3, as Windows, Linux and rust-fatfs do. Here that means one to eight
+    /// units before the first period, none to three after it, and every unit an ASCII byte a short
+    /// name admits once upper-cased, the space excluded. So `readme.txt` is `README  TXT`, and
+    /// `read me.txt`, `a.b.c` and `résumé.txt` have no plain basis. A writer uses it only when no
+    /// entry of the directory already holds it.
+    pub(crate) fn basis(&self) -> Option<[u8; 11]> {
+        let units = &self.units[..self.unit_count];
+        let (base, extension) = match units.iter().position(|u| *u == 0x2E) {
+            Some(dot) => (&units[..dot], &units[dot + 1..]),
+            None => (units, &[][..]),
+        };
+        if base.is_empty() || base.len() > 8 || extension.len() > 3 {
+            return None;
+        }
+        let mut out = [b' '; 11];
+        let (out_base, out_extension) = out.split_at_mut(8);
+        for (slot, unit) in out_base
+            .iter_mut()
+            .zip(base)
+            .chain(out_extension.iter_mut().zip(extension))
+        {
+            let byte = u8::try_from(*unit).ok()?.to_ascii_uppercase();
+            if byte == b' ' || !is_short_byte(byte) {
+                return None;
+            }
+            *slot = byte;
+        }
+        Some(out)
+    }
+
     /// **Fill `out` with the long-name entry `index` places into the run**, counting from the
     /// first entry on disk, and stamp it with `checksum`. `index` must be below
     /// [`LongName::entries`] and `out` 32 bytes long.
@@ -287,6 +321,29 @@ mod tests {
         assert_eq!(name("x+y,z.tar.gz").alias(), Some(*b"X_Y_ZT~1GZ "));
         assert_eq!(name("é.txt").alias(), Some(*b"_~1     TXT"));
         assert_eq!(name("abc.longext").alias(), Some(*b"ABC~1   LON"));
+    }
+
+    #[test]
+    fn a_name_that_is_8_3_but_for_its_case_has_a_plain_basis() {
+        assert_eq!(name("readme.txt").basis(), Some(*b"README  TXT"));
+        assert_eq!(name("a.b").basis(), Some(*b"A       B  "));
+        assert_eq!(name("Makefile").basis(), Some(*b"MAKEFILE   "));
+        assert_eq!(name("bootx64.efi").basis(), Some(*b"BOOTX64 EFI"));
+        assert_eq!(name("abc~1.txt").basis(), Some(*b"ABC~1   TXT"));
+        assert_eq!(name("Eight888.ab3").basis(), Some(*b"EIGHT888AB3"));
+        for refused in [
+            "read me.txt",
+            "a.b.c",
+            "\u{e9}.txt",
+            "ninechars.txt",
+            "a.abcd",
+            "x+y.txt",
+            ".bashrc",
+            "..a",
+            "a. b",
+        ] {
+            assert_eq!(name(refused).basis(), None, "{refused}");
+        }
     }
 
     #[test]

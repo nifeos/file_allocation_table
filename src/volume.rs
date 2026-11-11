@@ -140,7 +140,9 @@ impl VolumeLayoutOptions {
             Some(name) => (name, None),
             None => {
                 let long = LongName::new(name).ok_or(LayoutError::NameRefused)?;
-                (long.alias().ok_or(LayoutError::NameRefused)?, Some(long))
+                // The volume holds this one file, so its plain basis, when it has one, is free.
+                let short = long.basis().or_else(|| long.alias());
+                (short.ok_or(LayoutError::NameRefused)?, Some(long))
             }
         };
         self.file = Some(LayoutFile {

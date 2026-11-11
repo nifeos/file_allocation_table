@@ -151,6 +151,58 @@ fn a_rename_may_keep_its_own_alias() {
     assert!(volume.lookup("Long File One.txt").is_err());
 }
 
+#[test]
+fn a_name_8_3_but_for_its_case_keeps_its_plain_basis_while_it_is_free() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    let readme = volume
+        .create_file(DirectoryCluster::ROOT, "readme.txt")
+        .unwrap();
+    assert_eq!(readme.short_name(), *b"README  TXT");
+    assert_eq!(
+        readme
+            .long_name()
+            .map(|n| n.chars().collect::<String>())
+            .as_deref(),
+        Some("readme.txt")
+    );
+    for path in ["readme.txt", "README.TXT", "ReadMe.Txt"] {
+        assert_eq!(
+            volume.lookup(path).unwrap().place(),
+            readme.place(),
+            "{path}"
+        );
+    }
+    assert_eq!(
+        volume
+            .create_file(DirectoryCluster::ROOT, "Readme.txt")
+            .err(),
+        Some(WriteError::AlreadyExists)
+    );
+    // A basis shaped like a numbered alias is still a plain basis, and a name whose numbered
+    // alias it matches counts it as taken.
+    let tailed = volume
+        .create_file(DirectoryCluster::ROOT, "abc~1.txt")
+        .unwrap();
+    assert_eq!(tailed.short_name(), *b"ABC~1   TXT");
+    let spaced = volume
+        .create_file(DirectoryCluster::ROOT, "a b c.txt")
+        .unwrap();
+    assert_eq!(spaced.short_name(), *b"ABC~2   TXT");
+}
+
+#[test]
+fn a_rename_that_only_changes_case_keeps_the_plain_basis() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    let plain = volume
+        .create_file(DirectoryCluster::ROOT, "LIST.TXT")
+        .unwrap();
+    let renamed = volume
+        .rename(&plain, DirectoryCluster::ROOT, "list.txt")
+        .unwrap();
+    assert_eq!(renamed.short_name(), *b"LIST    TXT");
+    assert!(renamed.long_name().is_some());
+}
+
 /// The entry a create returns is the one a read of the directory joins, even when a stray
 /// long-name piece sits ahead of the run: the read counts it into the run's slots.
 #[test]
