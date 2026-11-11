@@ -3,7 +3,7 @@
 Dates are UTC. One line per release, what changed and why, so a reader of the diff has the
 sentence beside it.
 
-## 0.1.0
+## 0.1.0-pre.1
 
 - First release. Reads, writes and formats File Allocation Table (FAT) volumes in all three widths
   (FAT12, FAT16 and FAT32) as pure computation, with `no_std` and no allocator. The caller
