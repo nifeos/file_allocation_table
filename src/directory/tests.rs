@@ -296,3 +296,28 @@ fn a_broken_directory_chain_and_a_failing_device_end_the_read() {
         Some(Err(ChainError::NotADataCluster(1)))
     );
 }
+
+#[test]
+fn the_lower_case_flags_lower_the_base_the_extension_or_both_and_nothing_else() {
+    // Bits 3 and 4 of byte 12, as Linux and Windows write `readme.txt` with no long name; the
+    // other bits of the byte change nothing.
+    for (flags, cased) in [
+        (0x00, b"README~1TXT"),
+        (0x08, b"readme~1TXT"),
+        (0x10, b"README~1txt"),
+        (0x18, b"readme~1txt"),
+        (0xE7, b"README~1TXT"),
+    ] {
+        let mut slot = short(b"README~1TXT", 0x20, 0, 5, 1);
+        slot[12] = flags;
+        let entry = short_of(Slot::parse(&slot, FileAllocationTableType::Fat16));
+        assert_eq!(&entry.cased_name(), cased, "flags {flags:#04x}");
+        assert_eq!(&entry.name(), b"README~1TXT", "the stored name stays");
+    }
+    // Only ASCII letters change: padding, digits and a byte above 0x7F stay as stored, and a
+    // stored 0x05 still reads as 0xE5.
+    let mut slot = short(b"\x05\xC4B1    A  ", 0x20, 0, 5, 1);
+    slot[12] = 0x18;
+    let entry = short_of(Slot::parse(&slot, FileAllocationTableType::Fat12));
+    assert_eq!(&entry.cased_name(), b"\xE5\xC4b1    a  ");
+}

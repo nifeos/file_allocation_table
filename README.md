@@ -248,7 +248,9 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
   so look the entry up again after a write. Opening a reader or a writer, a rename, a removal or
   an attribute change through a stale entry refuses with `EntryChanged`.
 - The crate refuses a name with a character outside the Basic Multilingual Plane. It stores a
-  lower-case 8.3 name as a long name, since it writes no lower-case flag.
+  lower-case 8.3 name as a long name, since it writes no lower-case flag. It reads the flags that
+  Windows and Linux write: `cased_short_name` shows such a name in lower case, and `short_name`
+  keeps the stored bytes. A rename drops the flags with the old name.
 - Names compare by simple Unicode upper-casing, not the volume's code page or upcase table.
 - A create, a rename or a new directory reads the whole directory it writes into once: one pass
   checks the name, numbers the alias and finds the free slots. Filling one directory with n
