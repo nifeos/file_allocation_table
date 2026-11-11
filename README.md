@@ -179,6 +179,32 @@ release can add a variant without breaking your code. Every error type implement
 the error it wraps. A type generic over your device's error displays for any error, and is an
 `Error`, so `?` takes it into a boxed error, when your device's error is one.
 
+## Footprint
+
+The crate allocates nothing; every byte below lives where the caller puts the value or on the stack
+of the call. A `Volume` or a `WritableVolume` is 4,192 bytes plus the device, most of it one sector
+buffer of 4,096 bytes, the largest sector size. A `Directory` or a `FileReader` borrows the volume
+and holds its own buffer, 4,152 bytes each. A `FileWriter` is 88 bytes, a `NamedEntry` 576 (it
+holds the long name), a `FormatPlan` 64 and a `VolumeLayout` 624. These are the sizes on a 64-bit
+host. The write paths put sector-sized arrays on the stack for each call. Measured on x86-64 in a
+release build, a thread that formats a volume and then creates a directory and a file, writes
+10,000 bytes, renames, looks up and reads needed about 40 KiB of stack, the volume itself included.
+
+## How it compares
+
+- rust-fatfs (the `fatfs` crate) is the most used FAT crate. It has `std::io` traits, a time
+  provider, code-page conversion for short names and years of users, and this crate's tests
+  compare against it. This crate adds FAT12 writing and formatting under `no_std` with no allocator,
+  no `unsafe`, and a refusal, never a panic, on a hostile image.
+- embedded-sdmmc brings a Secure Digital (SD) card driver, a block cache and `embedded-io` traits, over 512-byte
+  blocks. This crate has no driver. It adds FAT12, long-name creation, a formatter and sector
+  sizes up to 4,096 bytes.
+- hadris-fat is the nearest design: its `hadris-fat-raw` holds codecs free of I/O with Kani proofs,
+  and the family adds exFAT and a checker. This crate reads, writes and formats all three widths
+  in one crate, with a falsification patch for every proof, and lays out an EFI system partition.
+- What this crate lacks: exFAT, `std::io` and `embedded-io` traits, code-page conversion for short
+  names, and the users the crates above have.
+
 ## What is proven
 
 Kani harnesses prove, over every input they can unroll, the properties below.

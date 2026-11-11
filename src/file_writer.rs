@@ -258,7 +258,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         Ok(())
     }
 
-    /// **Delete the file `entry` names**: mark its slots free, then free its clusters. Refuses a
+    /// **Delete the file that `entry` names**: mark its slots free, then free its clusters. Refuses a
     /// directory and the volume label.
     pub(crate) fn remove_file(&mut self, entry: &NamedEntry) -> Result<(), WriteError<D::Error>> {
         if entry.is_directory() || entry.is_volume_label() {

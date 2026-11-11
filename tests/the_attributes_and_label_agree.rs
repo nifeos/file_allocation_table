@@ -105,6 +105,7 @@ fn check_with_fsck(image: &[u8], label: &str) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    eprintln!("{label}: {tool} -n accepted the image");
 }
 
 fn lamfat_attributes(image: &[u8], name: &str) -> FileAttributes {
@@ -318,6 +319,7 @@ fn a_label_mkfs_fat_wrote_reads_back_and_changes() {
         eprintln!("no mkfs.fat on this host; the mkfs.fat label check is skipped");
         return;
     };
+    eprintln!("{tool} is present; the check runs");
     let path = std::env::temp_dir().join(format!("label-mkfs-{}.img", std::process::id()));
     let file = std::fs::File::create(&path).unwrap();
     file.set_len(32 << 20).unwrap();

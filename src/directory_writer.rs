@@ -576,7 +576,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         Ok(())
     }
 
-    /// **Remove the empty directory `entry` names**: mark its slots free, then free its cluster.
+    /// **Remove the empty directory that `entry` names**: mark its slots free, then free its cluster.
     /// Refuses a file, `.` and `..`, and a directory that holds anything else.
     pub(crate) fn remove_directory(
         &mut self,

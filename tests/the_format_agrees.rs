@@ -87,6 +87,7 @@ fn check_with_fsck(image: &[u8], label: &str) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    eprintln!("{label}: {tool} -n accepted the image");
 }
 
 /// What rust-fatfs counts as free clusters on `image`.
@@ -296,6 +297,7 @@ fn volumes_mkfs_fat_made_take_this_crates_writer() {
         eprintln!("no mkfs.fat on this host; the mkfs.fat images are skipped");
         return;
     };
+    eprintln!("{tool} is present; the check runs");
     for (label, fat, mebibytes, cluster) in [
         ("mkfs-fat12", "12", 1u64, "1"),
         ("mkfs-fat16", "16", 32, "4"),
