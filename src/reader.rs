@@ -79,6 +79,18 @@ pub struct Volume<D> {
     pub(crate) writer: WriterState,
     /// The time the operation under way stamps: packed from the clock once per operation.
     pub(crate) stamp: Stamp,
+    /// Where the last slot lookup in a cluster chain ended, so the next one in the same chain
+    /// starts there rather than at the chain's first cluster. A table write forgets it.
+    pub(crate) slot_cursor: Option<SlotCursor>,
+}
+
+/// **A place in a directory's chain** that a slot lookup reached: the directory's first cluster,
+/// and the cluster at position `position` of its chain. It stays true until the table changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SlotCursor {
+    pub(crate) first: u32,
+    pub(crate) position: u64,
+    pub(crate) cluster: u32,
 }
 
 impl<D: SectorDevice> Volume<D> {
@@ -95,6 +107,7 @@ impl<D: SectorDevice> Volume<D> {
             buffer: [0; SectorSize::MAXIMUM_BYTES],
             writer: WriterState::new(),
             stamp: Stamp::ZERO,
+            slot_cursor: None,
         })
     }
 

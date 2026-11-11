@@ -24,8 +24,8 @@ src/long_name.rs:132 # `i * 1` keeps the period at the head of the extension, an
 # Equivalent: a bound that no reachable state meets, or meets one step sooner.
 src/write_cursor.rs:207 # `passes` feeds only the debug assertion against a stuck loop, and no pass writes zero bytes
 src/write_cursor.rs:162 # `steps` reaches the cluster count only on a chain longer than the volume, so `>=` or `==` refuses the same chains as `>`
-src/file_writer.rs:413 # `passes` only bounds a loop that ends when `step` is 0; a larger bound runs no more passes (on a 64-bit host, below 4 GiB of length plus size)
+src/file_writer.rs:426 # `passes` only bounds a loop that ends when `step` is 0; a larger bound runs no more passes (on a 64-bit host, below 4 GiB of length plus size)
 # Hangs: the mutant takes away what ends a loop, and every test that reaches it runs to the timeout.
 src/write_cursor.rs:140 # `<=` meets `at == index` only after the early return took it; `false` or `==` drops the cursor, so every reach walks from the first cluster and the tests run past the timeout
-src/reader.rs:288 # a step that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
-src/reader.rs:297 # an advance that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
+src/reader.rs:301 # a step that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
+src/reader.rs:310 # an advance that always yields a cluster makes every walk endless; the tests that walk hang to the timeout
