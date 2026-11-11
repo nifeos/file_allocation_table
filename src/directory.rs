@@ -30,8 +30,8 @@ const LONG_NAME: u8 = READ_ONLY | HIDDEN | SYSTEM | VOLUME_ID;
 const LONG_NAME_MASK: u8 = 0x3F;
 /// The first name byte of a free slot.
 const FREE: u8 = 0xE5;
-/// `DIR_NTRes` bit 3: the base of the short name reads in lower case. Windows NT introduced it,
-/// and Windows and Linux write it for a lower-case name that fits 8.3, with no long name.
+/// `DIR_NTRes` bit 3: the base of the short name reads in lower case. Windows and Linux write it
+/// for a lower-case name that fits 8.3, with no long name.
 const LOWER_CASE_BASE: u8 = 0x08;
 /// `DIR_NTRes` bit 4: the extension of the short name reads in lower case.
 const LOWER_CASE_EXTENSION: u8 = 0x10;
