@@ -15,6 +15,7 @@
 use core::ops::{Deref, DerefMut};
 
 use crate::attributes::Attributes;
+use crate::boot_sector::OpenOptions;
 use crate::file::OpenError;
 use crate::file_writer::FileWriter;
 use crate::named_entry::NamedEntry;
@@ -68,8 +69,17 @@ pub struct WritableVolume<D, C> {
 impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     /// **Open the volume on `device` for writing**, stamping with `clock`.
     pub fn open(device: D, clock: C) -> Result<WritableVolume<D, C>, crate::ReadError<D::Error>> {
+        WritableVolume::open_with(device, clock, OpenOptions::new())
+    }
+
+    /// **Open the volume on `device` for writing as `options` say**, stamping with `clock`.
+    pub fn open_with(
+        device: D,
+        clock: C,
+        options: OpenOptions,
+    ) -> Result<WritableVolume<D, C>, crate::ReadError<D::Error>> {
         Ok(WritableVolume {
-            volume: Volume::open(device)?,
+            volume: Volume::open_with(device, options)?,
             clock,
         })
     }

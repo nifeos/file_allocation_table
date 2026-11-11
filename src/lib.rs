@@ -77,8 +77,8 @@
 //!   sector.
 //! - A boot sector is checked against itself, never against the device's length, which the
 //!   [`SectorDevice`] trait does not report; a read past the end is the device's error to return.
-//! - A FAT32 layout under 65525 clusters (which `mkfs.fat -F 32` makes with a warning) is refused,
-//!   because Linux reads it as FAT32 and the specification as FAT16.
+//! - A FAT32 layout under 65525 clusters, which Linux reads as FAT32 and the specification as
+//!   FAT16, is refused unless [`OpenOptions::with_small_fat32`] asks for the Linux reading.
 //! - Not crash-atomic and no journal, which is FAT.
 
 #[cfg(doctest)]
@@ -112,7 +112,9 @@ mod writable_volume;
 mod write_cursor;
 
 pub use attributes::Attributes;
-pub use boot_sector::{BootSector, FileAllocationTableType, ParseError, ReadError, RootDirectory};
+pub use boot_sector::{
+    BootSector, FileAllocationTableType, OpenOptions, ParseError, ReadError, RootDirectory,
+};
 pub use directory::{Directory, DirectoryEntry, LongNameEntry, SLOT_BYTES, ShortEntry, Slot};
 pub use file::{FileReadError, FileReader, OpenError};
 pub use file_system_information::{FileSystemInformation, FileSystemInformationError};

@@ -3,7 +3,7 @@
 //! no table contents can defeat.
 
 use crate::allocation::WriterState;
-use crate::boot_sector::{BootSector, ReadError};
+use crate::boot_sector::{BootSector, OpenOptions, ReadError};
 use crate::directory::Directory;
 use crate::named_entry::NamedEntries;
 use crate::sector::{SectorDevice, SectorSize};
@@ -86,8 +86,17 @@ impl<D: SectorDevice> Volume<D> {
     ///
     /// Refuses what [`BootSector::read`] refuses, including a volume whose sector size is not the
     /// device's.
-    pub fn open(mut device: D) -> Result<Volume<D>, ReadError<D::Error>> {
-        let boot = BootSector::read(&mut device)?;
+    pub fn open(device: D) -> Result<Volume<D>, ReadError<D::Error>> {
+        Volume::open_with(device, OpenOptions::new())
+    }
+
+    /// **Open the volume on `device` as `options` say**; [`Volume::open`] is this with
+    /// [`OpenOptions::new`], the strict reading.
+    pub fn open_with(
+        mut device: D,
+        options: OpenOptions,
+    ) -> Result<Volume<D>, ReadError<D::Error>> {
+        let boot = BootSector::read_with(&mut device, options)?;
         Ok(Volume {
             device,
             boot,
