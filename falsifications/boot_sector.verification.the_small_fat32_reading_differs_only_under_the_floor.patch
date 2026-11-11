@@ -1,0 +1,20 @@
+Falsifies `file_allocation_table::boot_sector::verification::the_small_fat32_reading_differs_only_under_the_floor`.
+
+The defect: the small FAT32 reading no longer checks the layout, so it takes every volume as
+FAT32. A FAT16 volume the strict reading accepts would then be read with 32-bit table entries and a
+root directory at a cluster number its `BPB` never stated.
+
+Expected to fail: the harness's `assert_eq!(strict, Err(ParseError::LayoutContradictsClusterCount))`.
+
+diff --git a/src/boot_sector.rs b/src/boot_sector.rs
+--- a/src/boot_sector.rs
++++ b/src/boot_sector.rs
+@@ -229,7 +229,7 @@
+         table_sectors_16,
+         root_entries,
+     );
+-    if options.small_fat32 && fat32_layout {
++    if options.small_fat32 {
+         return Ok(FileAllocationTableType::Fat32);
+     }
+     if !layout_agrees(counted, table_sectors_16, root_entries) {

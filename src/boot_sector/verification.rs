@@ -2,10 +2,17 @@
 //! the solver chooses. Behind `#[cfg(kani)]`, so only `cargo kani` compiles them.
 //!
 //! The parse is straight-line code with no loop, so every harness covers every sector, not a
-//! bounded family of them. The thresholds below are written as the specification's literals
-//! rather than the crate's constants, so a wrong constant cannot prove itself right.
+//! bounded family of them. The geometry harnesses cover the strict reading and the small FAT32
+//! one. The thresholds below are written as the specification's literals rather than the crate's
+//! constants, so a wrong constant cannot prove itself right.
 
 use super::*;
+
+/// The strict reading or the small FAT32 one, as the solver chooses, so that a harness holds for
+/// both.
+fn either_reading() -> OpenOptions {
+    OpenOptions::new().with_small_fat32(kani::any())
+}
 
 /// Falsification: replayable
 /// `falsifications/boot_sector.verification.what_the_parse_accepts_lies_inside_the_volume.patch`
@@ -15,7 +22,7 @@ use super::*;
 #[kani::proof]
 fn what_the_parse_accepts_lies_inside_the_volume() {
     let sector: [u8; 512] = kani::any();
-    let Ok(boot) = BootSector::parse(&sector) else {
+    let Ok(boot) = BootSector::parse_with(&sector, either_reading()) else {
         return;
     };
     let total = u64::from(boot.total_sectors());
@@ -70,7 +77,7 @@ fn the_fat_type_is_the_cluster_counts() {
 #[kani::proof]
 fn the_table_has_an_entry_for_every_cluster() {
     let sector: [u8; 512] = kani::any();
-    let Ok(boot) = BootSector::parse(&sector) else {
+    let Ok(boot) = BootSector::parse_with(&sector, either_reading()) else {
         return;
     };
     let bits = match boot.file_allocation_table_type() {
@@ -90,7 +97,7 @@ fn the_table_has_an_entry_for_every_cluster() {
 #[kani::proof]
 fn only_a_data_cluster_has_sectors() {
     let sector: [u8; 512] = kani::any();
-    let Ok(boot) = BootSector::parse(&sector) else {
+    let Ok(boot) = BootSector::parse_with(&sector, either_reading()) else {
         return;
     };
     let cluster: u32 = kani::any();
@@ -103,5 +110,29 @@ fn only_a_data_cluster_has_sectors() {
             assert!(end <= u64::from(boot.total_sectors()));
         }
         None => assert!(!is_data),
+    }
+}
+
+/// Falsification: replayable
+/// `falsifications/boot_sector.verification.the_small_fat32_reading_differs_only_under_the_floor.patch`
+/// **The small FAT32 reading parses a sector differently from the strict one only where the strict
+/// one refuses its layout**, and what it accepts there is FAT32 under 65525 clusters, with its root
+/// in a cluster chain.
+#[kani::proof]
+fn the_small_fat32_reading_differs_only_under_the_floor() {
+    let sector: [u8; 512] = kani::any();
+    let strict = BootSector::parse(&sector);
+    let small = BootSector::parse_with(&sector, OpenOptions::new().with_small_fat32(true));
+    if small == strict {
+        return;
+    }
+    assert_eq!(strict, Err(ParseError::LayoutContradictsClusterCount));
+    if let Ok(boot) = small {
+        assert_eq!(
+            boot.file_allocation_table_type(),
+            FileAllocationTableType::Fat32
+        );
+        assert!(boot.clusters() < 65525);
+        assert!(matches!(boot.root_directory(), RootDirectory::Cluster(_)));
     }
 }

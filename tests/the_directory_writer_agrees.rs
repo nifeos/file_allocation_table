@@ -104,6 +104,7 @@ fn check_with_fsck(image: &[u8], label: &str) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    eprintln!("{label}: {tool} -n accepted the image");
 }
 
 /// Every entry under `directory` according to rust-fatfs: (path, is directory, bytes of a file).

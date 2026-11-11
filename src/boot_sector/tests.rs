@@ -197,6 +197,62 @@ fn a_fat32_layout_under_the_cluster_floor_is_refused() {
     );
 }
 
+/// The reading that takes a FAT32 layout under the floor as FAT32.
+const SMALL_FAT32: OpenOptions = OpenOptions::new().with_small_fat32(true);
+
+#[test]
+fn the_small_fat32_reading_takes_a_fat32_layout_under_the_floor_as_fat32() {
+    let boot = BootSector::parse_with(FAT32_UNDER_FLOOR, SMALL_FAT32).unwrap();
+    assert_eq!(
+        boot.file_allocation_table_type(),
+        FileAllocationTableType::Fat32
+    );
+    assert!(boot.clusters() < FAT32_MINIMUM_CLUSTERS);
+    assert_eq!(boot.root_directory(), RootDirectory::Cluster(2));
+    // Two 512-sector tables after 32 reserved sectors: one cluster under the floor, and a single
+    // cluster, both FAT32.
+    for clusters in [65_524, 1] {
+        let boot = BootSector::parse_with(&Shape::fat32(1056 + clusters, 512).bytes(), SMALL_FAT32);
+        assert_eq!(
+            boot.map(|boot| (boot.file_allocation_table_type(), boot.clusters())),
+            Ok((FileAllocationTableType::Fat32, clusters))
+        );
+    }
+}
+
+#[test]
+fn the_small_fat32_reading_changes_nothing_the_strict_one_accepts_or_refuses_otherwise() {
+    for sector in [FAT12_FLOPPY, FAT16_32M, FAT16_4K, FAT32_64M, FAT32_4K] {
+        assert_eq!(BootSector::parse_with(sector, SMALL_FAT32), parse(sector));
+    }
+    // A FAT16 layout at the FAT32 floor, and half one layout and half the other.
+    let mut no_root = Shape::fat16(73 + 5000, 20);
+    no_root.root_entries = 0;
+    let mut table_16 = Shape::fat32(1056 + 1000, 512).bytes();
+    table_16[22..24].copy_from_slice(&512u16.to_le_bytes());
+    for sector in [
+        Shape::fat16(545 + 65_525, 256).bytes(),
+        no_root.bytes(),
+        table_16,
+    ] {
+        assert_eq!(
+            BootSector::parse_with(&sector, SMALL_FAT32),
+            Err(ParseError::LayoutContradictsClusterCount)
+        );
+    }
+}
+
+#[test]
+fn the_default_reading_is_the_strict_one() {
+    assert_eq!(OpenOptions::default(), OpenOptions::new());
+    assert_ne!(SMALL_FAT32, OpenOptions::new());
+    assert_eq!(SMALL_FAT32.with_small_fat32(false), OpenOptions::new());
+    assert_eq!(
+        BootSector::parse_with(FAT32_UNDER_FLOOR, OpenOptions::new()),
+        Err(ParseError::LayoutContradictsClusterCount)
+    );
+}
+
 #[test]
 fn what_this_crates_mkfs_writes_parses_to_the_same_geometry() {
     let volume = VolumeLayoutOptions::new(1024 * 1024)

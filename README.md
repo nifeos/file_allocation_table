@@ -26,9 +26,11 @@ from a disk.
   `WritableVolume::mark_clean` sets it again and updates the hints in the FAT32 file system
   information sector.
 - Format. `FormatPlan` lays out an empty volume of any size and sector size (512 to 4096 bytes),
-  with the cluster size, serial number and label of your choice. Left to choose, it takes one
-  sector to the cluster, the smallest legal size, up to about 130 GiB of 512-byte sectors, where
-  `mkfs.fat` would take larger clusters. `VolumeLayout` lays out the one
+  with the cluster size, serial number and label of your choice. Left to choose, it picks the type
+  and the cluster size by the volume's size from the specification's tables, as Windows does.
+  That is FAT12 to about 4 MiB, then FAT16 below 512 MiB with clusters of 1 to 8 KiB. FAT32 takes
+  over from there with 4 KiB clusters, growing to 32 KiB above 32 GiB. `mkfs.fat` picks the same
+  FAT32 clusters. `VolumeLayout` lays out the one
   shape a bootloader needs: a FAT32 Extensible Firmware Interface (EFI) system partition holding one
   boot file, with 512-byte sectors and 4096-byte clusters. The `efi_system_partition` module holds
   that shape's constants.
@@ -70,8 +72,8 @@ impl WritableSectorDevice for Memory {
 }
 
 fn main() {
-    // Format 8 MiB. The size makes it FAT16; about 2 MiB or less makes FAT12, and about 32.5 MiB or
-    // more makes FAT32, at the default cluster size of one sector.
+    // Format 8 MiB. The size makes it FAT16 with 1 KiB clusters; about 4 MiB or less makes FAT12,
+    // and 512 MiB or more makes FAT32.
     let sectors = 16 * 1024;
     let options = FormatOptions::new(SectorSize::Bytes512, sectors)
         .with_label("EXAMPLE")
@@ -179,6 +181,41 @@ release can add a variant without breaking your code. Every error type implement
 the error it wraps. A type generic over your device's error displays for any error, and is an
 `Error`, so `?` takes it into a boxed error, when your device's error is one.
 
+`examples/image.rs` is a host program over an image file. It makes a `std::fs::File` a sector
+device, stamps writes with the host's clock as UTC, and prints a volume's tree.
+
+```sh
+cargo run --example image -- format disk.img 64
+cargo run --example image -- put disk.img notes.txt
+cargo run --example image -- list disk.img
+```
+
+## Footprint
+
+The crate allocates nothing; every byte below lives where the caller puts the value or on the stack
+of the call. A `Volume` or a `WritableVolume` is 4,192 bytes plus the device, most of it one sector
+buffer of 4,096 bytes, the largest sector size. A `Directory` or a `FileReader` borrows the volume
+and holds its own buffer, 4,152 bytes each. A `FileWriter` is 88 bytes, a `NamedEntry` 576 (it
+holds the long name), a `FormatPlan` 64 and a `VolumeLayout` 624. These are the sizes on a 64-bit
+host. The write paths put sector-sized arrays on the stack for each call. Measured on x86-64 in a
+release build, a thread that formats a volume and then creates a directory and a file, writes
+10,000 bytes, renames, looks up and reads needed about 40 KiB of stack, the volume itself included.
+
+## How it compares
+
+- rust-fatfs (the `fatfs` crate) is the most used FAT crate. It has `std::io` traits, a time
+  provider, code-page conversion for short names and years of users, and this crate's tests
+  compare against it. This crate adds FAT12 writing and formatting under `no_std` with no allocator,
+  no `unsafe`, and a refusal, never a panic, on a hostile image.
+- embedded-sdmmc brings a Secure Digital (SD) card driver, a block cache and `embedded-io` traits, over 512-byte
+  blocks. This crate has no driver. It adds FAT12, long-name creation, a formatter and sector
+  sizes up to 4,096 bytes.
+- hadris-fat is the nearest design: its `hadris-fat-raw` holds codecs free of I/O with Kani proofs,
+  and the family adds exFAT and a checker. This crate reads, writes and formats all three widths
+  in one crate, with a falsification patch for every proof, and lays out an EFI system partition.
+- What this crate lacks: exFAT, `std::io` and `embedded-io` traits, code-page conversion for short
+  names, and the users the crates above have.
+
 ## What is proven
 
 Kani harnesses prove, over every input they can unroll, the properties below.
@@ -191,8 +228,8 @@ version may verify differently. After that, `cargo kani` from the crate's direct
 harness; the whole run takes 10 to 20 minutes, and `cargo kani --harness <name>` runs one.
 
 - Hostile input. No parse step panics or reads outside the volume: the boot sector and its
-  geometry fields for every 512-byte sector, FAT entries, directory slots, long-name runs, the
-  partition table and the file system information sector. A cluster chain walk cannot loop. It ends
+  geometry fields for every 512-byte sector, with or without `with_small_fat32`, FAT entries,
+  directory slots, long-name runs, the partition table and the file system information sector. A cluster chain walk cannot loop. It ends
   within the volume's cluster count.
 - Writes. A stored table entry reads back and disturbs nothing else. Allocation takes one free
   cluster and changes nothing else. A release frees only the chain it received and never a bad
@@ -216,9 +253,12 @@ the format proof covers clusters of 1 to 8 sectors. The tests against rust-fatfs
 The tests compare against rust-fatfs (the `lamfat` dev-dependency), an independent FAT library.
 Each library writes trees on FAT12, FAT16 and FAT32 volumes, and the other must read them, name for
 name and byte for byte. If the host has `fsck.fat` or `fsck_msdos`, every image must pass
-`fsck -n`. Where `mkfs.fat` is installed, its FAT12 and FAT16 volumes take this crate's writer. The
-crate reads two FAT32 images that a macOS host formatted and wrote, to their recorded hashes. An
-ignored test has the host's own driver read an image (`cargo test -- --ignored`, on macOS).
+`fsck -n`. If the host has `mkfs.fat`, its FAT12 and FAT16 volumes take this crate's writer, and
+so does a FAT32 volume under 65525 clusters opened with `with_small_fat32`. If the host has mtools,
+it lists and reads what this crate writes, and this crate reads and writes beside what `mmd` and
+`mcopy` write. The crate reads two FAT32 images that a macOS host formatted and wrote, to their
+recorded hashes. An ignored test has the host's own driver read an image
+(`cargo test -- --ignored`, on macOS).
 
 Two cargo-fuzz targets in the repository's `fuzz/` directory, which the crates.io package leaves
 out, reach what the proofs bound. `file_allocation_table_boot_sector` reads an arbitrary volume at
@@ -229,11 +269,16 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
 ## BUGS
 
 - Not crash-atomic, and there is no journal, since FAT has none. The crate orders its writes so a
-  crash leaks a cluster and never shares one, and a write has no barrier: the device decides when a
+  crash leaks a cluster and never shares one, with one exception. A rename writes the new entry
+  before it frees the old one, so a crash between the two leaves two entries naming one chain.
+  `fsck.fat` reports that as shared clusters. The other order would lose the file on the same
+  crash. A directory grows by a cluster that is zeroed before it is linked, so a crash never shows
+  a directory the bytes a device held there. A write has no barrier: the device decides when a
   write reaches the medium.
-- Write amplification. The default cluster size is one sector, which multiplies the writes to the
-  table. Measured in memory, one-sector clusters cost 5.0 sector writes per data sector and
-  eight-sector clusters cost 1.5. Larger clusters reduce the cost.
+- Write amplification. Every new cluster costs table writes, so small clusters multiply the
+  writes: measured in memory, one-sector clusters cost 5.0 sector writes per data sector and
+  eight-sector clusters cost 1.5. The default cluster grows with the volume, so the higher figure
+  falls on a FAT12 volume of a few MiB, or on one formatted with one-sector clusters on purpose.
 - Time. Every writer needs a clock. FAT stores a date and a time of day with no time zone, and the
   crate expects the clock to supply Coordinated Universal Time (UTC). The crate stores exactly the
   fields the clock reports and converts nothing, so it cannot check that a clock gives UTC. A reader
@@ -250,13 +295,15 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
   so look the entry up again after a write. Opening a reader or a writer, a rename, a removal or
   an attribute change through a stale entry refuses with `EntryChanged`.
 - The crate refuses a name with a character outside the Basic Multilingual Plane. It stores a
-  lower-case 8.3 name as a long name, since it writes no lower-case flag.
+  lower-case 8.3 name as a long name, since it writes no lower-case flag. It reads the flags that
+  Windows and Linux write: `cased_short_name` shows such a name in lower case, and `short_name`
+  keeps the stored bytes. A rename drops the flags with the old name.
 - Names compare by simple Unicode upper-casing, not the volume's code page or upcase table.
 - A create, a rename or a new directory reads the whole directory it writes into once: one pass
   checks the name, numbers the alias and finds the free slots. Filling one directory with n
   entries therefore costs on the order of n squared sector reads, as it does in rust-fatfs. The
-  figures below count the sectors read and written on a 128 MiB FAT32 volume held in memory, at
-  the default cluster of one sector. A real device adds its own time to every sector, and the
+  figures below count the sectors read and written on a 128 MiB FAT32 volume held in memory,
+  formatted with one sector to the cluster. A real device adds its own time to every sector, and the
   crate keeps no cache of directory sectors. Each pair is this writer, then the writer that read
   the directory once per candidate alias and once per slot.
   - 1,000 short (8.3) names in one directory: 34,000 reads, against 569,000.
@@ -274,6 +321,9 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
   3.1. Every `write` call also reads and rewrites the file's directory entry, so small calls cost
   more: 4 MiB in 100-byte calls takes 11.5 writes and 15.6 reads per data sector, against 11.7
   and 15.9. Pass whole sectors where you can.
+- `Volume::open` refuses a FAT32 layout under 65525 clusters, which `mkfs.fat -F 32` makes with a
+  warning, because Linux reads it as FAT32 and the specification as FAT16. `Volume::open_with`
+  and `OpenOptions::new().with_small_fat32(true)` read it as FAT32, as Linux does.
 - The reader does not follow extended partitions and reads no Globally Unique Identifier (GUID)
   partition table.
 - exFAT is out of scope; it is a sibling crate's job.

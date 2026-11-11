@@ -15,6 +15,7 @@
 use core::ops::{Deref, DerefMut};
 
 use crate::attributes::Attributes;
+use crate::boot_sector::OpenOptions;
 use crate::file::OpenError;
 use crate::file_writer::FileWriter;
 use crate::named_entry::NamedEntry;
@@ -68,8 +69,17 @@ pub struct WritableVolume<D, C> {
 impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     /// **Open the volume on `device` for writing**, stamping with `clock`.
     pub fn open(device: D, clock: C) -> Result<WritableVolume<D, C>, crate::ReadError<D::Error>> {
+        WritableVolume::open_with(device, clock, OpenOptions::new())
+    }
+
+    /// **Open the volume on `device` for writing as `options` say**, stamping with `clock`.
+    pub fn open_with(
+        device: D,
+        clock: C,
+        options: OpenOptions,
+    ) -> Result<WritableVolume<D, C>, crate::ReadError<D::Error>> {
         Ok(WritableVolume {
-            volume: Volume::open(device)?,
+            volume: Volume::open_with(device, options)?,
             clock,
         })
     }
@@ -119,12 +129,16 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
         self.volume.create_directory(directory.0, name)
     }
 
-    /// **Remove the empty directory `entry` names.**
+    /// **Remove the empty directory that `entry` names.**
     pub fn remove_directory(&mut self, entry: &NamedEntry) -> Result<(), WriteError<D::Error>> {
         self.volume.remove_directory(entry)
     }
 
     /// **Rename `entry`, and move it to `directory`**; the entry keeps its times.
+    ///
+    /// The new entry is written first, then a moved directory's `..`, then the old slots are
+    /// freed. A crash before the last step leaves the file under both names, on one chain, which
+    /// `fsck.fat` repairs as shared clusters; it never leaves the file under neither.
     pub fn rename(
         &mut self,
         entry: &NamedEntry,
@@ -134,7 +148,7 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
         self.volume.rename(entry, directory.0, new_name)
     }
 
-    /// **Delete the file `entry` names.**
+    /// **Delete the file that `entry` names.**
     pub fn remove_file(&mut self, entry: &NamedEntry) -> Result<(), WriteError<D::Error>> {
         self.volume.remove_file(entry)
     }

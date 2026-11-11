@@ -22,12 +22,13 @@ const FAT32_MAXIMUM_CLUSTERS: u32 = 0x0FFF_FFF5 - 1;
 const PARSED: usize = 512;
 
 /// **The FAT type** (file allocation table type, "FAT: General Overview of On-Disk Format" version
-/// 1.03, section 3, Boot Sector and `BPB`), decided by the count of data clusters and by nothing
-/// else. The variants keep the specification's spelling, `Fat12`, `Fat16` and `Fat32`, each named
-/// for the width of one table entry in bits.
+/// 1.03, section 3, Boot Sector and `BPB`), decided by the count of data clusters. The variants
+/// keep the specification's spelling, `Fat12`, `Fat16` and `Fat32`, each named for the width of
+/// one table entry in bits.
 ///
 /// The type string at `BS_FilSysType` is informational and never read. A volume whose `BPB` layout
-/// disagrees with its cluster count is refused (see [`ParseError::LayoutContradictsClusterCount`]).
+/// disagrees with its cluster count is refused (see [`ParseError::LayoutContradictsClusterCount`]),
+/// unless [`OpenOptions::with_small_fat32`] reads a FAT32 layout under 65525 clusters as FAT32.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FileAllocationTableType {
     /// **FAT12**, the 12-bit file allocation table: fewer than 4085 clusters; 12-bit table entries.
@@ -112,7 +113,8 @@ pub enum ParseError {
     NoClusters,
     /// The `BPB` is laid out for one FAT type and the cluster count makes the volume another: a
     /// FAT32 layout (`BPB_FATSz16` and `BPB_RootEntCnt` zero) under 65525 clusters, or a FAT12 or
-    /// FAT16 layout at or over it. Drivers disagree about such a volume, so this crate reads none.
+    /// FAT16 layout at or over it. Drivers disagree about such a volume, so the strict reading
+    /// refuses it; [`OpenOptions::with_small_fat32`] reads the first kind as Linux does.
     LayoutContradictsClusterCount,
     /// More clusters than FAT32 can number.
     TooManyClusters,
@@ -212,6 +214,65 @@ fn layout_agrees(kind: FileAllocationTableType, table_sectors_16: u16, root_entr
     }
 }
 
+/// The FAT type of a volume of `clusters` with this `BPB` layout, or the refusal of a layout that
+/// contradicts the count. With [`OpenOptions::with_small_fat32`], a FAT32 layout under the FAT32
+/// floor reads as FAT32, as the Linux driver reads it.
+fn layout_type(
+    clusters: u32,
+    table_sectors_16: u16,
+    root_entries: u16,
+    options: OpenOptions,
+) -> Result<FileAllocationTableType, ParseError> {
+    let counted = FileAllocationTableType::from_clusters(clusters);
+    let fat32_layout = layout_agrees(
+        FileAllocationTableType::Fat32,
+        table_sectors_16,
+        root_entries,
+    );
+    if options.small_fat32 && fat32_layout {
+        return Ok(FileAllocationTableType::Fat32);
+    }
+    if !layout_agrees(counted, table_sectors_16, root_entries) {
+        return Err(ParseError::LayoutContradictsClusterCount);
+    }
+    Ok(counted)
+}
+
+/// **How [`Volume::open_with`](crate::Volume::open_with) and [`BootSector::parse_with`] read a boot
+/// sector.** [`OpenOptions::new`] is the strict reading [`BootSector::parse`] applies.
+///
+/// # Examples
+///
+/// ```
+/// use file_allocation_table::OpenOptions;
+///
+/// let options = OpenOptions::new().with_small_fat32(true);
+/// assert_ne!(options, OpenOptions::new());
+/// assert_eq!(OpenOptions::default(), OpenOptions::new());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct OpenOptions {
+    small_fat32: bool,
+}
+
+impl OpenOptions {
+    /// **The strict reading**: a `BPB` layout that contradicts its cluster count is refused.
+    pub const fn new() -> OpenOptions {
+        OpenOptions { small_fat32: false }
+    }
+
+    /// **Whether a FAT32 layout under 65525 clusters reads as FAT32.**
+    ///
+    /// `mkfs.fat -F 32` makes such a volume with a warning. The specification types it FAT16 by
+    /// its cluster count, and Linux reads it as FAT32 by its layout, so the strict reading refuses
+    /// it ([`ParseError::LayoutContradictsClusterCount`]). With `true`, it reads as Linux reads it:
+    /// FAT32, with 32-bit table entries and a root directory in a cluster chain. A FAT12 or FAT16
+    /// layout at 65525 clusters or more is refused either way.
+    pub const fn with_small_fat32(self, small_fat32: bool) -> OpenOptions {
+        OpenOptions { small_fat32 }
+    }
+}
+
 /// A reserved-region sector number from FAT32's `BPB`, or `None` when it names no sector the
 /// reserved region holds: 0 and `0xFFFF` mean "none", and a number at or past the region is
 /// ignored rather than followed.
@@ -225,6 +286,12 @@ impl BootSector {
     /// Returns the volume's geometry, or the first field that makes it unreadable. Never panics
     /// and never reads past byte 511, whatever `sector` holds.
     pub fn parse(sector: &[u8]) -> Result<BootSector, ParseError> {
+        BootSector::parse_with(sector, OpenOptions::new())
+    }
+
+    /// **Parse a boot sector from `sector` as `options` say**; [`BootSector::parse`] with
+    /// [`OpenOptions::new`] is the strict reading.
+    pub fn parse_with(sector: &[u8], options: OpenOptions) -> Result<BootSector, ParseError> {
         let sector = sector.get(..PARSED).ok_or(ParseError::TooShort)?;
         if sector[510] != 0x55 || sector[511] != 0xAA {
             return Err(ParseError::NoSignature);
@@ -284,10 +351,8 @@ impl BootSector {
             return Err(ParseError::NoClusters);
         }
 
-        let file_allocation_table_type = FileAllocationTableType::from_clusters(clusters);
-        if !layout_agrees(file_allocation_table_type, table_sectors_16, root_entries) {
-            return Err(ParseError::LayoutContradictsClusterCount);
-        }
+        let file_allocation_table_type =
+            layout_type(clusters, table_sectors_16, root_entries, options)?;
         if clusters > FAT32_MAXIMUM_CLUSTERS {
             return Err(ParseError::TooManyClusters);
         }
@@ -359,11 +424,19 @@ impl BootSector {
     /// Refuses a volume whose `BPB_BytsPerSec` is not the device's sector size, since every later
     /// read would land at the wrong offset.
     pub fn read<D: SectorDevice>(device: &mut D) -> Result<BootSector, ReadError<D::Error>> {
+        BootSector::read_with(device, OpenOptions::new())
+    }
+
+    /// Read and parse sector 0 of `device` as `options` say.
+    pub(crate) fn read_with<D: SectorDevice>(
+        device: &mut D,
+        options: OpenOptions,
+    ) -> Result<BootSector, ReadError<D::Error>> {
         let size = device.sector_size();
         let mut buffer = [0u8; SectorSize::MAXIMUM_BYTES];
         let buffer = &mut buffer[..size.bytes()];
         device.read_sector(0, buffer).map_err(ReadError::Device)?;
-        let boot = BootSector::parse(buffer).map_err(ReadError::Refused)?;
+        let boot = BootSector::parse_with(buffer, options).map_err(ReadError::Refused)?;
         if boot.bytes_per_sector != size {
             return Err(ReadError::SectorSizeMismatch {
                 device: size,

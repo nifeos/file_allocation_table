@@ -58,6 +58,12 @@ impl NamedEntry {
         self.short.name()
     }
 
+    /// The eleven short-name bytes as a reader shows them, lower-cased where the entry's flags say
+    /// so; see [`ShortEntry::cased_name`].
+    pub fn cased_short_name(&self) -> [u8; 11] {
+        self.short.cased_name()
+    }
+
     /// The long name, when the entry has one and its run was whole, ordered and bound to this
     /// entry by its checksum.
     pub const fn long_name(&self) -> Option<&LongFileName> {
