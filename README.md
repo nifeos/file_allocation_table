@@ -25,9 +25,9 @@ from a disk.
   and updates the hints in the FAT32 file system information sector.
 - Format. `FormatPlan` lays out an empty volume of any size and sector size (512 to 4096 bytes),
   with the cluster size, serial number and label of your choice. Left to choose, it picks the type
-  and the cluster size by the volume's size from the specification's tables, as Windows does:
-  FAT12 to about 4 MiB, FAT16 below 512 MiB with clusters of 1 to 8 KiB, and FAT32 from there
-  with clusters of 4 KiB to 8 GiB, growing to 32 KiB above 32 GiB. `mkfs.fat` picks the same
+  and the cluster size by the volume's size from the specification's tables, as Windows does.
+  That is FAT12 to about 4 MiB, then FAT16 below 512 MiB with clusters of 1 to 8 KiB. FAT32 takes
+  over from there with 4 KiB clusters, growing to 32 KiB above 32 GiB. `mkfs.fat` picks the same
   FAT32 clusters. `VolumeLayout` lays out the one
   shape a bootloader needs: a FAT32 Extensible Firmware Interface (EFI) system partition holding one
   boot file, with 512-byte sectors and 4096-byte clusters. The `efi_system_partition` module holds
