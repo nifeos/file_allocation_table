@@ -251,10 +251,11 @@ the format proof covers clusters of 1 to 8 sectors. The tests against rust-fatfs
 The tests compare against rust-fatfs (the `lamfat` dev-dependency), an independent FAT library.
 Each library writes trees on FAT12, FAT16 and FAT32 volumes, and the other must read them, name for
 name and byte for byte. If the host has `fsck.fat` or `fsck_msdos`, every image must pass
-`fsck -n`. Where `mkfs.fat` is installed, its FAT12 and FAT16 volumes take this crate's writer.
-Where mtools is installed, it lists and reads what this crate writes, and this crate reads and
-writes beside what `mmd` and `mcopy` write. The crate reads two FAT32 images that a macOS host formatted and wrote, to their recorded hashes. An
-ignored test has the host's own driver read an image (`cargo test -- --ignored`, on macOS).
+`fsck -n`. If the host has `mkfs.fat`, its FAT12 and FAT16 volumes take this crate's writer. If
+the host has mtools, it lists and reads what this crate writes, and this crate reads and writes
+beside what `mmd` and `mcopy` write. The crate reads two FAT32 images that a macOS host formatted
+and wrote, to their recorded hashes. An ignored test has the host's own driver read an image
+(`cargo test -- --ignored`, on macOS).
 
 Two cargo-fuzz targets in the repository's `fuzz/` directory, which the crates.io package leaves
 out, reach what the proofs bound. `file_allocation_table_boot_sector` reads an arbitrary volume at
