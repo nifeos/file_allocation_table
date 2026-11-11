@@ -191,10 +191,10 @@ release build, a thread that formats a volume and then creates a directory and a
 ## How it compares
 
 - rust-fatfs (the `fatfs` crate) is the most used FAT crate. It has `std::io` traits, a time
-  provider, code-page conversion for short names and years of users, and this crate's tests use it
-  as their oracle. This crate adds FAT12 writing and formatting under `no_std` with no allocator,
+  provider, code-page conversion for short names and years of users, and this crate's tests
+  compare against it. This crate adds FAT12 writing and formatting under `no_std` with no allocator,
   no `unsafe`, and a refusal, never a panic, on a hostile image.
-- embedded-sdmmc brings an SD card driver, a block cache and `embedded-io` traits, over 512-byte
+- embedded-sdmmc brings a Secure Digital (SD) card driver, a block cache and `embedded-io` traits, over 512-byte
   blocks. This crate has no driver. It adds FAT12, long-name creation, a formatter and sector
   sizes up to 4,096 bytes.
 - hadris-fat is the nearest design: its `hadris-fat-raw` holds codecs free of I/O with Kani proofs,
