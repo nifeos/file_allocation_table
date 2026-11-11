@@ -349,6 +349,7 @@ fn check_with_fsck(image: &[u8], label: &str) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    eprintln!("{label}: {tool} -n accepted the image");
 }
 
 /// Write the tree with rust-fatfs and read it back with both readers.

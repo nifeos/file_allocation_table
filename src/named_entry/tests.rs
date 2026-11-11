@@ -217,3 +217,18 @@ fn a_directory_entry_names_its_directory_and_a_file_or_the_label_names_none() {
     assert_eq!(dots.next(), Some(Some(inner)));
     assert_eq!(dots.next(), Some(Some(DirectoryCluster::ROOT)));
 }
+
+#[test]
+fn a_lower_case_short_name_reads_cased_and_still_resolves_by_any_case() {
+    // `readme.txt` as Linux writes it: the short entry with both lower-case flags and no long name.
+    let mut image = Image::fat12();
+    let mut slot = short(b"README  TXT", 0x20, 9, 3);
+    slot[12] = 0x18;
+    put(&mut image, &[slot]);
+    let mut volume = Volume::open(image).unwrap();
+    let entry = volume.lookup("readme.txt").unwrap();
+    assert_eq!(&entry.short_name(), b"README  TXT");
+    assert_eq!(&entry.cased_short_name(), b"readme  txt");
+    assert_eq!(entry.long_name(), None);
+    assert_eq!(volume.lookup("README.TXT").unwrap(), entry);
+}

@@ -7,9 +7,10 @@ its file disappears from the listing.
 Expected to fail: the harness's `assert!(long)`.
 
 diff --git a/src/directory.rs b/src/directory.rs
+index db35192..adb4a2c 100644
 --- a/src/directory.rs
 +++ b/src/directory.rs
-@@ -31,7 +31,7 @@ const DIRECTORY: u8 = 0x10;
+@@ -27,7 +27,7 @@ const DIRECTORY: u8 = 0x10;
  /// The low four attribute bits together, which mark a long-name slot.
  const LONG_NAME: u8 = READ_ONLY | HIDDEN | SYSTEM | VOLUME_ID;
  /// The attribute bits a long-name test looks at: the six the specification defines.
@@ -17,4 +18,4 @@ diff --git a/src/directory.rs b/src/directory.rs
 +const LONG_NAME_MASK: u8 = 0x0F;
  /// The first name byte of a free slot.
  const FREE: u8 = 0xE5;
- /// The ordinal bit that marks a long name's last piece, which comes first on disk.
+ /// `DIR_NTRes` bit 3: the base of the short name reads in lower case. Windows and Linux write it

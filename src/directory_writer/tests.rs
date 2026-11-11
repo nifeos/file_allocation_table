@@ -656,3 +656,74 @@ fn a_taken_directory_name_is_refused_before_anything_is_written() {
     );
     assert_eq!(volume.device.writes, before);
 }
+
+/// **A rename is the one operation a crash can leave sharing a chain.** It writes the new entry,
+/// then (for a moved directory) `..`, then frees the old slots, so a power cut between the first
+/// write and the last leaves two entries naming one chain, which `fsck.fat` reports as shared
+/// clusters. The other order would lose the file on the same cut. This pins the order the README's
+/// `BUGS` states: after a cut at any write, the file is listed under one name or both, never
+/// neither, and two listings share their first cluster.
+#[test]
+fn a_power_cut_during_a_rename_leaves_one_entry_or_two_on_one_chain_and_never_none() {
+    use crate::reader::tests::{POWER_GONE, PowerCut};
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    volume
+        .create_directory(DirectoryCluster::ROOT, "SUB")
+        .unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "A.BIN").unwrap();
+    volume
+        .open_file_writer(&entry)
+        .unwrap()
+        .write(b"data")
+        .unwrap();
+    let before = volume.into_device().bytes;
+
+    let mut writes = 0;
+    let mut cut_with_both = false;
+    loop {
+        // A rename takes a handful of writes; more than this means it never finishes.
+        assert!(writes < 64, "no rename finished within 64 writes");
+        let image = Image {
+            bytes: before,
+            refuse: None,
+            refuse_write: None,
+        };
+        let mut volume = WritableVolume::open(PowerCut::after(image, writes), NoClock).unwrap();
+        let entry = volume.lookup("A.BIN").unwrap();
+        let sub = volume
+            .lookup("SUB")
+            .unwrap()
+            .directory_cluster()
+            .expect("a directory");
+        let renamed = volume.rename(&entry, sub, "B.BIN");
+        // Only the cut stops the rename, so the loop ends at the first budget it fits in.
+        if let Err(error) = &renamed {
+            assert_eq!(
+                *error,
+                WriteError::Chain(ChainError::Device(POWER_GONE)),
+                "a cut after {writes} writes"
+            );
+        }
+        let mut volume = crate::Volume::open(volume.into_device().image).unwrap();
+        let old = volume.lookup("A.BIN").ok();
+        let new = volume.lookup("SUB/B.BIN").ok();
+        match (&old, &new) {
+            (None, None) => panic!("a cut after {writes} writes lost the file"),
+            (Some(old), Some(new)) => {
+                assert_eq!(old.first_cluster(), new.first_cluster());
+                assert!(renamed.is_err(), "a finished rename left the old entry");
+                cut_with_both = true;
+            }
+            _ => {}
+        }
+        if renamed.is_ok() {
+            assert!(old.is_none() && new.is_some());
+            break;
+        }
+        writes += 1;
+    }
+    assert!(
+        cut_with_both,
+        "no cut left both entries, so the claim needs no exception"
+    );
+}

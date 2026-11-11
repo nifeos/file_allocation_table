@@ -219,13 +219,18 @@ pub enum PartitionError<E> {
 ///     let _root = volume.boot_sector().root_directory();
 ///     Some(())
 /// }
-/// # struct Empty;
-/// # impl SectorDevice for Empty {
-/// #     type Error = ();
-/// #     fn sector_size(&self) -> SectorSize { SectorSize::Bytes512 }
-/// #     fn read_sector(&mut self, _: u64, b: &mut [u8]) -> Result<(), ()> { b.fill(0); Ok(()) }
-/// # }
-/// assert_eq!(open(Empty), None);
+///
+/// // A disk of zeros carries no partition table, so `open` finds no volume on it.
+/// struct Zeros;
+/// impl SectorDevice for Zeros {
+///     type Error = ();
+///     fn sector_size(&self) -> SectorSize { SectorSize::Bytes512 }
+///     fn read_sector(&mut self, _: u64, buffer: &mut [u8]) -> Result<(), ()> {
+///         buffer.fill(0);
+///         Ok(())
+///     }
+/// }
+/// assert_eq!(open(Zeros), None);
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct PartitionDevice<D> {
