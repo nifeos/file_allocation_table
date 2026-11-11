@@ -14,6 +14,7 @@ use crate::long_name::is_short_byte;
 use crate::named_entry::{EntryPlace, NamedEntry};
 use crate::reader::{ChainError, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize, WritableSectorDevice};
+use crate::table::TableEntry;
 use crate::time::{Clock, Stamp};
 use crate::write_cursor::{Medium, WriteError, WriteState};
 
@@ -194,18 +195,35 @@ impl<D: WritableSectorDevice> Volume<D> {
             return Ok(false);
         }
         self.begin_change()?;
-        let Some(new) = self.append(Some(last))? else {
+        // The cluster is taken as a chain of its own, zeroed, and only then linked: a reader
+        // parses every slot of a reachable cluster, so a crash before the zeros land must leave
+        // the cluster unreachable (leaked), never listing the bytes the device held there.
+        let Some(new) = self.append(None)? else {
             return Err(WriteError::VolumeFull);
         };
+        if let Err(error) = self.zero_cluster(new) {
+            // Nothing links to the cluster yet, so give it back. If this fails too, the cluster
+            // stays leaked and the error that matters is the first.
+            let _ = self.deallocate_chain(new);
+            return Err(error);
+        }
+        // A failed link is not undone: one table copy may already link to the cluster, and
+        // freeing it then would leave that copy's chain pointing at a free cluster.
+        self.write_table_entry(last, TableEntry::Next(new))?;
+        Ok(true)
+    }
+
+    /// Write zeros over every sector of `cluster`.
+    fn zero_cluster(&mut self, cluster: u32) -> Result<(), WriteError<D::Error>> {
         let boot = self.boot;
         let start = boot
-            .cluster_first_sector(new)
-            .ok_or(ChainError::NotADataCluster(new))?;
+            .cluster_first_sector(cluster)
+            .ok_or(ChainError::NotADataCluster(cluster))?;
         let zeros = [0u8; SectorSize::MAXIMUM_BYTES];
         for sector in 0..boot.sectors_per_cluster() {
             self.write_data(start + sector, &zeros[..boot.sector_size().bytes()])?;
         }
-        Ok(true)
+        Ok(())
     }
 
     /// Rewrite the first cluster and size of the short entry `name` at `place`, after checking
