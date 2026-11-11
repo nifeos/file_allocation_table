@@ -19,9 +19,9 @@ use file_allocation_table::efi_system_partition::{
     FILE_CLUSTER, ROOT_CLUSTER, SECTORS_PER_CLUSTER,
 };
 use file_allocation_table::{
-    CivilDateTime, Clock, DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice,
-    SectorSize, Volume, VolumeLayout, VolumeLayoutOptions, WritableSectorDevice, WritableVolume,
-    WriteError,
+    BootSector, CivilDateTime, Clock, DirectoryCluster, FormatOptions, FormatPlan, NoClock,
+    RootDirectory, SectorDevice, SectorSize, Volume, VolumeLayout, VolumeLayoutOptions,
+    WritableSectorDevice, WritableVolume, WriteError,
 };
 use lamfat::FatType;
 
@@ -338,7 +338,11 @@ fn the_formats_label_and_the_efi_volumes_directories_carry_the_clocks_time() {
         bytes_per_sector: SectorSize::Bytes512,
     };
     format.write_to(&mut image).unwrap();
-    let root = (1 + 2 * format.table_sectors() as usize) * 512;
+    let boot = BootSector::parse(&image.bytes[..512]).unwrap();
+    let RootDirectory::Region { first_sector, .. } = boot.root_directory() else {
+        panic!("a 16 MiB format is FAT12 or FAT16")
+    };
+    let root = first_sector as usize * 512;
     let word = |at: usize| u16::from_le_bytes([image.bytes[root + at], image.bytes[root + at + 1]]);
     assert_eq!(image.bytes[root + 11], 0x08);
     assert_eq!(

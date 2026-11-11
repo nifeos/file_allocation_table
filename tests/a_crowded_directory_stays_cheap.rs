@@ -22,8 +22,8 @@ use std::process::Command;
 use std::rc::Rc;
 
 use file_allocation_table::{
-    DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
-    WritableSectorDevice, WritableVolume,
+    DirectoryCluster, FileAllocationTableType, FormatOptions, FormatPlan, NoClock, SectorDevice,
+    SectorSize, WritableSectorDevice, WritableVolume,
 };
 
 /// The volume's size in 512-byte sectors: 128 MiB.
@@ -135,7 +135,10 @@ fn check_with_fsck(image: &[u8]) {
 /// A formatted, empty volume, and the counts of what it reads and writes from here on.
 fn volume() -> (WritableVolume<Counting, NoClock>, Counts) {
     let plan = FormatPlan::new(
-        FormatOptions::new(SectorSize::Bytes512, SECTORS),
+        // The FAT32 volume at one sector to the cluster that the README's figures count.
+        FormatOptions::new(SectorSize::Bytes512, SECTORS)
+            .with_file_allocation_table_type(FileAllocationTableType::Fat32)
+            .with_sectors_per_cluster(1),
         &mut NoClock,
     )
     .expect("a legal size");

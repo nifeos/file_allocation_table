@@ -186,7 +186,7 @@ type Case = (
 #[test]
 fn every_type_at_every_sector_size_formats_to_a_volume_the_oracles_accept() {
     use FileAllocationTableType::{Fat12, Fat16, Fat32};
-    let cases: [Case; 9] = [
+    let cases: [Case; 10] = [
         ("fat12-1m", SectorSize::Bytes512, 2 * 1024, None, None),
         (
             "fat12-4m",
@@ -231,7 +231,8 @@ fn every_type_at_every_sector_size_formats_to_a_volume_the_oracles_accept() {
             Some(Fat32),
             Some(2),
         ),
-        ("fat32-auto", SectorSize::Bytes512, 200 * 1024, None, None),
+        ("fat16-auto", SectorSize::Bytes512, 200 * 1024, None, None),
+        ("fat32-auto", SectorSize::Bytes512, 1024 * 1024, None, None),
     ];
     for (label, size, sectors, kind, cluster) in cases {
         let (format, image) = formatted_by_this_crate(size, sectors, |o| {
