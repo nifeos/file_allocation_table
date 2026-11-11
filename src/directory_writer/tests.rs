@@ -665,7 +665,7 @@ fn a_taken_directory_name_is_refused_before_anything_is_written() {
 /// neither, and two listings share their first cluster.
 #[test]
 fn a_power_cut_during_a_rename_leaves_one_entry_or_two_on_one_chain_and_never_none() {
-    use crate::reader::tests::PowerCut;
+    use crate::reader::tests::{POWER_GONE, PowerCut};
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     volume
         .create_directory(DirectoryCluster::ROOT, "SUB")
@@ -681,6 +681,8 @@ fn a_power_cut_during_a_rename_leaves_one_entry_or_two_on_one_chain_and_never_no
     let mut writes = 0;
     let mut cut_with_both = false;
     loop {
+        // A rename takes a handful of writes; more than this means it never finishes.
+        assert!(writes < 64, "no rename finished within 64 writes");
         let image = Image {
             bytes: before,
             refuse: None,
@@ -694,6 +696,14 @@ fn a_power_cut_during_a_rename_leaves_one_entry_or_two_on_one_chain_and_never_no
             .directory_cluster()
             .expect("a directory");
         let renamed = volume.rename(&entry, sub, "B.BIN");
+        // Only the cut stops the rename, so the loop ends at the first budget it fits in.
+        if let Err(error) = &renamed {
+            assert_eq!(
+                *error,
+                WriteError::Chain(ChainError::Device(POWER_GONE)),
+                "a cut after {writes} writes"
+            );
+        }
         let mut volume = crate::Volume::open(volume.into_device().image).unwrap();
         let old = volume.lookup("A.BIN").ok();
         let new = volume.lookup("SUB/B.BIN").ok();

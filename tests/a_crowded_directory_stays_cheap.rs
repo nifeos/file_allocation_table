@@ -32,7 +32,7 @@ const SECTORS: u32 = 256 * 1024;
 /// How many names go into the directory.
 const NAMES: usize = 500;
 
-/// The most sector reads the five hundred creates may take. Measured: 24,994.
+/// The most sector reads the five hundred creates may take. Measured: 24,932.
 const MOST_NAME_READS: u64 = 34_000;
 
 /// The most sector writes the five hundred creates may take. Measured: 841.
@@ -108,13 +108,13 @@ fn fsck() -> Option<&'static str> {
 }
 
 /// Run the host's `fsck -n` on `image`, which must exit 0; report and skip when there is none.
-fn check_with_fsck(image: &[u8]) {
+fn check_with_fsck(image: &[u8], label: &str) {
     let Some(tool) = fsck() else {
         eprintln!("no fsck.fat or fsck_msdos on this host; the fsck check is skipped");
         return;
     };
     let path = std::env::temp_dir().join(format!(
-        "file-allocation-table-crowded-{}.img",
+        "file-allocation-table-crowded-{label}-{}.img",
         std::process::id()
     ));
     std::fs::write(&path, image).expect("write the image for fsck");
@@ -202,7 +202,7 @@ fn five_hundred_colliding_long_names_stay_under_their_read_ceiling() {
         .collect::<Vec<_>>();
     expected.sort();
     assert_eq!(names, expected);
-    check_with_fsck(&image);
+    check_with_fsck(&image, "names");
 }
 
 #[test]
@@ -225,5 +225,5 @@ fn a_long_write_stays_under_its_write_ceiling() {
         "{per_sector:.2} writes per data sector, over the ceiling of {MOST_WRITES_PER_DATA_SECTOR}"
     );
     volume.mark_clean().unwrap();
-    check_with_fsck(&volume.into_device().bytes);
+    check_with_fsck(&volume.into_device().bytes, "write");
 }

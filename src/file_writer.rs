@@ -12,7 +12,7 @@ use crate::directory::{DirectoryEntry, SLOT_BYTES, ShortEntry, Slot};
 use crate::file::OpenError;
 use crate::long_name::is_short_byte;
 use crate::named_entry::{EntryPlace, NamedEntry};
-use crate::reader::{ChainError, Volume, Walk};
+use crate::reader::{ChainError, SlotCursor, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize, WritableSectorDevice};
 use crate::table::TableEntry;
 use crate::time::{Clock, Stamp};
@@ -96,14 +96,27 @@ impl<D: SectorDevice> Volume<D> {
             (other, _) => other,
         };
         let wanted = byte / u64::from(boot.bytes_per_cluster());
-        let mut walk = Walk::new(first);
+        // Start from the place the last lookup in this chain reached, when it is not past the
+        // wanted cluster: a pass over a directory's slots then walks its chain once, not once per
+        // slot.
+        let (mut walk, from) = match self.slot_cursor {
+            Some(cursor) if cursor.first == first && cursor.position <= wanted => {
+                (Walk::new(cursor.cluster), cursor.position)
+            }
+            _ => (Walk::new(first), 0),
+        };
         let mut cluster = 0;
-        for _ in 0..=wanted {
+        for _ in from..=wanted {
             match walk.step(self) {
                 Some(next) => cluster = next?,
                 None => return Ok(None),
             }
         }
+        self.slot_cursor = Some(SlotCursor {
+            first,
+            position: wanted,
+            cluster,
+        });
         let within = byte % u64::from(boot.bytes_per_cluster());
         let sector = boot
             .cluster_first_sector(cluster)
