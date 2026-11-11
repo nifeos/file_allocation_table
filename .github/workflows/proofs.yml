@@ -11,4 +11,4 @@ permissions:
   contents: read
 jobs:
   proofs:
-    uses: nifeos/crate-workflows/.github/workflows/proofs.yml@e9723181c6dd4793fc011549548228009248f08f
+    uses: nifeos/crate-workflows/.github/workflows/proofs.yml@a6330bb8763d43948a33ba38a0f4bf576dbd57b5
