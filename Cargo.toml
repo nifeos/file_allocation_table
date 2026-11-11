@@ -1,6 +1,6 @@
 [package]
 name = "file_allocation_table"
-version = "0.1.0"
+version = "0.1.0-pre.1"
 edition = "2024"
 rust-version = "1.88"
 description = "FAT12, FAT16 and FAT32 sans I/O: read, write and format volumes, with Kani-proven parsers"

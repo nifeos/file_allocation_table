@@ -555,6 +555,46 @@ fn a_directory_stops_growing_at_65536_entries() {
     }
 }
 
+/// A FAT32 root has a cluster of its own, so a caller may name it by that cluster as well as by
+/// [`DirectoryCluster::ROOT`]. Either way a directory made in it records its parent as 0 in `..`,
+/// the number the specification gives the root.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "formats a 70 MiB volume; FAT32's cluster minimum leaves no smaller one"
+)]
+fn a_fat32_root_named_by_its_cluster_is_still_0_in_dotdot() {
+    use crate::{FileAllocationTableType, FormatOptions, FormatPlan, SectorSize};
+    let sectors = 140 * 1024u32;
+    let plan = FormatPlan::new(
+        FormatOptions::new(SectorSize::Bytes512, sectors)
+            .with_file_allocation_table_type(FileAllocationTableType::Fat32),
+        &mut NoClock,
+    )
+    .unwrap();
+    let mut device = Blank(vec![0; sectors as usize * 512]);
+    plan.write_to(&mut device).unwrap();
+    let mut volume = WritableVolume::open(device, NoClock).unwrap();
+    let root = match volume.boot.root_directory() {
+        crate::RootDirectory::Cluster(root) => root,
+        crate::RootDirectory::Region { .. } => unreachable!("a FAT32 root is a chain"),
+    };
+    assert_ne!(root, 0);
+    let made = volume
+        .create_directory(DirectoryCluster(root), "Sub")
+        .unwrap();
+    let dotdot = volume.read_slot(made.first_cluster(), 1).unwrap().unwrap();
+    assert_eq!(&dotdot[..11], b"..         ");
+    assert_eq!(
+        (
+            u16::from_le_bytes([dotdot[20], dotdot[21]]),
+            u16::from_le_bytes([dotdot[26], dotdot[27]])
+        ),
+        (0, 0)
+    );
+    assert!(volume.lookup("Sub").is_ok());
+}
+
 /// The small FAT12 volume, counting the sectors it writes.
 struct Counted {
     image: Image,
