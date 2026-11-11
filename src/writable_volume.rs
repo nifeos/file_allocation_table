@@ -125,6 +125,10 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     }
 
     /// **Rename `entry`, and move it to `directory`**; the entry keeps its times.
+    ///
+    /// The new entry is written first, then a moved directory's `..`, then the old slots are
+    /// freed. A crash before the last step leaves the file under both names, on one chain, which
+    /// `fsck.fat` repairs as shared clusters; it never leaves the file under neither.
     pub fn rename(
         &mut self,
         entry: &NamedEntry,
