@@ -179,6 +179,15 @@ release can add a variant without breaking your code. Every error type implement
 the error it wraps. A type generic over your device's error displays for any error, and is an
 `Error`, so `?` takes it into a boxed error, when your device's error is one.
 
+`examples/image.rs` is a host program over an image file. It makes a `std::fs::File` a sector
+device, stamps writes with the host's clock as UTC, and prints a volume's tree.
+
+```sh
+cargo run --example image -- format disk.img 64
+cargo run --example image -- put disk.img notes.txt
+cargo run --example image -- list disk.img
+```
+
 ## Footprint
 
 The crate allocates nothing; every byte below lives where the caller puts the value or on the stack

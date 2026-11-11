@@ -9,12 +9,13 @@ repository = "https://github.com/nifeos/file_allocation_table"
 readme = "README.md"
 keywords = ["fat", "fat32", "vfat", "no-std", "filesystem"]
 categories = ["no-std", "filesystem", "embedded"]
-# What the package carries: the crate, its tests and fixtures, the falsification patches that the
-# README tells a reader to apply, and the licenses. The repository's workflows, hooks, fuzz targets,
-# process documents and lint settings stay out.
+# What the package carries: the crate, its tests, fixtures and examples, the falsification patches
+# that the README tells a reader to apply, and the licenses. The repository's workflows, hooks,
+# fuzz targets, process documents and lint settings stay out.
 include = [
     "/src/**",
     "/tests/**",
+    "/examples/**",
     "/falsifications/**",
     "/Cargo.toml",
     "/README.md",
