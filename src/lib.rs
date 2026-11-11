@@ -57,9 +57,8 @@
 //!   unequal.
 //! - A name with a character outside the Basic Multilingual Plane is refused, and a lower-case 8.3
 //!   name is stored as a long name, since the crate writes no lower-case flag.
-//! - A directory slot is found by walking the directory's chain from the place the last lookup in
-//!   that chain reached, or from its first cluster when the slot lies before that place or the
-//!   table has changed since. A pass forward over a directory walks its chain once.
+//! - A slot lookup walks its directory's chain from the place the last lookup there reached, or
+//!   from the start when the slot lies before it or the table changed since.
 //! - FAT stores no time zone. The crate stores what its clock reports, expected to be UTC, and
 //!   refuses a time outside 1980 to 2107. A reader that treats FAT times as local shows UTC values.
 //! - A file's bytes are read by cluster chain only; there is no cache above the sector and a
