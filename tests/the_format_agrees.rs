@@ -87,6 +87,7 @@ fn check_with_fsck(image: &[u8], label: &str) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    eprintln!("{label}: {tool} -n accepted the image");
 }
 
 /// What rust-fatfs counts as free clusters on `image`.
@@ -186,7 +187,7 @@ type Case = (
 #[test]
 fn every_type_at_every_sector_size_formats_to_a_volume_the_oracles_accept() {
     use FileAllocationTableType::{Fat12, Fat16, Fat32};
-    let cases: [Case; 9] = [
+    let cases: [Case; 10] = [
         ("fat12-1m", SectorSize::Bytes512, 2 * 1024, None, None),
         (
             "fat12-4m",
@@ -231,7 +232,8 @@ fn every_type_at_every_sector_size_formats_to_a_volume_the_oracles_accept() {
             Some(Fat32),
             Some(2),
         ),
-        ("fat32-auto", SectorSize::Bytes512, 200 * 1024, None, None),
+        ("fat16-auto", SectorSize::Bytes512, 200 * 1024, None, None),
+        ("fat32-auto", SectorSize::Bytes512, 1024 * 1024, None, None),
     ];
     for (label, size, sectors, kind, cluster) in cases {
         let (format, image) = formatted_by_this_crate(size, sectors, |o| {
@@ -295,6 +297,7 @@ fn volumes_mkfs_fat_made_take_this_crates_writer() {
         eprintln!("no mkfs.fat on this host; the mkfs.fat images are skipped");
         return;
     };
+    eprintln!("{tool} is present; the check runs");
     for (label, fat, mebibytes, cluster) in [
         ("mkfs-fat12", "12", 1u64, "1"),
         ("mkfs-fat16", "16", 32, "4"),

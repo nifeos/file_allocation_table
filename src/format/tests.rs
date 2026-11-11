@@ -9,22 +9,106 @@ fn options(sectors: u32) -> FormatOptions {
 }
 
 #[test]
-fn the_type_follows_the_cluster_count_from_the_smallest_cluster_that_works() {
-    let small = FormatPlan::new(options(2 * 1024), &mut NoClock).unwrap();
+fn the_type_and_the_cluster_follow_the_volumes_size_by_the_specifications_tables() {
+    use FileAllocationTableType::{Fat12, Fat16, Fat32};
+    // Each row's last size and the size after it, in 512-byte sectors.
+    for (sectors, kind, cluster) in [
+        (2 * 1024, Fat12, 1),
+        (4 * 1024, Fat12, 1),
+        (8_400, Fat12, 4),
+        (8_401, Fat16, 2),
+        (32_680, Fat16, 2),
+        (32_681, Fat16, 4),
+        (262_144, Fat16, 4),
+        (262_145, Fat16, 8),
+        (524_288, Fat16, 8),
+        (524_289, Fat16, 16),
+        (1_048_575, Fat16, 16),
+        (1_048_576, Fat32, 8),
+        (16_777_216, Fat32, 8),
+        (16_777_217, Fat32, 16),
+        (33_554_433, Fat32, 32),
+        (67_108_865, Fat32, 64),
+    ] {
+        let format = FormatPlan::new(options(sectors), &mut NoClock).unwrap();
+        assert_eq!(
+            (
+                format.file_allocation_table_type(),
+                format.sectors_per_cluster()
+            ),
+            (kind, cluster),
+            "{sectors} sectors"
+        );
+    }
+}
+
+#[test]
+fn a_size_whose_row_gives_no_legal_count_takes_the_smallest_cluster_that_does() {
+    use FileAllocationTableType::{Fat16, Fat32};
+    // FAT32 named on a size its table calls too small for FAT32: the smallest cluster that gives
+    // FAT32 a legal count, and none does.
     assert_eq!(
-        small.file_allocation_table_type(),
-        FileAllocationTableType::Fat12
+        FormatPlan::new(
+            options(40 * 1024).with_file_allocation_table_type(Fat32),
+            &mut NoClock
+        )
+        .err(),
+        Some(FormatError::NoSuchGeometry)
     );
-    assert_eq!(small.sectors_per_cluster(), 1);
-    let middle = FormatPlan::new(options(64 * 1024), &mut NoClock).unwrap();
+    // A 4096-byte sector is larger than the 2 KiB row, so the cluster is one sector.
+    let format = FormatPlan::new(
+        FormatOptions::new(SectorSize::Bytes4096, 16 * 1024),
+        &mut NoClock,
+    )
+    .unwrap();
     assert_eq!(
-        middle.file_allocation_table_type(),
-        FileAllocationTableType::Fat16
+        (
+            format.file_allocation_table_type(),
+            format.sectors_per_cluster()
+        ),
+        (Fat16, 1)
     );
-    let big = FormatPlan::new(options(200 * 1024), &mut NoClock).unwrap();
+}
+
+#[test]
+fn a_named_type_takes_its_own_tables_row_and_a_named_cluster_replaces_the_table() {
+    use FileAllocationTableType::{Fat16, Fat32};
+    let format = FormatPlan::new(
+        options(200 * 1024).with_file_allocation_table_type(Fat32),
+        &mut NoClock,
+    )
+    .unwrap();
     assert_eq!(
-        big.file_allocation_table_type(),
-        FileAllocationTableType::Fat32
+        (
+            format.file_allocation_table_type(),
+            format.sectors_per_cluster()
+        ),
+        (Fat32, 1)
+    );
+    let format = FormatPlan::new(
+        options(1_500_000).with_file_allocation_table_type(Fat16),
+        &mut NoClock,
+    )
+    .unwrap();
+    assert_eq!(
+        (
+            format.file_allocation_table_type(),
+            format.sectors_per_cluster()
+        ),
+        (Fat16, 32)
+    );
+    // One sector to the cluster, named, gives the smallest table, and the type follows the count.
+    let format = FormatPlan::new(
+        options(200 * 1024).with_sectors_per_cluster(1),
+        &mut NoClock,
+    )
+    .unwrap();
+    assert_eq!(
+        (
+            format.file_allocation_table_type(),
+            format.sectors_per_cluster()
+        ),
+        (Fat32, 1)
     );
 }
 
@@ -96,7 +180,11 @@ fn every_sector_the_format_writes_is_whole_and_the_boot_sector_parses_to_the_sam
 
 #[test]
 fn a_fat32_volume_carries_fs_info_its_backups_and_a_root_cluster() {
-    let format = FormatPlan::new(options(200 * 1024), &mut NoClock).unwrap();
+    let format = FormatPlan::new(
+        options(200 * 1024).with_file_allocation_table_type(FileAllocationTableType::Fat32),
+        &mut NoClock,
+    )
+    .unwrap();
     let (mut zero, mut backup, mut info, mut info_backup) =
         ([0u8; 512], [0u8; 512], [0u8; 512], [0u8; 512]);
     assert!(format.fill_sector(0, &mut zero));

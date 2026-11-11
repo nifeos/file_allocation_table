@@ -244,6 +244,7 @@ impl<D: WritableSectorDevice> Volume<D> {
 
     /// Store `raw` as table entry `cluster` (any index below `clusters() + 2`) in every live copy.
     fn write_raw_entry(&mut self, cluster: u32, raw: u32) -> Result<(), ChainError<D::Error>> {
+        self.slot_cursor = None;
         let boot = self.boot;
         let file_allocation_table_type = boot.file_allocation_table_type();
         let wanted = table::entry_bytes(file_allocation_table_type);
@@ -286,6 +287,7 @@ impl<D: WritableSectorDevice> Volume<D> {
     /// so no state on the medium links to `new` before it is marked. Otherwise `new` is marked in
     /// every copy before `last` links to it in any.
     fn write_link(&mut self, last: u32, new: u32) -> Result<(), ChainError<D::Error>> {
+        self.slot_cursor = None;
         let boot = self.boot;
         let file_allocation_table_type = boot.file_allocation_table_type();
         let wanted = table::entry_bytes(file_allocation_table_type);
