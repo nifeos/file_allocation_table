@@ -130,6 +130,7 @@ fn check_with_fsck(image: &[u8]) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    eprintln!("{tool} -n accepted the image");
 }
 
 /// A formatted, empty volume, and the counts of what it reads and writes from here on.

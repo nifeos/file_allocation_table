@@ -119,7 +119,7 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
         self.volume.create_directory(directory.0, name)
     }
 
-    /// **Remove the empty directory `entry` names.**
+    /// **Remove the empty directory that `entry` names.**
     pub fn remove_directory(&mut self, entry: &NamedEntry) -> Result<(), WriteError<D::Error>> {
         self.volume.remove_directory(entry)
     }
@@ -134,7 +134,7 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
         self.volume.rename(entry, directory.0, new_name)
     }
 
-    /// **Delete the file `entry` names.**
+    /// **Delete the file that `entry` names.**
     pub fn remove_file(&mut self, entry: &NamedEntry) -> Result<(), WriteError<D::Error>> {
         self.volume.remove_file(entry)
     }
