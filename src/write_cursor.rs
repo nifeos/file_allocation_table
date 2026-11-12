@@ -58,6 +58,9 @@ pub enum WriteError<E> {
     DirectoryNotEmpty,
     /// A directory cannot move into itself or below itself.
     MovedIntoItself,
+    /// A seek named a position before the start of the file. Only the `embedded-io-07` feature's
+    /// `Seek` implementation returns it, and the writer stays where it was and usable.
+    SeekBeforeStart,
 }
 
 impl<E> From<ChainError<E>> for WriteError<E> {

@@ -190,6 +190,58 @@ cargo run --example image -- put disk.img notes.txt
 cargo run --example image -- list disk.img
 ```
 
+## The embedded-io traits
+
+The `embedded-io-07` feature, off by default, implements the `embedded-io` 0.7 traits: a
+`FileReader` is `Read` and `Seek`, and a `FileWriter` is `Write` and `Seek`, so a file plugs into
+any crate written against those traits. Turn it on with
+`file_allocation_table = { version = "0.1", features = ["embedded-io-07"] }`. Without it the crate
+has no dependency at all. A later `embedded-io` major version will get a feature of its own beside
+this one, so a caller on either version is served.
+
+```rust,ignore
+use embedded_io::{Read, Seek, SeekFrom};
+use file_allocation_table::{
+    DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorSize, WritableVolume,
+};
+
+// `Memory` is the device of the first example, with an error type that implements
+// `core::error::Error`, which `embedded_io::Error` requires.
+/// Any `embedded-io` writer, such as a file on this crate's volume.
+fn greet(out: &mut impl embedded_io::Write) -> Result<(), impl embedded_io::Error> {
+    out.write_all(b"hello, ")?;
+    out.write_all(b"embedded-io")
+}
+
+fn main() {
+    let sectors = 16 * 1024;
+    let options = FormatOptions::new(SectorSize::Bytes512, sectors);
+    let mut device = Memory(vec![0; sectors as usize * 512]);
+    let format = FormatPlan::new(options, &mut NoClock).unwrap();
+    format.write_to(&mut device).unwrap();
+    let mut volume = WritableVolume::open(device, NoClock).unwrap();
+    let file = volume
+        .create_file(DirectoryCluster::ROOT, "GREETING.TXT")
+        .unwrap();
+
+    greet(&mut volume.open_file_writer(&file).unwrap()).unwrap();
+
+    let entry = volume.lookup("GREETING.TXT").unwrap();
+    let mut reader = volume.open_file_reader(&entry).unwrap();
+    reader.seek(SeekFrom::End(-11)).unwrap();
+    let mut bytes = [0u8; 11];
+    reader.read_exact(&mut bytes).unwrap();
+    assert_eq!(&bytes, b"embedded-io");
+}
+```
+
+The tests run this example with the feature on. Each trait method calls the inherent method of the
+same purpose. A seek past the end of a file stops at its end and returns that position, and a seek
+before the start fails with `SeekBeforeStart` and moves nothing. `flush` has nothing to do, since
+every write rewrites the directory entry before it returns. Each error reports the `ErrorKind`
+nearest its meaning: a full volume is `WriteZero`, as `embedded_io::Write` asks, a damaged chain is
+`InvalidData`, a read-only file is `PermissionDenied`, and the device's own error is `Other`.
+
 ## Footprint
 
 The crate allocates nothing; every byte below lives where the caller puts the value or on the stack
@@ -213,8 +265,8 @@ release build, a thread that formats a volume and then creates a directory and a
 - hadris-fat is the nearest design: its `hadris-fat-raw` holds codecs free of I/O with Kani proofs,
   and the family adds exFAT and a checker. This crate reads, writes and formats all three widths
   in one crate, with a falsification patch for every proof, and lays out an EFI system partition.
-- What this crate lacks: exFAT, `std::io` and `embedded-io` traits, code-page conversion for short
-  names, and the users the crates above have.
+- What this crate lacks: exFAT, `std::io` traits, code-page conversion for short names, and the
+  users the crates above have. It has the `embedded-io` traits behind a feature.
 
 ## What is proven
 
@@ -326,6 +378,9 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
   and `OpenOptions::new().with_small_fat32(true)` read it as FAT32, as Linux does.
 - The reader does not follow extended partitions and reads no Globally Unique Identifier (GUID)
   partition table.
+- The `embedded-io` traits need a device whose error implements `core::error::Error`, since
+  `embedded_io::Error` requires that of the error a trait returns. A device whose error is `()`
+  keeps the inherent `read`, `write` and `set_position`.
 - exFAT is out of scope; it is a sibling crate's job.
 
 ## Minimum Rust version

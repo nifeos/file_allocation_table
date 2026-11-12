@@ -243,6 +243,7 @@ fn every_file_level_error_has_its_own_message_and_its_source() {
         FileReadError::Chain(chain),
         FileReadError::ShorterThanItsSize,
         FileReadError::Failed,
+        FileReadError::SeekBeforeStart,
     ]);
     assert!(FileReadError::<DeviceGone>::Failed.source().is_none());
     messages(&[
@@ -269,6 +270,7 @@ fn every_file_level_error_has_its_own_message_and_its_source() {
         WriteError::TimeOutOfRange,
         WriteError::DirectoryNotEmpty,
         WriteError::MovedIntoItself,
+        WriteError::SeekBeforeStart,
     ]);
     assert!(WriteError::<DeviceGone>::VolumeFull.source().is_none());
 }

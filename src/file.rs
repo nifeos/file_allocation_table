@@ -68,6 +68,9 @@ pub enum FileReadError<E> {
     ShorterThanItsSize,
     /// An earlier read failed, so this reader returns nothing more rather than skip bytes.
     Failed,
+    /// A seek named a position before the start of the file. Only the `embedded-io-07` feature's
+    /// `Seek` implementation returns it, and the reader stays where it was and usable.
+    SeekBeforeStart,
 }
 
 /// **A run of bytes inside one sector** that holds the next bytes of a file.
@@ -240,7 +243,9 @@ impl<'v, D: SectorDevice> FileReader<'v, D> {
     /// in the same call are not reported: later calls return [`FileReadError::Failed`].
     ///
     /// This is not `std::io::Read::read`: the crate is `no_std` and implements no `std::io` trait,
-    /// and the error type is [`FileReadError`].
+    /// and the error type is [`FileReadError`]. The `embedded-io-07` feature implements
+    /// `embedded_io::Read` and `embedded_io::Seek` through this method and
+    /// [`FileReader::set_position`].
     pub fn read(&mut self, buffer: &mut [u8]) -> Result<usize, FileReadError<D::Error>> {
         let boot = *self.volume.boot_sector();
         let sector_bytes = boot.sector_size().bytes();

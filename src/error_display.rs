@@ -151,6 +151,7 @@ impl<E> fmt::Display for FileReadError<E> {
             FileReadError::Chain(_) => "the file's chain could not be followed",
             FileReadError::ShorterThanItsSize => "the file's chain ends before its size",
             FileReadError::Failed => "an earlier read failed, so this reader reads nothing more",
+            FileReadError::SeekBeforeStart => "the seek would move before the start of the file",
         })
     }
 }
@@ -334,6 +335,7 @@ impl<E> fmt::Display for WriteError<E> {
             WriteError::TimeOutOfRange => "the clock reported a time FAT cannot store",
             WriteError::DirectoryNotEmpty => "the directory is not empty",
             WriteError::MovedIntoItself => "a directory cannot move into itself or below itself",
+            WriteError::SeekBeforeStart => "the seek would move before the start of the file",
         })
     }
 }

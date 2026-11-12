@@ -400,7 +400,9 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
     /// next call then returns `VolumeFull`. An error ends the writer.
     ///
     /// This is not `std::io::Write::write`: the crate is `no_std` and implements no `std::io`
-    /// trait, and the error type is [`WriteError`].
+    /// trait, and the error type is [`WriteError`]. The `embedded-io-07` feature implements
+    /// `embedded_io::Write` and `embedded_io::Seek` through this method and
+    /// [`FileWriter::set_position`].
     pub fn write(&mut self, data: &[u8]) -> Result<usize, WriteError<D::Error>> {
         self.check()?;
         self.tick()?;

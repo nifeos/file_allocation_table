@@ -18,3 +18,31 @@ jobs:
     with:
       # Bare-metal targets the crate builds for, space-separated; empty for a host-only crate.
       targets: aarch64-unknown-none-softfloat riscv64imac-unknown-none-elf x86_64-unknown-none
+  # The shared check above builds and tests the default features only, and the template has no
+  # input for a feature set, so this job builds, lints and tests with each optional feature on.
+  # It runs the same toolchain and targets as the shared check.
+  features:
+    name: features (embedded-io-07)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          for t in $TARGETS; do rustup +stable target add "$t"; done
+      - name: tests with the feature
+        run: cargo +stable test --features embedded-io-07
+      - name: clippy with the feature, on the host and each bare-metal target
+        run: |
+          set -e
+          cargo +stable clippy --all-targets --features embedded-io-07 -- -D warnings
+          for t in $TARGETS; do
+            echo "==> clippy: $t"
+            cargo +stable clippy --target "$t" --lib --features embedded-io-07 -- -D warnings
+          done
+      - name: rustdoc with the feature (broken links are errors)
+        run: cargo +stable doc --no-deps --features embedded-io-07
+        env:
+          RUSTDOCFLAGS: -D warnings
+    env:
+      TARGETS: aarch64-unknown-none-softfloat riscv64imac-unknown-none-elf x86_64-unknown-none

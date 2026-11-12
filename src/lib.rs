@@ -41,6 +41,12 @@
 //! [`efi_system_partition`] holds that shape's constants, and a volume below
 //! [`efi_system_partition::MINIMUM_FAT32_CLUSTERS`] is refused.
 
+//! # Features
+//!
+//! - `embedded-io-07`, off by default: [`FileReader`] implements the `embedded-io` 0.7 traits
+//!   `Read` and `Seek`, and [`FileWriter`] implements `Write` and `Seek`. Without it the crate
+//!   has no dependency.
+
 //! # BUGS
 //!
 //! - [`VolumeLayout`] numbers a long boot file name's alias `~1`, right only while `EFI\BOOT`
@@ -93,6 +99,8 @@ mod directory;
 mod directory_writer;
 #[doc(alias = "extensible firmware interface system partition")]
 pub mod efi_system_partition;
+#[cfg(feature = "embedded-io-07")]
+mod embedded_io_07;
 mod error_display;
 mod file;
 mod file_system_information;

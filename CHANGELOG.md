@@ -3,6 +3,13 @@
 Dates are UTC. One line per release, what changed and why, so a reader of the diff has the
 sentence beside it.
 
+## Unreleased
+
+- The `embedded-io-07` feature, off by default, implements the `embedded-io` 0.7 traits for the
+  file reader and writer, so a file plugs into crates written against them. The default build
+  keeps no dependency. A seek before the start of a file fails with the new `SeekBeforeStart`
+  variant of `FileReadError` and `WriteError`.
+
 ## 0.1.0-pre.1
 
 - First release. Reads, writes and formats File Allocation Table (FAT) volumes in all three widths
