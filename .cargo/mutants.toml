@@ -2,3 +2,7 @@
 # `cargo test` never compiles, so a mutant there can only be missed; Kani checks those harnesses.
 # tests/the_mutation_exclusion_covers_only_kani_harnesses.rs holds every matched file to that.
 exclude_globs = ["src/**/verification.rs"]
+
+# The `embedded-io-07` module compiles only with that feature on, so without it a mutant there
+# would build, pass every test, and count as missed. Every mutant is tested with all features on.
+all_features = true

@@ -29,7 +29,18 @@ include = [
 # and the writer says what every sector of its one volume must contain and the caller writes them.
 # So it compiles for the host and its tests run in milliseconds.
 
+# The default build has no dependency. `embedded-io` is the one dependency the maintainers
+# approved, on 2026-11-12, for the `embedded-io-07` feature only: with it on, the file reader and
+# writer implement the `embedded-io` 0.7 traits (`Read`, `Write`, `Seek` and `ErrorType`), and it
+# is off by default. A later `embedded-io` major version gets a feature of its own beside this
+# one, as postcard keeps `embedded-io-04` and `embedded-io-06`, so a caller on either version is
+# served and no feature changes meaning. MIT OR Apache-2.0, `no_std`, and no default features.
+[features]
+default = []
+embedded-io-07 = ["dep:embedded-io"]
+
 [dependencies]
+embedded-io = { version = "0.7", optional = true, default-features = false }
 
 # The independent FAT library the tests compare against, and nothing else: rust-fatfs's main line,
 # republished on crates.io as `lamfat` (MIT). Pinned to one version, and its checksum is in
