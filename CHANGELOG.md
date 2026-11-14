@@ -3,12 +3,18 @@
 Dates are UTC. One line per release, what changed and why, so a reader of the diff has the
 sentence beside it.
 
-## Unreleased
+## 0.1.0-pre.2
 
 - The `embedded-io-07` feature, off by default, implements the `embedded-io` 0.7 traits for the
   file reader and writer, so a file plugs into crates written against them. The default build
   keeps no dependency. A seek before the start of a file fails with the new `SeekBeforeStart`
   variant of `FileReadError` and `WriteError`.
+- A volume under 65525 clusters opens as FAT32 when the caller asks; the default cluster size
+  follows the volume's size; a name that is 8.3 but for its case has its plain alias, and the
+  lower-case flags of a short name are read.
+- A directory's new cluster is zeroed before it is linked, and a slot lookup starts where the last
+  one in the chain ended.
+- A host example runs over an image file.
 
 ## 0.1.0-pre.1
 
