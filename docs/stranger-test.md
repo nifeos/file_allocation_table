@@ -13,13 +13,14 @@ What a run is:
    not against the stranger.
 4. Record the date on the line below.
 
-Last run: 2026-11-06
+Last run: 2026-11-14
 
-Result of that run: the stranger reached a passing build, 244 unit tests, 46 integration tests
-(one more ignored, the macOS driver test) and 10 documentation tests, and all 31 Kani proofs in
-about 18 minutes, and it built and ran a program of its own against the crate, without reading any
-source file. It did not have to install Kani, because the machine already had it, so the run could
-not show whether the README's install steps work. It found one false claim (an 8 MiB File
-Allocation Table (FAT) format is FAT16, not FAT12) and one hazard the documentation never named
-(an entry reused after a write through it reads stale data and can leak a cluster). The full
-record is in [the run appendix](stranger-test-run-2026-11-06.md).
+Result of that run: the stranger reached a passing build, 289 unit tests, 58 integration tests
+(one more ignored, the macOS driver test) and 13 documentation tests, the same again with the
+`embedded-io-07` feature on, and all 35 Kani proofs in about 18 minutes, and it built and ran a
+program of its own against the crate, without reading any source file. Kani was already installed,
+so the run again could not show whether the README's install steps work. It found no false claim.
+It found nine gaps, the largest that the README names no flag for the `embedded-io` tests and never
+says a caller needs its own `embedded-io` dependency; issue #49 proposes a fix for each. The full
+record is in [the run appendix](stranger-test-run-2026-11-14.md), and the first run's in
+[its own](stranger-test-run-2026-11-06.md).
