@@ -119,10 +119,9 @@ fn main() {
 }
 ```
 
-A documentation test compiles and runs this example. A path for `lookup` is components separated by `/` or `\`; an
-empty component, as from a leading, trailing or doubled separator, is skipped. A name may not end in
-a dot or a space. Windows and Linux strip those, and this crate refuses with `NameRefused` rather
-than create a name other than the one asked for. Every write goes through a `WritableVolume`,
+A documentation test compiles and runs this example. `lookup` splits a path at `/` or `\` and skips
+an empty component, as from a leading, trailing or doubled separator. A name may not end in a dot or
+a space: Windows and Linux strip those, and this crate refuses with `NameRefused` instead. Every write goes through a `WritableVolume`,
 which needs a `Clock`. `NoClock` is the explicit "no time", and the entries it stamps carry the zero
 timestamp. `FormatPlan` formats any FAT volume onto a device, and a `WritableVolume` then writes its
 files. `VolumeLayout` is for one shape, an EFI system partition, written without a device in one
@@ -264,6 +263,11 @@ host. The write paths put sector-sized arrays on the stack for each call. Measur
 release build, a thread that formats a volume and then creates a directory and a file, writes
 10,000 bytes, renames, looks up and reads needed about 40 KiB of stack, the volume itself included.
 
+A FAT32 directory holds at most 65,536 entries. In a release build on x86-64, creating 8.3-named
+files one after another in the root of a 1 GiB FAT32 volume held in memory filled it in 255
+seconds, and the next create failed with `DirectoryFull`. The time grows with the square of the
+count: 5,000 entries took 1.7 seconds and 30,000 took 55. A real device adds its own time.
+
 ## How it compares
 
 - rust-fatfs (the `fatfs` crate) is the most used FAT crate. It has `std::io` traits, a time
@@ -289,8 +293,7 @@ Run `cargo install --locked kani-verifier --version 0.68.0`, then `cargo kani se
 step downloads a model checker, so it needs network access. CI uses version 0.68.0, and another
 version may verify differently. `cargo kani setup` also installs the nightly toolchain that Kani pins. After that, `cargo kani` from the
 crate's directory runs all 35 harnesses, one at a time; the whole run takes 10 to 20 minutes and
-needs about 5 gigabytes of memory. `cargo kani --harness <name>` runs one. A test counts the harnesses in
-the source and fails when that count and the 35 in this paragraph differ.
+needs about 5 gigabytes of memory. `cargo kani --harness <name>` runs one. A test fails when that count and the source differ.
 
 - Hostile input. No parse step panics or reads outside the volume: the boot sector and its
   geometry fields for every 512-byte sector, with or without `with_small_fat32`, FAT entries,
@@ -345,9 +348,6 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
   writes: measured in memory, one-sector clusters cost 5.0 sector writes per data sector and
   eight-sector clusters cost 1.5. The default cluster grows with the volume, so the higher figure
   falls on a FAT12 volume of a few MiB, or on one formatted with one-sector clusters on purpose.
-- The bytes of a file's last cluster past its end hold whatever the device held. No read through
-  the crate returns them, but a raw read of the image does; a caller who must not leave them writes
-  zeros first. A longer `set_len` and a new directory cluster write their own zeros.
 - Time. Every writer needs a clock. FAT stores a date and a time of day with no time zone, and the
   crate expects the clock to supply Coordinated Universal Time (UTC). The crate stores exactly the
   fields the clock reports and converts nothing, so it cannot check that a clock gives UTC. A reader
