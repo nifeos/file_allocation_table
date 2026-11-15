@@ -11,10 +11,10 @@ sentence beside it.
   variant of `FileReadError` and `WriteError`.
 - A volume under 65525 clusters opens as a 32-bit File Allocation Table (FAT32) volume when the
   caller asks. The default cluster size follows the volume's size.
-- A name that is 8.3 but for its case has its plain alias, and the lower-case flags of a short
-  name are read.
-- A directory's new cluster is zeroed before it is linked, and a slot lookup starts where the last
-  one in the chain ended.
+- A name that is 8.3 but for its case has its plain alias, and the reader honors the lower-case
+  flags of a short name.
+- The writer zeroes a directory's new cluster before it links it, and a slot lookup starts where
+  the last one in the chain ended.
 - A host example runs over an image file.
 
 ## 0.1.0-pre.1
