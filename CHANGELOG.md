@@ -11,6 +11,7 @@ sentence beside it.
   They state the unit of the image example, the count of Kani harnesses and their memory, and the
   bytes past a file's end. They state the path separators of `lookup`, and they document the
   refusal of a name that ends in a dot or a space.
+- The README applies a falsification patch with `--no-backup-if-mismatch`, so a patch that applies with an offset leaves no `.orig` file in the source tree.
 - The README reports how long a release build takes to fill a 32-bit File Allocation Table directory to its 65,536-entry limit.
 - docs.rs builds with every feature on and marks the `embedded-io-07` trait impls with their
   feature. A test holds the README's harness count to the number of `#[kani::proof]` items.

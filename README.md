@@ -314,7 +314,7 @@ needs about 5 gigabytes of memory. `cargo kani --harness <name>` runs one. A tes
   never makes a long-name piece; an accepted label is legal bytes then spaces.
 
 Each harness has a falsification record at `falsifications/<module.path>.<harness>.patch`. Applying
-it with `patch -p1` from the crate root makes that harness fail at its own assertion, which shows
+it with `patch -p1 --no-backup-if-mismatch` from the crate root (the flag stops an offset from leaving a `.orig` file beside the source) makes that harness fail at its own assertion, which shows
 the proof checks something. Kani bounds what it unrolls: the model volumes are a few clusters, and
 the format proof covers clusters of 1 to 8 sectors. The tests against rust-fatfs cover whole images.
 
