@@ -32,6 +32,7 @@ fn chain_kind<E>(error: &ChainError<E>) -> ErrorKind {
     }
 }
 
+#[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
 impl<E: core::error::Error + 'static> embedded_io::Error for FileReadError<E> {
     fn kind(&self) -> ErrorKind {
         match self {
@@ -43,6 +44,7 @@ impl<E: core::error::Error + 'static> embedded_io::Error for FileReadError<E> {
     }
 }
 
+#[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
 impl<E: core::error::Error + 'static> embedded_io::Error for WriteError<E> {
     fn kind(&self) -> ErrorKind {
         match self {
@@ -82,6 +84,7 @@ fn seek_target(from: SeekFrom, position: u32, size_bytes: u32) -> Option<u32> {
     }
 }
 
+#[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
 impl<D: SectorDevice> ErrorType for FileReader<'_, D>
 where
     D::Error: core::error::Error + 'static,
@@ -89,6 +92,7 @@ where
     type Error = FileReadError<D::Error>;
 }
 
+#[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
 impl<D: SectorDevice> Read for FileReader<'_, D>
 where
     D::Error: core::error::Error + 'static,
@@ -98,6 +102,7 @@ where
     }
 }
 
+#[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
 impl<D: SectorDevice> Seek for FileReader<'_, D>
 where
     D::Error: core::error::Error + 'static,
@@ -110,6 +115,7 @@ where
     }
 }
 
+#[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
 impl<D: WritableSectorDevice, C: Clock> ErrorType for FileWriter<'_, D, C>
 where
     D::Error: core::error::Error + 'static,
@@ -117,6 +123,7 @@ where
     type Error = WriteError<D::Error>;
 }
 
+#[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
 impl<D: WritableSectorDevice, C: Clock> Write for FileWriter<'_, D, C>
 where
     D::Error: core::error::Error + 'static,
@@ -130,6 +137,7 @@ where
     }
 }
 
+#[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
 impl<D: WritableSectorDevice, C: Clock> Seek for FileWriter<'_, D, C>
 where
     D::Error: core::error::Error + 'static,
