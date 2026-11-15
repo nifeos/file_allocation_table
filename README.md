@@ -16,13 +16,16 @@ from a disk.
 
 - Read. `Volume::open` checks the boot sector, types the volume by its cluster count as the
   specification does, and reads directories, long names, paths and file bytes. A `MasterBootRecord`
-  opens the volume inside a partitioned disk for reading; its `PartitionDevice` has no write path.
+  lists the partitions of a disk. `Partition::restrict_device` shows one partition as a device for
+  `Volume::open`; its `PartitionDevice` has no write path, and the example below wraps the device
+  for writing.
 - Write. Open a `WritableVolume` with a `Clock`; a read-only `Volume` has no write methods and
   takes no clock. Create, write, extend, truncate, rename and remove files; make and remove
   directories; set attributes (read-only, hidden, system, archive); read and change the volume
-  label. A name that is not 8.3 gets long-name slots and a short alias: the name in upper case
-  when only its case keeps it from 8.3 (`readme.txt` is `README.TXT`), and otherwise an alias
-  numbered against its directory. The first change clears the clean-shutdown bit, and
+  label. A name that is not 8.3 gets long-name slots and a short alias. When only its
+  case keeps a name from 8.3, the alias is the name in upper case, and `readme.txt` gets the short
+  name `README.TXT` and keeps `readme.txt` as its long name. Otherwise the alias is numbered against
+  its directory. The first change clears the clean-shutdown bit, and
   `WritableVolume::mark_clean` sets it again and updates the hints in the FAT32 file system
   information sector.
 - Format. `FormatPlan` lays out an empty volume of any size and sector size (512 to 4096 bytes),
@@ -116,7 +119,10 @@ fn main() {
 }
 ```
 
-A documentation test compiles and runs this example. Every write goes through a `WritableVolume`,
+A documentation test compiles and runs this example. A path for `lookup` is components separated by `/` or `\`; an
+empty component, as from a leading, trailing or doubled separator, is skipped. A name may not end in
+a dot or a space. Windows and Linux strip those, and this crate refuses with `NameRefused` rather
+than create a name other than the one asked for. Every write goes through a `WritableVolume`,
 which needs a `Clock`. `NoClock` is the explicit "no time", and the entries it stamps carry the zero
 timestamp. `FormatPlan` formats any FAT volume onto a device, and a `WritableVolume` then writes its
 files. `VolumeLayout` is for one shape, an EFI system partition, written without a device in one
@@ -127,7 +133,7 @@ sector holds. Write sectors `0..metadata_sectors()` from `fill_sector`, then the
 `file_first_sector()` on, `file_sectors()` long. Without a label the volume has none, and without a
 file it is an empty FAT32 volume.
 
-A `PartitionDevice` only reads. To write inside a partition, wrap the whole-disk device in a small
+A `PartitionDevice` only reads, and `Partition::restrict_device` makes one. To write inside a partition, wrap the whole-disk device in a small
 device of your own. It adds the partition's first sector to every index, and the volume opens
 through it. The example below does this.
 
@@ -184,6 +190,9 @@ the error it wraps. A type generic over your device's error displays for any err
 `examples/image.rs` is a host program over an image file. It makes a `std::fs::File` a sector
 device, stamps writes with the host's clock as UTC, and prints a volume's tree.
 
+The commands read and write paths relative to the current directory, so run them from a scratch
+directory. `format disk.img 64` makes a 64 MiB image.
+
 ```sh
 cargo run --example image -- format disk.img 64
 cargo run --example image -- put disk.img notes.txt
@@ -195,8 +204,9 @@ cargo run --example image -- list disk.img
 The `embedded-io-07` feature, off by default, implements the `embedded-io` 0.7 traits: a
 `FileReader` is `Read` and `Seek`, and a `FileWriter` is `Write` and `Seek`, so a file plugs into
 any crate written against those traits. Turn it on with
-`file_allocation_table = { version = "0.1", features = ["embedded-io-07"] }`. Without it the crate
-has no dependency at all. A later `embedded-io` major version will get a feature of its own beside
+`file_allocation_table = { version = "0.1", features = ["embedded-io-07"] }`, and add
+`embedded-io = "0.7"` beside it to name the traits; the crate does not re-export them. Without the
+feature the crate has no dependency at all. docs.rs builds with the feature on. A later `embedded-io` major version will get a feature of its own beside
 this one, so a caller on either version is served.
 
 ```rust,ignore
@@ -235,7 +245,8 @@ fn main() {
 }
 ```
 
-The tests run this example with the feature on. Each trait method calls the inherent method of the
+`cargo test --features embedded-io-07` runs this example and the trait tests; plain `cargo test`
+leaves them out. Each trait method calls the inherent method of the
 same purpose. A seek past the end of a file stops at its end and returns that position, and a seek
 before the start fails with `SeekBeforeStart` and moves nothing. `flush` has nothing to do, since
 every write rewrites the directory entry before it returns. Each error reports the `ErrorKind`
@@ -276,8 +287,10 @@ Kani harnesses prove, over every input they can unroll, the properties below.
 documentation tests in well under a minute. The proofs need Kani, which `rustup` does not install.
 Run `cargo install --locked kani-verifier --version 0.68.0`, then `cargo kani setup`. The setup
 step downloads a model checker, so it needs network access. CI uses version 0.68.0, and another
-version may verify differently. After that, `cargo kani` from the crate's directory runs every
-harness; the whole run takes 10 to 20 minutes, and `cargo kani --harness <name>` runs one.
+version may verify differently. `cargo kani setup` also installs the nightly toolchain that Kani pins. After that, `cargo kani` from the
+crate's directory runs all 35 harnesses, one at a time; the whole run takes 10 to 20 minutes and
+needs about 5 gigabytes of memory. `cargo kani --harness <name>` runs one. A test counts the harnesses in
+the source and fails when that count and the 35 in this paragraph differ.
 
 - Hostile input. No parse step panics or reads outside the volume: the boot sector and its
   geometry fields for every 512-byte sector, with or without `with_small_fat32`, FAT entries,
@@ -308,7 +321,8 @@ name and byte for byte. If the host has `fsck.fat` or `fsck_msdos`, every image 
 `fsck -n`. If the host has `mkfs.fat`, its FAT12 and FAT16 volumes take this crate's writer, and
 so does a FAT32 volume under 65525 clusters opened with `with_small_fat32`. If the host has mtools,
 it lists and reads what this crate writes, and this crate reads and writes beside what `mmd` and
-`mcopy` write. The crate reads two FAT32 images that a macOS host formatted and wrote, to their
+`mcopy` write. On a host without one of these tools, its tests pass without comparing;
+`cargo test -- --nocapture` prints which ones it skipped. The crate reads two FAT32 images that a macOS host formatted and wrote, to their
 recorded hashes. An ignored test has the host's own driver read an image
 (`cargo test -- --ignored`, on macOS).
 
@@ -331,6 +345,9 @@ one with `cargo +nightly fuzz run <target>`; the weekly fuzz job runs both for a
   writes: measured in memory, one-sector clusters cost 5.0 sector writes per data sector and
   eight-sector clusters cost 1.5. The default cluster grows with the volume, so the higher figure
   falls on a FAT12 volume of a few MiB, or on one formatted with one-sector clusters on purpose.
+- The bytes of a file's last cluster past its end hold whatever the device held. No read through
+  the crate returns them, but a raw read of the image does; a caller who must not leave them writes
+  zeros first. A longer `set_len` and a new directory cluster write their own zeros.
 - Time. Every writer needs a clock. FAT stores a date and a time of day with no time zone, and the
   crate expects the clock to supply Coordinated Universal Time (UTC). The crate stores exactly the
   fields the clock reports and converts nothing, so it cannot check that a clock gives UTC. A reader

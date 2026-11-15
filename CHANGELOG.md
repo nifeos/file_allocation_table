@@ -3,6 +3,17 @@
 Dates are UTC. One line per release, what changed and why, so a reader of the diff has the
 sentence beside it.
 
+## Unreleased
+
+- The README and the rustdoc now answer the nine gaps that the second stranger run found. They name
+  the flag that runs the `embedded-io` tests, the dependency a caller adds, and the tests that pass
+  without comparing when mtools is absent. They also cover `Partition::restrict_device` and the long name that a lower-case 8.3 name keeps.
+  They state the unit of the image example, the count of Kani harnesses and their memory, and the
+  bytes past a file's end. They state the path separators of `lookup`, and they document the
+  refusal of a name that ends in a dot or a space.
+- docs.rs builds with every feature on and marks the `embedded-io-07` trait impls with their
+  feature. A test holds the README's harness count to the number of `#[kani::proof]` items.
+
 ## 0.1.0-pre.2
 
 - The `embedded-io-07` feature, off by default, implements the `embedded-io` 0.7 traits for the

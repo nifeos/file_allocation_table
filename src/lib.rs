@@ -1,5 +1,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
+// docs.rs builds with `--cfg docsrs` on nightly, which is what lets a trait impl show its feature.
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! **A File Allocation Table (FAT) filesystem, sans I/O**, in all three widths (FAT12, FAT16 and
 //! FAT32) and in three parts: a reader, a writer and a format.
 //!
@@ -57,8 +59,8 @@
 //!   tolerate and `fsck.fat` reports.
 //! - The backup copy of the file system information sector in the backup boot area is never
 //!   updated, as with Linux's driver.
-//! - A newly allocated cluster holds whatever the device held; a caller that needs zeros writes
-//!   them.
+//! - The bytes of a file's last cluster past its end hold whatever the device held. No read through
+//!   the crate returns them, but a raw read of the image does; write zeros first if that matters.
 //! - A write has no barrier: the crate orders its writes and the device decides when each reaches
 //!   the medium. A failure between the writes of one table entry's copies leaves the copies
 //!   unequal.

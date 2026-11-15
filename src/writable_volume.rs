@@ -109,6 +109,10 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     }
 
     /// **Create an empty file called `name`** in `directory`, created, written and accessed now.
+    ///
+    /// A name may not end in a dot or a space. Windows and Linux strip those, and this crate
+    /// refuses with [`WriteError::NameRefused`] rather than create a name other than the one asked
+    /// for.
     pub fn create_file(
         &mut self,
         directory: DirectoryCluster,
@@ -120,6 +124,10 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
 
     /// **Create an empty directory called `name`** in `directory`, created, written and accessed
     /// now, with the same times on its `.` and `..`.
+    ///
+    /// A name may not end in a dot or a space. Windows and Linux strip those, and this crate
+    /// refuses with [`WriteError::NameRefused`] rather than create a name other than the one asked
+    /// for.
     pub fn create_directory(
         &mut self,
         directory: DirectoryCluster,

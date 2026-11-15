@@ -107,6 +107,9 @@ impl<D: SectorDevice> Volume<D> {
 
     /// **The entry at `path`**, from the root.
     ///
+    /// Components are separated by `/` or `\`. An empty component, as from a leading, trailing or
+    /// doubled separator, is skipped, so `/A/B`, `A//B` and `A\B` all name the same entry.
+    ///
     /// Every component but the last must name a directory. A path that names the root itself has
     /// no entry and is [`LookupError::RootHasNoEntry`]. Each component reads one directory to its end or
     /// its match, bounded by the volume's cluster count, and the number of directories read is
