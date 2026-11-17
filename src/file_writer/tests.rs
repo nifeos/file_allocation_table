@@ -938,3 +938,12 @@ fn a_grow_whose_zeroing_fails_frees_the_cluster_it_took() {
     assert_eq!(volume.count_free_clusters().unwrap(), free);
     assert_eq!(volume.chain(sub.0).count(), 1);
 }
+
+#[test]
+fn a_short_name_holds_exactly_eight_base_characters_and_three_extension_characters() {
+    assert_eq!(short_name_bytes("ABCDEFGH"), Some(*b"ABCDEFGH   "));
+    assert_eq!(short_name_bytes("ABCDEFGH.TXT"), Some(*b"ABCDEFGHTXT"));
+    assert_eq!(short_name_bytes("ABCDEFGHI"), None);
+    assert_eq!(short_name_bytes("ABCDEFGHI.TXT"), None);
+    assert_eq!(short_name_bytes("A.TXTS"), None);
+}
