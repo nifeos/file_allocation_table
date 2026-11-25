@@ -14,7 +14,7 @@ jobs:
     permissions:
       contents: read
       security-events: write
-    uses: partsfoundry/crate-workflows/.github/workflows/check.yml@a69ab4829b02cf7a357061e9fd32ce52ba058e12
+    uses: nifeos/crate-workflows/.github/workflows/check.yml@a69ab4829b02cf7a357061e9fd32ce52ba058e12
     with:
       # Bare-metal targets the crate builds for, space-separated; empty for a host-only crate.
       targets: aarch64-unknown-none-softfloat riscv64imac-unknown-none-elf x86_64-unknown-none
