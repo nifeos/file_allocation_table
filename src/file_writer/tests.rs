@@ -947,3 +947,76 @@ fn a_short_name_holds_exactly_eight_base_characters_and_three_extension_characte
     assert_eq!(short_name_bytes("ABCDEFGHI.TXT"), None);
     assert_eq!(short_name_bytes("A.TXTS"), None);
 }
+
+#[test]
+fn names_outside_latin_1_are_created_found_without_regard_to_case_and_refuse_a_twin() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    for name in ["日本語.txt", "Привет.txt", "straße.txt"] {
+        let entry = volume.create_file(DirectoryCluster::ROOT, name).unwrap();
+        assert_eq!(
+            volume.lookup(name).unwrap().first_cluster(),
+            entry.first_cluster()
+        );
+    }
+    // Case folds for a letter that has one upper-case letter; the sharp s has none.
+    assert!(volume.lookup("ПРИВЕТ.TXT").is_ok());
+    assert!(volume.lookup("привет.txt").is_ok());
+    assert!(volume.lookup("日本語.TXT").is_ok());
+    assert!(volume.lookup("STRASSE.TXT").is_err());
+    assert_eq!(
+        volume.create_file(DirectoryCluster::ROOT, "ПРИВЕТ.TXT"),
+        Err(WriteError::AlreadyExists)
+    );
+    // Two names that share their first units get different aliases, so both stay.
+    volume
+        .create_file(DirectoryCluster::ROOT, "日本語の本.txt")
+        .unwrap();
+    volume
+        .create_file(DirectoryCluster::ROOT, "日本語の庭.txt")
+        .unwrap();
+    assert!(volume.lookup("日本語の本.txt").is_ok());
+    assert!(volume.lookup("日本語の庭.txt").is_ok());
+    // A character past the Basic Multilingual Plane is refused, since the format stores UCS-2.
+    assert_eq!(
+        volume.create_file(DirectoryCluster::ROOT, "\u{1F600}.txt"),
+        Err(WriteError::NameRefused)
+    );
+}
+
+/// `image` with every data cluster marked as the end of its own chain, so none is free.
+fn full(mut image: Image) -> Image {
+    for cluster in 2..crate::reader::tests::CLUSTERS + 2 {
+        image.set(cluster, 0xFFF);
+    }
+    image
+}
+
+#[test]
+fn a_full_volume_refuses_the_first_byte_of_an_empty_file_and_a_growth() {
+    let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
+    let entry = volume.create_file(DirectoryCluster::ROOT, "E.BIN").unwrap();
+    let mut volume = WritableVolume::open(full(volume.into_device()), NoClock).unwrap();
+    let mut writer = volume.open_file_writer(&entry).unwrap();
+    assert_eq!(writer.write(b"x"), Err(WriteError::VolumeFull));
+    let mut writer = volume.open_file_writer(&entry).unwrap();
+    assert_eq!(writer.set_len(10), Err(WriteError::VolumeFull));
+    assert_eq!(
+        volume.allocate_cluster(None),
+        Err(crate::allocation::AllocationError::VolumeFull)
+    );
+}
+
+#[test]
+fn an_entry_whose_first_cluster_is_off_the_volume_or_missing_is_refused_on_write() {
+    // A first cluster past the table.
+    let (mut volume, entry) = claimed(Image::fat12(), "O.BIN", 400, 10);
+    let mut writer = volume.open_file_writer(&entry).unwrap();
+    assert_eq!(
+        writer.write(b"x"),
+        Err(WriteError::Chain(ChainError::NotADataCluster(400)))
+    );
+    // A size with no chain behind it.
+    let (mut volume, entry) = claimed(Image::fat12(), "N.BIN", 0, 10);
+    let mut writer = volume.open_file_writer(&entry).unwrap();
+    assert_eq!(writer.write(b"x"), Err(WriteError::ShorterThanItsSize));
+}

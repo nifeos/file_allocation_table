@@ -202,3 +202,14 @@ fn a_device_failure_is_the_lookups_error() {
         Err(LookupError::Chain(ChainError::Device(5)))
     );
 }
+
+#[test]
+fn a_unit_whose_upper_case_is_not_one_unit_folds_to_itself() {
+    // The sharp s upper-cases to two letters, so a one-unit fold leaves it alone.
+    assert_eq!(fold_unit(0x00DF), 0x00DF);
+    // A lone surrogate is no character, so it folds to itself too.
+    assert_eq!(fold_unit(0xD800), 0xD800);
+    assert_eq!(fold_unit(u16::from(b'a')), u16::from(b'A'));
+    // Letters of other scripts fold as one unit.
+    assert_eq!(fold_unit(0x043F), 0x041F);
+}

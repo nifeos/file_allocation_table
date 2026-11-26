@@ -320,6 +320,9 @@ mod tests {
         assert_eq!(name("..hidden").alias(), Some(*b"HIDDEN~1   "));
         assert_eq!(name("x+y,z.tar.gz").alias(), Some(*b"X_Y_ZT~1GZ "));
         assert_eq!(name("é.txt").alias(), Some(*b"_~1     TXT"));
+        // A unit past Latin-1 does not fit a byte, and becomes an underscore as well.
+        assert_eq!(name("日本.txt").alias(), Some(*b"__~1    TXT"));
+        assert_eq!(name("a\u{20AC}b.txt").alias(), Some(*b"A_B~1   TXT"));
         assert_eq!(name("abc.longext").alias(), Some(*b"ABC~1   LON"));
     }
 

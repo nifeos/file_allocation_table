@@ -292,25 +292,18 @@ impl<D: WritableSectorDevice> Volume<D> {
         let file_allocation_table_type = boot.file_allocation_table_type();
         let wanted = table::entry_bytes(file_allocation_table_type);
         let size = boot.sector_size().bytes();
-        let place = |cluster: u32, copy: u8| {
-            table::raw_position_in(&boot, cluster, copy)
-                .filter(|(_, within)| within + wanted <= size)
-        };
-        let shared = self.live_tables().all(|copy| {
-            matches!((place(last, copy), place(new, copy)), (Some((a, _)), Some((b, _))) if a == b)
-        });
-        if !shared {
+        // Every copy has one layout, so one placement of each entry answers for all copies.
+        let (sector_new, within_new) = table::offset_in_table(&boot, new);
+        let (sector_last, within_last) = table::offset_in_table(&boot, last);
+        let whole = |within: usize| within + wanted <= size;
+        if sector_new != sector_last || !whole(within_new) || !whole(within_last) {
             self.write_table_entry(new, TableEntry::EndOfChain)?;
             return self.write_table_entry(last, TableEntry::Next(new));
         }
         let end = TableEntry::EndOfChain.encode(file_allocation_table_type);
         let link = TableEntry::Next(new).encode(file_allocation_table_type);
         for copy in self.live_tables() {
-            let (Some((sector, within_new)), Some((_, within_last))) =
-                (place(new, copy), place(last, copy))
-            else {
-                return Err(ChainError::NotADataCluster(new));
-            };
+            let sector = boot.table_start(copy) + sector_new;
             self.load(sector)?;
             self.cached = None;
             for (cluster, within, raw) in [(new, within_new, end), (last, within_last, link)] {

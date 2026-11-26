@@ -94,6 +94,14 @@ pub(crate) fn entry_position(boot: &BootSector, cluster: u32) -> Option<(u32, us
 /// `clusters() + 2`, which `BootSector::parse` guarantees the table covers.
 pub(crate) fn raw_position_in(boot: &BootSector, cluster: u32, table: u8) -> Option<(u32, usize)> {
     let first = boot.table_first_sector(table)?;
+    let (sector, within) = offset_in_table(boot, cluster);
+    Some((first + sector, within))
+}
+
+/// Where table entry `cluster` starts inside any copy of the table: the sector counted from the
+/// copy's first sector, and the byte within that sector. Every copy has the same layout, so the
+/// answer holds for all of them.
+pub(crate) fn offset_in_table(boot: &BootSector, cluster: u32) -> (u32, usize) {
     let cluster = u64::from(cluster);
     let offset = match boot.file_allocation_table_type() {
         FileAllocationTableType::Fat12 => cluster + cluster / 2,
@@ -102,9 +110,10 @@ pub(crate) fn raw_position_in(boot: &BootSector, cluster: u32, table: u8) -> Opt
     };
     let shift = boot.sector_size().shift();
     // Inside the table, by the parse's check, so the sector number fits a u32.
-    let sector = first + (offset >> shift) as u32;
-    let within = (offset & ((1 << shift) - 1)) as usize;
-    Some((sector, within))
+    (
+        (offset >> shift) as u32,
+        (offset & ((1 << shift) - 1)) as usize,
+    )
 }
 
 /// The entry for `cluster` from the bytes that hold it: `low` the first byte, `high` the rest, as

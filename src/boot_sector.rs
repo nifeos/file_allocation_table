@@ -497,7 +497,13 @@ impl BootSector {
         if index >= self.tables {
             return None;
         }
-        Some(self.reserved_sectors as u32 + index as u32 * self.table_sectors)
+        Some(self.table_start(index))
+    }
+
+    /// The volume-relative sector table `index` begins at, for an `index` the caller took from the
+    /// live copies, which are always below the table count.
+    pub(crate) const fn table_start(&self, index: u8) -> u32 {
+        self.reserved_sectors as u32 + index as u32 * self.table_sectors
     }
 
     /// The one table a FAT32 volume keeps live, when `BPB_ExtFlags` turns mirroring off; `None`

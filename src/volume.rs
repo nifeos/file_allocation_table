@@ -856,6 +856,35 @@ mod tests {
     }
 
     #[test]
+    fn a_partition_or_hidden_count_past_32_bits_and_a_file_past_4_gibibytes_are_refused() {
+        let lay = |options: Result<VolumeLayoutOptions, LayoutError>| {
+            options
+                .and_then(|o| VolumeLayout::new(o, &mut NoClock))
+                .err()
+        };
+        assert_eq!(
+            lay(Ok(
+                VolumeLayoutOptions::new(ESP_SECTORS).with_hidden_sectors(1 << 32)
+            )),
+            Some(LayoutError::TooLarge)
+        );
+        assert_eq!(
+            lay(Ok(VolumeLayoutOptions::new(1 << 32))),
+            Some(LayoutError::TooLarge)
+        );
+        assert_eq!(
+            lay(VolumeLayoutOptions::new(ESP_SECTORS).with_file("BIG.BIN", 1 << 32)),
+            Some(LayoutError::FileTooBig)
+        );
+        assert_eq!(
+            lay(Ok(
+                VolumeLayoutOptions::new(ESP_SECTORS).with_hidden_sectors(u64::from(u32::MAX))
+            )),
+            None
+        );
+    }
+
+    #[test]
     fn the_label_is_the_callers_and_a_label_a_short_name_refuses_is_refused() {
         let v = VolumeLayoutOptions::new(ESP_SECTORS)
             .with_hidden_sectors(2048)
