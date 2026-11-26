@@ -215,9 +215,8 @@ fn the_crate_reads_what_mtools_writes_and_writes_beside_it() {
         let lower = volume
             .lookup("lower.txt")
             .expect("the crate finds the file");
-        assert_ne!(
-            lower.attributes() & Attributes::READ_ONLY.bits(),
-            0,
+        assert!(
+            lower.user_attributes().contains(Attributes::READ_ONLY),
             "{label}: the read-only bit mattrib set reads here"
         );
         let directory = volume

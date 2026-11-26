@@ -82,9 +82,10 @@ impl NamedEntry {
         }
     }
 
-    /// `DIR_Attr`, every bit as stored. [`NamedEntry::user_attributes`] is the four bits a caller
-    /// may set, as a set.
-    pub const fn attributes(&self) -> u8 {
+    /// `DIR_Attr`, every bit as stored. Crate-private: [`NamedEntry::user_attributes`] is the four
+    /// bits a caller may set, as a set, and [`NamedEntry::is_directory`] and
+    /// [`NamedEntry::is_volume_label`] read the other two.
+    pub(crate) const fn attributes(&self) -> u8 {
         self.short.attributes()
     }
 

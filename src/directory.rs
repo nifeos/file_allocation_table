@@ -6,6 +6,7 @@
 //! pieces and checks their checksum against the short entry that follows. The layouts are those of
 //! Microsoft's "FAT: General Overview of On-Disk Format", version 1.03, sections 6 and 7.
 
+use crate::attributes::Attributes;
 use crate::boot_sector::{BootSector, FileAllocationTableType, RootDirectory};
 use crate::reader::{ChainError, Links, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize};
@@ -172,9 +173,16 @@ impl ShortEntry {
         name
     }
 
-    /// `DIR_Attr`, every bit as stored.
-    pub const fn attributes(&self) -> u8 {
+    /// `DIR_Attr`, every bit as stored. Crate-private: a caller reads the bits through
+    /// [`ShortEntry::user_attributes`], [`ShortEntry::is_directory`] and
+    /// [`ShortEntry::is_volume_label`], so no bit's position is part of the interface.
+    pub(crate) const fn attributes(&self) -> u8 {
         self.attributes
+    }
+
+    /// The user-settable attribute bits of the entry: read-only, hidden, system and archive.
+    pub const fn user_attributes(&self) -> Attributes {
+        Attributes::of_stored(self.attributes)
     }
 
     /// Whether the entry is a directory.
