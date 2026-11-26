@@ -9,11 +9,12 @@ sentence beside it.
   the interface. `user_attributes` on both gives the `Attributes` set, which now has `|`, `&` and
   `!`.
 - Breaking: a cluster number is a `Cluster`, not a bare `u32`, so it cannot be passed where a
-  sector index or a count belongs. A `DirectoryCluster` converts into one.
+  sector index or a count belongs. A `DirectoryCluster` converts into one, and the cluster
+  constants in `efi_system_partition` and `BootSector::cluster_first_sector` take one too.
 - Breaking: both image builders take and report sectors as `u64`, and a refused fill says why
   with `FillError`. A format too large for the widths it writes is `FormatError::TooLarge`.
-- Breaking: `WritableVolume` no longer dereferences to `Volume`; `get_ref` and
-  `get_mut` lend it.
+- Breaking: `WritableVolume` no longer dereferences to `Volume`; `get_ref` and `get_mut` lend it,
+  spelled as the standard library's `BufReader` spells them.
 - A `Volume`, `WritableVolume`, `Directory` and `FileReader` take the length of their sector
   buffer as a const parameter, 4,096 bytes by default. `open_with_buffer` opens with 512, 1,024 or
   2,048, and refuses a device whose sectors are longer with `ReadError::SectorLargerThanBuffer`.
