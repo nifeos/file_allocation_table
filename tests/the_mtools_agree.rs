@@ -200,12 +200,12 @@ fn the_crate_reads_what_mtools_writes_and_writes_beside_it() {
         let mut volume = WritableVolume::open(Memory(image), NoClock).expect("the volume opens");
         for name in ["Made by mtools/A copied file.txt", "lower.txt"] {
             let entry = volume
-                .as_volume_mut()
+                .get_mut()
                 .lookup(name)
                 .expect("the crate finds the file");
             let mut read = [0u8; 64];
             let got = volume
-                .as_volume_mut()
+                .get_mut()
                 .open_file_reader(&entry)
                 .expect("the file opens")
                 .read(&mut read)
@@ -217,7 +217,7 @@ fn the_crate_reads_what_mtools_writes_and_writes_beside_it() {
             );
         }
         let lower = volume
-            .as_volume_mut()
+            .get_mut()
             .lookup("lower.txt")
             .expect("the crate finds the file");
         assert!(
@@ -225,7 +225,7 @@ fn the_crate_reads_what_mtools_writes_and_writes_beside_it() {
             "{label}: the read-only bit mattrib set reads here"
         );
         let directory = volume
-            .as_volume_mut()
+            .get_mut()
             .lookup("Made by mtools")
             .expect("the crate finds the directory")
             .directory_cluster()

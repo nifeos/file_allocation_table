@@ -70,7 +70,7 @@ fn readme_example() -> Result<(), Box<dyn core::error::Error>> {
 
     greet(&mut volume.open_file_writer(&file)?)?;
 
-    let volume = volume.as_volume_mut();
+    let volume = volume.get_mut();
     let entry = volume.lookup("GREETING.TXT")?;
     let mut reader = volume.open_file_reader(&entry)?;
     reader.seek(SeekFrom::End(-11))?;
@@ -123,7 +123,7 @@ fn byte(position: usize) -> u8 {
 fn bytes_written_through_write_read_back_through_read_and_seek() {
     let mut volume = volume_with_file(16 * 1024);
     let data: Vec<u8> = (0..5000).map(byte).collect();
-    let entry = volume.as_volume_mut().lookup("NAME.BIN").unwrap();
+    let entry = volume.get_mut().lookup("NAME.BIN").unwrap();
     {
         let mut writer = volume.open_file_writer(&entry).unwrap();
         // Odd pieces, so writes straddle sectors and clusters.
@@ -144,8 +144,8 @@ fn bytes_written_through_write_read_back_through_read_and_seek() {
     expected[1000..1010].fill(0xAA);
     expected.extend_from_slice(&[0xBB; 3]);
 
-    let entry = volume.as_volume_mut().lookup("NAME.BIN").unwrap();
-    let mut reader = volume.as_volume_mut().open_file_reader(&entry).unwrap();
+    let entry = volume.get_mut().lookup("NAME.BIN").unwrap();
+    let mut reader = volume.get_mut().open_file_reader(&entry).unwrap();
     let mut whole = vec![0u8; 5003];
     Read::read_exact(&mut reader, &mut whole).unwrap();
     assert_eq!(whole, expected);
@@ -168,7 +168,7 @@ fn bytes_written_through_write_read_back_through_read_and_seek() {
 #[test]
 fn a_seek_past_the_end_stops_at_the_end() {
     let mut volume = volume_with_file(16 * 1024);
-    let entry = volume.as_volume_mut().lookup("NAME.BIN").unwrap();
+    let entry = volume.get_mut().lookup("NAME.BIN").unwrap();
     {
         let mut writer = volume.open_file_writer(&entry).unwrap();
         Write::write_all(&mut writer, &[7; 100]).unwrap();
@@ -176,8 +176,8 @@ fn a_seek_past_the_end_stops_at_the_end() {
         assert_eq!(writer.seek(SeekFrom::End(50)).unwrap(), 100);
         assert_eq!(writer.seek(SeekFrom::Current(i64::MAX)).unwrap(), 100);
     }
-    let entry = volume.as_volume_mut().lookup("NAME.BIN").unwrap();
-    let mut reader = volume.as_volume_mut().open_file_reader(&entry).unwrap();
+    let entry = volume.get_mut().lookup("NAME.BIN").unwrap();
+    let mut reader = volume.get_mut().open_file_reader(&entry).unwrap();
     assert_eq!(reader.seek(SeekFrom::Start(u64::MAX)).unwrap(), 100);
     assert_eq!(reader.seek(SeekFrom::End(1)).unwrap(), 100);
     assert_eq!(reader.seek(SeekFrom::Current(1)).unwrap(), 100);
@@ -186,7 +186,7 @@ fn a_seek_past_the_end_stops_at_the_end() {
 #[test]
 fn a_seek_before_the_start_is_refused_and_moves_nothing() {
     let mut volume = volume_with_file(16 * 1024);
-    let entry = volume.as_volume_mut().lookup("NAME.BIN").unwrap();
+    let entry = volume.get_mut().lookup("NAME.BIN").unwrap();
     {
         let mut writer = volume.open_file_writer(&entry).unwrap();
         Write::write_all(&mut writer, &[1, 2, 3, 4, 5]).unwrap();
@@ -202,8 +202,8 @@ fn a_seek_before_the_start_is_refused_and_moves_nothing() {
         // The writer is still usable.
         Write::write_all(&mut writer, &[9]).unwrap();
     }
-    let entry = volume.as_volume_mut().lookup("NAME.BIN").unwrap();
-    let mut reader = volume.as_volume_mut().open_file_reader(&entry).unwrap();
+    let entry = volume.get_mut().lookup("NAME.BIN").unwrap();
+    let mut reader = volume.get_mut().open_file_reader(&entry).unwrap();
     reader.seek(SeekFrom::Start(4)).unwrap();
     let refused = reader.seek(SeekFrom::Current(-5)).unwrap_err();
     assert!(matches!(refused, FileReadError::SeekBeforeStart));
@@ -223,7 +223,7 @@ fn a_seek_before_the_start_is_refused_and_moves_nothing() {
 fn a_full_volume_reports_write_zero() {
     // The smallest FAT12 volume the format lays out leaves few clusters, so a long write fills it.
     let mut volume = volume_with_file(128);
-    let entry = volume.as_volume_mut().lookup("NAME.BIN").unwrap();
+    let entry = volume.get_mut().lookup("NAME.BIN").unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     let error = Write::write_all(&mut writer, &[0x5A; 128 * 512]).unwrap_err();
     assert!(matches!(error, WriteError::VolumeFull), "{error:?}");
@@ -234,18 +234,18 @@ fn a_full_volume_reports_write_zero() {
 #[test]
 fn a_device_error_reports_other_and_ends_the_reader() {
     let mut volume = volume_with_file(16 * 1024);
-    let entry = volume.as_volume_mut().lookup("NAME.BIN").unwrap();
+    let entry = volume.get_mut().lookup("NAME.BIN").unwrap();
     Write::write_all(
         &mut volume.open_file_writer(&entry).unwrap(),
         &[3; 64 * 1024],
     )
     .unwrap();
-    let entry = volume.as_volume_mut().lookup("NAME.BIN").unwrap();
+    let entry = volume.get_mut().lookup("NAME.BIN").unwrap();
     // Cut the device short, past the directory and the start of the file but before its end.
     let mut device = volume.into_device();
     device.0.truncate(150 * 512);
     let mut volume = WritableVolume::open(device, NoClock).unwrap();
-    let mut reader = volume.as_volume_mut().open_file_reader(&entry).unwrap();
+    let mut reader = volume.get_mut().open_file_reader(&entry).unwrap();
     Read::read_exact(&mut reader, &mut [0u8; 512]).unwrap();
     reader.seek(SeekFrom::Start(60 * 1024)).unwrap();
     let error = Read::read(&mut reader, &mut [0u8; 512]).unwrap_err();

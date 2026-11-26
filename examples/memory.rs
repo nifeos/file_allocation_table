@@ -58,14 +58,12 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         .ok_or("a directory names its cluster")?;
     let file = volume.create_file(inside, "A long file name.txt")?;
     volume.open_file_writer(&file)?.write(b"hello, volume")?;
-    let stored = volume
-        .as_volume_mut()
-        .lookup("Documents/A long file name.txt")?;
+    let stored = volume.get_mut().lookup("Documents/A long file name.txt")?;
     volume.set_attributes(&stored, Attributes::ARCHIVE | Attributes::HIDDEN)?;
     volume.mark_clean()?;
 
     // Read it back by path, as another program would.
-    let reader = volume.as_volume_mut();
+    let reader = volume.get_mut();
     let entry = reader.lookup("documents/A LONG FILE NAME.TXT")?;
     let mut bytes = [0u8; 32];
     let read = reader.open_file_reader(&entry)?.read(&mut bytes)?;

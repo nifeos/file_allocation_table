@@ -3,8 +3,8 @@
 //! The clock is required: a read-only [`Volume`] has no write methods, and the only way to the
 //! write methods is a `WritableVolume`, which cannot exist without a clock. A caller with no time
 //! source passes [`NoClock`](crate::NoClock) and says so. Every read (lookup, listing, file reads, the
-//! label, the clean bit) goes through [`WritableVolume::as_volume`] or
-//! [`WritableVolume::as_volume_mut`], which lend the `Volume` itself. A read stamps nothing, so no read takes the clock and no access date changes on a
+//! label, the clean bit) goes through [`WritableVolume::get_ref`] or
+//! [`WritableVolume::get_mut`], which lend the `Volume` itself. A read stamps nothing, so no read takes the clock and no access date changes on a
 //! read.
 //!
 //! The clock is read once per operation, and every entry the operation writes carries that one
@@ -148,14 +148,15 @@ impl<D: WritableSectorDevice, C: Clock, const BUFFER_BYTES: usize>
     }
 
     /// **Lend the volume for reading.** The volume's own methods take `&mut self` where they read
-    /// the device; [`Self::as_volume_mut`] lends it for those.
-    pub const fn as_volume(&self) -> &Volume<D, BUFFER_BYTES> {
+    /// the device; [`Self::get_mut`] lends it for those. Named as `std::io::BufReader::get_ref` is.
+    pub const fn get_ref(&self) -> &Volume<D, BUFFER_BYTES> {
         &self.volume
     }
 
     /// **Lend the volume for reading through the device**: a lookup, a listing or a file reader.
     /// A `Volume` has no write method, so nothing done through it bypasses the clock.
-    pub const fn as_volume_mut(&mut self) -> &mut Volume<D, BUFFER_BYTES> {
+    /// Named as `std::io::BufReader::get_mut` is.
+    pub const fn get_mut(&mut self) -> &mut Volume<D, BUFFER_BYTES> {
         &mut self.volume
     }
 

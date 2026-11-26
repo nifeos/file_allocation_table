@@ -12,8 +12,8 @@ sentence beside it.
   sector index or a count belongs. A `DirectoryCluster` converts into one.
 - Breaking: both image builders take and report sectors as `u64`, and a refused fill says why
   with `FillError`. A format too large for the widths it writes is `FormatError::TooLarge`.
-- Breaking: `WritableVolume` no longer dereferences to `Volume`; `as_volume` and
-  `as_volume_mut` lend it.
+- Breaking: `WritableVolume` no longer dereferences to `Volume`; `get_ref` and
+  `get_mut` lend it.
 - A `Volume`, `WritableVolume`, `Directory` and `FileReader` take the length of their sector
   buffer as a const parameter, 4,096 bytes by default. `open_with_buffer` opens with 512, 1,024 or
   2,048, and refuses a device whose sectors are longer with `ReadError::SectorLargerThanBuffer`.

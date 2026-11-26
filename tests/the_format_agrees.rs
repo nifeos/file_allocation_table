@@ -141,7 +141,7 @@ fn check(label: &str, format: &FormatPlan, image: Memory) {
     check_with_fsck(&image.bytes, &format!("{label}-empty"));
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     assert_eq!(
-        volume.as_volume_mut().count_free_clusters().unwrap(),
+        volume.get_mut().count_free_clusters().unwrap(),
         format.clusters()
             - u32::from(format.file_allocation_table_type() == FileAllocationTableType::Fat32)
     );

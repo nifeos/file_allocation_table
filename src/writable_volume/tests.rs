@@ -92,7 +92,7 @@ fn a_write_and_a_resize_set_the_write_and_access_times_and_keep_the_creation_tim
     writer.write(b"x").unwrap();
     assert_eq!(readings.get(), before + 1);
     time.set(at(2028, 3, 4, 5, 6, 8));
-    let entry = volume.as_volume_mut().lookup("W.TXT").unwrap();
+    let entry = volume.get_mut().lookup("W.TXT").unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.set_len(0).unwrap();
     let image = volume.into_device();
@@ -254,19 +254,19 @@ fn reads_and_removals_read_no_clock_and_leave_the_bytes_alone() {
         .write(b"data")
         .unwrap();
     let after_writes = readings.get();
-    let found = volume.as_volume_mut().lookup("R.TXT").unwrap();
+    let found = volume.get_mut().lookup("R.TXT").unwrap();
     let mut out = [0u8; 8];
     assert_eq!(
         volume
-            .as_volume_mut()
+            .get_mut()
             .open_file_reader(&found)
             .unwrap()
             .read(&mut out)
             .unwrap(),
         4
     );
-    for _ in volume.as_volume_mut().root_named_entries() {}
-    assert_eq!(volume.as_volume_mut().volume_label(), Ok(None));
+    for _ in volume.get_mut().root_named_entries() {}
+    assert_eq!(volume.get_mut().volume_label(), Ok(None));
     assert_eq!(readings.get(), after_writes, "reading takes no clock");
     let image = volume.into_volume().into_device();
     let before = fields(&image.bytes, ROOT);
@@ -278,9 +278,9 @@ fn reads_and_removals_read_no_clock_and_leave_the_bytes_alone() {
         },
     )
     .unwrap();
-    let found = volume.as_volume_mut().lookup("R.TXT").unwrap();
+    let found = volume.get_mut().lookup("R.TXT").unwrap();
     volume
-        .as_volume_mut()
+        .get_mut()
         .open_file_reader(&found)
         .unwrap()
         .read(&mut out)
@@ -403,7 +403,7 @@ fn setting_the_label_at_a_time_fat_cannot_store_is_refused_and_writes_nothing() 
 #[test]
 fn writing_at_a_time_fat_cannot_store_is_refused_and_writes_nothing() {
     refused_and_untouched(|volume| {
-        let entry = volume.as_volume_mut().lookup("KEEP.TXT").unwrap();
+        let entry = volume.get_mut().lookup("KEEP.TXT").unwrap();
         volume
             .open_file_writer(&entry)
             .unwrap()
@@ -412,7 +412,7 @@ fn writing_at_a_time_fat_cannot_store_is_refused_and_writes_nothing() {
     });
     // Even a write of no bytes reads the clock first, and is refused the same way.
     refused_and_untouched(|volume| {
-        let entry = volume.as_volume_mut().lookup("KEEP.TXT").unwrap();
+        let entry = volume.get_mut().lookup("KEEP.TXT").unwrap();
         volume
             .open_file_writer(&entry)
             .unwrap()
@@ -424,11 +424,11 @@ fn writing_at_a_time_fat_cannot_store_is_refused_and_writes_nothing() {
 #[test]
 fn resizing_at_a_time_fat_cannot_store_is_refused_and_writes_nothing() {
     refused_and_untouched(|volume| {
-        let entry = volume.as_volume_mut().lookup("KEEP.TXT").unwrap();
+        let entry = volume.get_mut().lookup("KEEP.TXT").unwrap();
         volume.open_file_writer(&entry).unwrap().set_len(2000)
     });
     refused_and_untouched(|volume| {
-        let entry = volume.as_volume_mut().lookup("KEEP.TXT").unwrap();
+        let entry = volume.get_mut().lookup("KEEP.TXT").unwrap();
         volume.open_file_writer(&entry).unwrap().set_len(0)
     });
 }
