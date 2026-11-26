@@ -22,6 +22,38 @@ fn a_set_is_a_union_a_difference_and_a_containment() {
     assert_eq!(Attributes::READ_ONLY.bits(), 0x01);
 }
 
+/// Each of the sixteen sets of user bits.
+fn every_set() -> impl Iterator<Item = Attributes> {
+    (0u8..16).map(|pick| {
+        [
+            Attributes::READ_ONLY,
+            Attributes::HIDDEN,
+            Attributes::SYSTEM,
+            Attributes::ARCHIVE,
+        ]
+        .into_iter()
+        .enumerate()
+        .filter(|(bit, _)| pick & (1 << bit) != 0)
+        .fold(Attributes::EMPTY, |set, (_, one)| set.union(one))
+    })
+}
+
+#[test]
+fn the_operators_agree_with_the_methods_and_stay_in_the_user_bits() {
+    for left in every_set() {
+        assert_eq!((!left).bits() & !USER_BITS, 0);
+        assert_eq!(!!left, left);
+        assert_eq!(left & !left, Attributes::EMPTY);
+        assert_eq!((left | !left).bits(), USER_BITS);
+        for right in every_set() {
+            assert_eq!(left | right, left.union(right));
+            assert_eq!(left & !right, left.difference(right));
+            assert_eq!((left & right).bits(), left.bits() & right.bits());
+            assert_eq!(left.contains(right), left & right == right);
+        }
+    }
+}
+
 #[test]
 fn setting_changes_the_user_bits_and_keeps_the_directory_bit() {
     assert_eq!(apply(0x20, Attributes::READ_ONLY), 0x01);
