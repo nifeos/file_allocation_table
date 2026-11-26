@@ -17,7 +17,7 @@
 
 use crate::boot_sector::FileAllocationTableType;
 use crate::file_system_information::FileSystemInformation;
-use crate::reader::{ChainError, Links, Volume, Walk, is_data};
+use crate::reader::{ChainError, Cluster, Links, Volume, Walk, is_data};
 use crate::sector::WritableSectorDevice;
 use crate::table::{self, TableEntry};
 
@@ -96,7 +96,7 @@ pub(crate) fn deallocate_chain<L: LinksMut>(
 ) -> Result<u32, ChainError<L::Error>> {
     let clusters = links.clusters();
     if !is_data(clusters, first) {
-        return Err(ChainError::NotADataCluster(first));
+        return Err(ChainError::NotADataCluster(Cluster(first)));
     }
     let mut cluster = first;
     let mut freed = 0;
@@ -104,8 +104,13 @@ pub(crate) fn deallocate_chain<L: LinksMut>(
         let entry = links.table_entry(cluster)?;
         let next = match entry {
             TableEntry::EndOfChain => None,
-            TableEntry::Next(next) if is_data(clusters, next) => Some(next),
-            entry => return Err(ChainError::Broken { cluster, entry }),
+            TableEntry::Next(next) if is_data(clusters, next.0) => Some(next),
+            entry => {
+                return Err(ChainError::Broken {
+                    cluster: Cluster(cluster),
+                    entry,
+                });
+            }
         };
         links.set_table_entry(cluster, TableEntry::Free)?;
         freed += 1;
@@ -115,7 +120,7 @@ pub(crate) fn deallocate_chain<L: LinksMut>(
         if freed >= clusters {
             return Err(ChainError::TooLong);
         }
-        cluster = next;
+        cluster = next.0;
     }
 }
 
@@ -140,13 +145,13 @@ pub(crate) fn truncate_chain<L: LinksMut>(
     }
     match links.table_entry(last)? {
         TableEntry::EndOfChain => Ok(0),
-        TableEntry::Next(tail) if is_data(links.clusters(), tail) => {
+        TableEntry::Next(tail) if is_data(links.clusters(), tail.0) => {
             // The cut goes in before the tail is freed: a crash between the two leaks the tail.
             links.set_table_entry(last, TableEntry::EndOfChain)?;
-            deallocate_chain(links, tail)
+            deallocate_chain(links, tail.0)
         }
         entry => Err(ChainError::Broken {
-            cluster: last,
+            cluster: Cluster(last),
             entry,
         }),
     }
@@ -198,7 +203,7 @@ impl<D: WritableSectorDevice> LinksMut for Volume<D> {
             Err(AllocationError::VolumeFull) => Ok(None),
             Err(AllocationError::Chain(error)) => Err(error),
             Err(AllocationError::NotTheEndOfAChain(cluster)) => Err(ChainError::Broken {
-                cluster,
+                cluster: Cluster(cluster),
                 entry: TableEntry::Reserved,
             }),
         }
@@ -237,7 +242,7 @@ impl<D: WritableSectorDevice> Volume<D> {
     ) -> Result<(), ChainError<D::Error>> {
         self.boot
             .cluster_first_sector(cluster)
-            .ok_or(ChainError::NotADataCluster(cluster))?;
+            .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
         let raw = entry.encode(self.boot.file_allocation_table_type());
         self.write_raw_entry(cluster, raw)
     }
@@ -251,7 +256,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         let size = boot.sector_size().bytes();
         for copy in self.live_tables() {
             let (sector, within) = table::raw_position_in(&boot, cluster, copy)
-                .ok_or(ChainError::NotADataCluster(cluster))?;
+                .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
             let here = wanted.min(size - within);
             let mut bytes = [0u8; 4];
             self.load(sector)?;
@@ -298,10 +303,10 @@ impl<D: WritableSectorDevice> Volume<D> {
         let whole = |within: usize| within + wanted <= size;
         if sector_new != sector_last || !whole(within_new) || !whole(within_last) {
             self.write_table_entry(new, TableEntry::EndOfChain)?;
-            return self.write_table_entry(last, TableEntry::Next(new));
+            return self.write_table_entry(last, TableEntry::Next(Cluster(new)));
         }
         let end = TableEntry::EndOfChain.encode(file_allocation_table_type);
-        let link = TableEntry::Next(new).encode(file_allocation_table_type);
+        let link = TableEntry::Next(Cluster(new)).encode(file_allocation_table_type);
         for copy in self.live_tables() {
             let sector = boot.table_start(copy) + sector_new;
             self.load(sector)?;
@@ -348,7 +353,7 @@ impl<D: WritableSectorDevice> Volume<D> {
                 FileSystemInformation::parse(&self.buffer[..size], self.boot.clusters())
             {
                 self.writer.free_clusters = info.free_cluster_count();
-                self.writer.next_free = info.next_free_cluster().unwrap_or(2);
+                self.writer.next_free = info.next_free_cluster().map_or(2, Cluster::get);
             }
         }
         Ok(())
@@ -369,7 +374,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         self.begin_change()?;
         self.load_hints()?;
         if let Some(last) = extending {
-            let entry = self.table_entry(last)?;
+            let entry = self.table_entry(Cluster(last))?;
             if entry != TableEntry::EndOfChain {
                 return Err(AllocationError::NotTheEndOfAChain(last));
             }
@@ -503,7 +508,7 @@ impl<D: crate::sector::SectorDevice> Volume<D> {
         let clusters = self.boot.clusters();
         let mut free = 0;
         for cluster in 2..clusters + 2 {
-            if self.table_entry(cluster)? == TableEntry::Free {
+            if self.table_entry(Cluster(cluster))? == TableEntry::Free {
                 free += 1;
             }
         }

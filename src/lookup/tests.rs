@@ -2,9 +2,9 @@
 //! subdirectory of a small FAT12 volume.
 
 use super::*;
-use crate::DirectoryCluster;
 use crate::long_name::{LongName, checksum};
 use crate::reader::tests::{FIRST_DATA, Image};
+use crate::{Cluster, DirectoryCluster};
 
 /// A short entry's 32 bytes.
 fn short(name: &[u8; 11], attributes: u8, cluster: u16, size: u32) -> [u8; 32] {
@@ -116,9 +116,12 @@ fn a_file_is_found_by_either_name_in_any_case() {
         let entry = volume
             .lookup(path)
             .unwrap_or_else(|e| panic!("{path}: {e:?}"));
-        assert_eq!(entry.first_cluster(), 9, "{path}");
+        assert_eq!(entry.first_cluster(), Cluster::new(9), "{path}");
     }
-    assert_eq!(volume.lookup("readme").unwrap().first_cluster(), 10);
+    assert_eq!(
+        volume.lookup("readme").unwrap().first_cluster(),
+        Cluster::new(10)
+    );
     assert_eq!(volume.lookup("README").unwrap().size_bytes(), 1);
 }
 
@@ -135,13 +138,13 @@ fn paths_walk_into_subdirectories_by_long_or_short_name() {
         let entry = volume
             .lookup(path)
             .unwrap_or_else(|e| panic!("{path}: {e:?}"));
-        assert_eq!(entry.first_cluster(), 30, "{path}");
+        assert_eq!(entry.first_cluster(), Cluster::new(30), "{path}");
     }
     // The subdirectory holds no entry called "Sub Dir".
     assert_eq!(volume.lookup("Sub Dir/Sub Dir"), Err(LookupError::NotFound));
     let directory = volume.lookup("sub dir").unwrap();
     assert!(directory.is_directory());
-    assert_eq!(directory.first_cluster(), 20);
+    assert_eq!(directory.first_cluster(), Cluster::new(20));
     assert_eq!(
         volume
             .find_in_directory(DirectoryCluster(20), "inner file.dat")

@@ -1,7 +1,7 @@
 //! The general format's sizing at the edges of each type, the sectors it writes, and its refusals.
 
 use super::*;
-use crate::NoClock;
+use crate::{Cluster, NoClock};
 use crate::boot_sector::BootSector;
 
 fn options(sectors: u32) -> FormatOptions {
@@ -201,7 +201,7 @@ fn a_fat32_volume_carries_fs_info_its_backups_and_a_root_cluster() {
     assert_eq!(info, info_backup);
     let parsed = crate::FileSystemInformation::parse(&info, format.clusters()).unwrap();
     assert_eq!(parsed.free_cluster_count(), Some(format.clusters() - 1));
-    assert_eq!(parsed.next_free_cluster(), Some(3));
+    assert_eq!(parsed.next_free_cluster(), Some(Cluster::new(3)));
     // The first table sector says media, clean, and the end of the root's chain.
     let mut table = [0u8; 512];
     format.fill_sector(32, &mut table).unwrap();

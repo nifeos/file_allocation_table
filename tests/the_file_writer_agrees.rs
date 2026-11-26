@@ -16,7 +16,7 @@ use std::path::Path;
 use std::process::Command;
 
 use file_allocation_table::{
-    DirectoryCluster, NoClock, OpenError, SectorDevice, SectorSize, WritableSectorDevice,
+    Cluster, DirectoryCluster, NoClock, OpenError, SectorDevice, SectorSize, WritableSectorDevice,
     WritableVolume, WriteError,
 };
 use lamfat::FatType;
@@ -641,7 +641,7 @@ fn a_fat32_file_beyond_cluster_65535_keeps_its_high_cluster_bits() {
             .lookup("LATE.TXT")
             .unwrap()
             .first_cluster()
-            > 65_535
+            > Cluster::new(65_535)
     );
     volume.mark_clean().unwrap();
     let image = volume.into_device();

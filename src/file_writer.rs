@@ -12,7 +12,7 @@ use crate::directory::{DirectoryEntry, SLOT_BYTES, ShortEntry, Slot};
 use crate::file::OpenError;
 use crate::long_name::is_short_byte;
 use crate::named_entry::{EntryPlace, NamedEntry};
-use crate::reader::{ChainError, SlotCursor, Volume, Walk};
+use crate::reader::{ChainError, Cluster, SlotCursor, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize, WritableSectorDevice};
 use crate::table::TableEntry;
 use crate::time::{Clock, Stamp};
@@ -120,7 +120,7 @@ impl<D: SectorDevice> Volume<D> {
         let within = byte % u64::from(boot.bytes_per_cluster());
         let sector = boot
             .cluster_first_sector(cluster)
-            .ok_or(ChainError::NotADataCluster(cluster))?
+            .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?
             + (within / sector_bytes) as u32;
         Ok(Some((sector, (within % sector_bytes) as usize)))
     }
@@ -198,8 +198,8 @@ impl<D: WritableSectorDevice> Volume<D> {
         };
         let mut last = first;
         let mut clusters = 0u64;
-        for cluster in self.chain(first) {
-            last = cluster?;
+        for cluster in self.chain(Cluster(first)) {
+            last = cluster?.0;
             clusters += 1;
         }
         // A directory holds at most `MOST_SLOTS` entries, so it never needs more than this.
@@ -222,7 +222,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         }
         // A failed link is not undone: one table copy may already link to the cluster, and
         // freeing it then would leave that copy's chain pointing at a free cluster.
-        self.write_table_entry(last, TableEntry::Next(new))?;
+        self.write_table_entry(last, TableEntry::Next(Cluster(new)))?;
         Ok(true)
     }
 
@@ -231,7 +231,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         let boot = self.boot;
         let start = boot
             .cluster_first_sector(cluster)
-            .ok_or(ChainError::NotADataCluster(cluster))?;
+            .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
         let zeros = [0u8; SectorSize::MAXIMUM_BYTES];
         for sector in 0..boot.sectors_per_cluster() {
             self.write_data(start + sector, &zeros[..boot.sector_size().bytes()])?;
@@ -292,8 +292,8 @@ impl<D: WritableSectorDevice> Volume<D> {
             slot[0] = FREE;
             self.write_slot(place.directory, index, &slot)?;
         }
-        if entry.first_cluster() != 0 {
-            self.deallocate_chain(entry.first_cluster())
+        if entry.first_cluster() != Cluster(0) {
+            self.deallocate_chain(entry.first_cluster().0)
                 .map_err(|error| match error {
                     AllocationError::Chain(error) => WriteError::Chain(error),
                     AllocationError::VolumeFull | AllocationError::NotTheEndOfAChain(_) => {
@@ -340,7 +340,7 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
             read_only: entry
                 .user_attributes()
                 .contains(crate::Attributes::READ_ONLY),
-            state: WriteState::new(entry.first_cluster(), entry.size_bytes()),
+            state: WriteState::new(entry.first_cluster().0, entry.size_bytes()),
             failed: false,
         })
     }

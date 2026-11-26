@@ -25,7 +25,7 @@ fn every_sector_parses_to_hints_inside_the_volume() {
                 assert!(free <= clusters);
             }
             if let Some(next) = info.next_free_cluster() {
-                assert!(next >= 2 && next - 2 < clusters);
+                assert!(next.0 >= 2 && next.0 - 2 < clusters);
             }
         }
     }

@@ -8,7 +8,7 @@
 
 use crate::attributes::Attributes;
 use crate::boot_sector::{BootSector, FileAllocationTableType, RootDirectory};
-use crate::reader::{ChainError, Links, Volume, Walk};
+use crate::reader::{ChainError, Cluster, Links, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize};
 use crate::time::{CivilDateTime, Stamp};
 
@@ -197,8 +197,8 @@ impl ShortEntry {
 
     /// The first cluster of the entry's chain, or 0 for an empty file and for a `..` whose parent
     /// is the root. Not checked against the volume.
-    pub const fn first_cluster(&self) -> u32 {
-        self.first_cluster
+    pub const fn first_cluster(&self) -> Cluster {
+        Cluster(self.first_cluster)
     }
 
     /// The file's length in bytes; 0 for a directory.

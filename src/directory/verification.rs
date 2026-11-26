@@ -42,7 +42,7 @@ fn every_slot_parses_as_its_bytes_say() {
                     assert!(!long);
                     assert_eq!(short.attributes(), slot[11]);
                     if file_allocation_table_type != FileAllocationTableType::Fat32 {
-                        assert!(short.first_cluster() <= 0xFFFF);
+                        assert!(short.first_cluster().0 <= 0xFFFF);
                     }
                     let write_date = u16::from_le_bytes([slot[24], slot[25]]);
                     let write_time = u16::from_le_bytes([slot[22], slot[23]]);

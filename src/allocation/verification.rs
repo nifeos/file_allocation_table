@@ -49,7 +49,7 @@ impl LinksMut for Model {
             return Ok(None);
         };
         if let Some(last) = last {
-            self.set_table_entry(last, TableEntry::Next(cluster))?;
+            self.set_table_entry(last, TableEntry::Next(Cluster(cluster)))?;
         }
         Ok(Some(cluster))
     }
@@ -62,7 +62,7 @@ fn any_entry() -> TableEntry {
     match kani::any::<u8>() % 5 {
         0 => TableEntry::Free,
         1 => TableEntry::Reserved,
-        2 => TableEntry::Next(next),
+        2 => TableEntry::Next(Cluster(next)),
         3 => TableEntry::Bad,
         _ => TableEntry::EndOfChain,
     }

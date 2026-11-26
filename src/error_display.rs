@@ -79,7 +79,11 @@ impl<E> fmt::Display for ChainError<E> {
         match self {
             ChainError::Device(_) => f.write_str("the device refused a sector read or write"),
             ChainError::NotADataCluster(cluster) => {
-                write!(f, "cluster {cluster} is not a data cluster of this volume")
+                write!(
+                    f,
+                    "cluster {} is not a data cluster of this volume",
+                    cluster.0
+                )
             }
             ChainError::Broken { cluster, entry } => {
                 let entry = match entry {
@@ -91,7 +95,8 @@ impl<E> fmt::Display for ChainError<E> {
                 };
                 write!(
                     f,
-                    "the chain is broken at cluster {cluster}, whose table entry is {entry}"
+                    "the chain is broken at cluster {}, whose table entry is {entry}",
+                    cluster.0
                 )
             }
             ChainError::TooLong => {

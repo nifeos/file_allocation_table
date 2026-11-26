@@ -14,8 +14,8 @@
 #![no_main]
 
 use file_allocation_table::{
-    BootSector, ChainError, DirectoryCluster, FileReadError, MasterBootRecord, RootDirectory,
-    SectorDevice, SectorSize, Volume,
+    BootSector, ChainError, Cluster, DirectoryCluster, FileReadError, MasterBootRecord,
+    RootDirectory, SectorDevice, SectorSize, Volume,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -122,8 +122,8 @@ fn walk(bytes: &[u8], sector: SectorSize) {
     let last = clusters + 1;
     for cluster in [0, 1, 2, last, last + 1, u32::MAX] {
         let is_data = (2..=last).contains(&cluster);
-        match volume.table_entry(cluster) {
-            Err(ChainError::NotADataCluster(c)) => assert!(!is_data && c == cluster),
+        match volume.table_entry(Cluster::new(cluster)) {
+            Err(ChainError::NotADataCluster(c)) => assert!(!is_data && c.get() == cluster),
             Ok(_) | Err(ChainError::Device(())) => assert!(is_data),
             Err(other) => panic!("an entry read failed with {other:?}"),
         }
@@ -234,7 +234,7 @@ fn directory(
     }
     for entry in entries {
         let name = entry.short_name();
-        if entry.is_volume_label() || name[0] == b'.' || entry.first_cluster() == 0 {
+        if entry.is_volume_label() || name[0] == b'.' || entry.first_cluster().get() == 0 {
             continue;
         }
         chain(volume, entry.first_cluster(), budget);
@@ -250,7 +250,7 @@ fn directory(
 }
 
 /// Walk the chain from `first` and hold it to the volume's data clusters and count.
-fn chain(volume: &mut Volume<Image<'_>>, first: u32, budget: &mut u32) {
+fn chain(volume: &mut Volume<Image<'_>>, first: Cluster, budget: &mut u32) {
     let clusters = volume.boot_sector().clusters();
     let mut yielded = 0u32;
     let mut walk = volume.chain(first);
@@ -261,7 +261,7 @@ fn chain(volume: &mut Volume<Image<'_>>, first: u32, budget: &mut u32) {
         *budget -= 1;
         match walk.next() {
             Some(Ok(cluster)) => {
-                assert!((2..=clusters + 1).contains(&cluster));
+                assert!((2..=clusters + 1).contains(&cluster.get()));
                 yielded += 1;
                 assert!(yielded <= clusters, "a chain outlasted the volume");
             }

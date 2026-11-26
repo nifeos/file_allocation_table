@@ -8,7 +8,7 @@ use std::error::Error;
 use std::fmt;
 
 use file_allocation_table::{
-    ChainError, CivilDateTimeError, FileReadError, FileSystemInformationError, FillError,
+    ChainError, CivilDateTimeError, Cluster, FileReadError, FileSystemInformationError, FillError,
     FormatError, LayoutError, LongFileNameError, LookupError, MasterBootRecordError,
     MasterBootRecordReadError, OpenError, ParseError, PartitionError, ReadError, SectorSize,
     TableEntry, WriteError,
@@ -122,25 +122,25 @@ fn every_device_level_error_has_its_own_message_and_its_source() {
     let device = ChainError::Device(DeviceGone);
     let chains = messages(&[
         device,
-        ChainError::NotADataCluster(7),
+        ChainError::NotADataCluster(Cluster::new(7)),
         ChainError::Broken {
-            cluster: 9,
+            cluster: Cluster::new(9),
             entry: TableEntry::Free,
         },
         ChainError::Broken {
-            cluster: 9,
+            cluster: Cluster::new(9),
             entry: TableEntry::Reserved,
         },
         ChainError::Broken {
-            cluster: 9,
-            entry: TableEntry::Next(400),
+            cluster: Cluster::new(9),
+            entry: TableEntry::Next(Cluster::new(400)),
         },
         ChainError::Broken {
-            cluster: 9,
+            cluster: Cluster::new(9),
             entry: TableEntry::Bad,
         },
         ChainError::Broken {
-            cluster: 9,
+            cluster: Cluster::new(9),
             entry: TableEntry::EndOfChain,
         },
         ChainError::TooLong,

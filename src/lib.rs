@@ -139,7 +139,7 @@ pub use master_boot_record::{
     PartitionDevice, PartitionError,
 };
 pub use named_entry::{NamedEntries, NamedEntry};
-pub use reader::{Chain, ChainError, DirectoryCluster, Volume};
+pub use reader::{Chain, ChainError, Cluster, DirectoryCluster, Volume};
 pub use sector::{SectorDevice, SectorSize, WritableSectorDevice};
 pub use table::TableEntry;
 pub use time::{CivilDateTime, CivilDateTimeError, Clock, NoClock};

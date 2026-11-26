@@ -9,8 +9,8 @@
 
 use crate::directory::{Directory, DirectoryEntry, ShortEntry, Slot};
 use crate::long_name_assembly::{LongFileName, LongFileNameError, LongNameAssembler};
-use crate::reader::ChainError;
 use crate::reader::DirectoryCluster;
+use crate::reader::{ChainError, Cluster};
 use crate::sector::SectorDevice;
 use crate::time::CivilDateTime;
 
@@ -91,7 +91,7 @@ impl NamedEntry {
 
     /// The first cluster of the entry's chain, or 0 for an empty file. Not checked against the
     /// volume.
-    pub const fn first_cluster(&self) -> u32 {
+    pub const fn first_cluster(&self) -> Cluster {
         self.short.first_cluster()
     }
 
@@ -124,7 +124,7 @@ impl NamedEntry {
     /// whose parent is the root gives [`DirectoryCluster::ROOT`].
     pub const fn directory_cluster(&self) -> Option<DirectoryCluster> {
         if self.short.is_directory() && !self.short.is_volume_label() {
-            Some(DirectoryCluster(self.short.first_cluster()))
+            Some(DirectoryCluster(self.short.first_cluster().0))
         } else {
             None
         }

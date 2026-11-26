@@ -114,7 +114,7 @@ fn an_alias_past_the_first_window_is_the_next_free_number() {
     for number in 1..=ALIAS_WINDOW + 6 {
         let alias = long.alias_numbered(number).unwrap();
         let entry = volume
-            .create_file(DirectoryCluster(directory), &spelled(alias))
+            .create_file(DirectoryCluster(directory.0), &spelled(alias))
             .unwrap();
         assert_eq!(entry.short_name(), alias);
         if number == 7 {
@@ -122,17 +122,21 @@ fn an_alias_past_the_first_window_is_the_next_free_number() {
         }
     }
     let entry = volume
-        .create_file(DirectoryCluster(directory), "Long File.txt")
+        .create_file(DirectoryCluster(directory.0), "Long File.txt")
         .unwrap();
     assert_eq!(entry.short_name(), *b"LON~1031TXT");
     // A rename past the first window may keep its own number there.
     let entry = volume
-        .rename(&entry, DirectoryCluster(directory), "Long File Renamed.txt")
+        .rename(
+            &entry,
+            DirectoryCluster(directory.0),
+            "Long File Renamed.txt",
+        )
         .unwrap();
     assert_eq!(entry.short_name(), *b"LON~1031TXT");
     volume.remove_file(&seventh.unwrap()).unwrap();
     let entry = volume
-        .create_file(DirectoryCluster(directory), "Long File 2.txt")
+        .create_file(DirectoryCluster(directory.0), "Long File 2.txt")
         .unwrap();
     assert_eq!(entry.short_name(), *b"LONGFI~7TXT");
 }
@@ -243,15 +247,15 @@ fn a_stale_slot_after_the_end_marker_is_ended_in_the_same_sector_or_the_next() {
     // Slot 3 holds stale bytes after the end marker at 2, in the cluster's one sector.
     volume
         .as_volume_mut()
-        .write_slot(directory, 3, &stale)
+        .write_slot(directory.0, 3, &stale)
         .unwrap();
     volume
-        .create_file(DirectoryCluster(directory), "B.TXT")
+        .create_file(DirectoryCluster(directory.0), "B.TXT")
         .unwrap();
     assert_eq!(
         volume
             .as_volume_mut()
-            .read_slot(directory, 3)
+            .read_slot(directory.0, 3)
             .unwrap()
             .unwrap()[0],
         0
@@ -259,7 +263,7 @@ fn a_stale_slot_after_the_end_marker_is_ended_in_the_same_sector_or_the_next() {
     assert_eq!(
         volume
             .as_volume_mut()
-            .read_slot(directory, 3)
+            .read_slot(directory.0, 3)
             .unwrap()
             .unwrap()[1..],
         stale[1..]
@@ -267,29 +271,29 @@ fn a_stale_slot_after_the_end_marker_is_ended_in_the_same_sector_or_the_next() {
     // Fill the sector to slot 14, then put stale bytes at 16, in the next cluster's sector.
     for name in "CDEFGHIJKLMN".chars() {
         volume
-            .create_file(DirectoryCluster(directory), &format!("{name}.TXT"))
+            .create_file(DirectoryCluster(directory.0), &format!("{name}.TXT"))
             .unwrap();
     }
-    assert!(volume.as_volume_mut().grow_directory(directory).unwrap());
+    assert!(volume.as_volume_mut().grow_directory(directory.0).unwrap());
     volume
         .as_volume_mut()
-        .write_slot(directory, 16, &stale)
+        .write_slot(directory.0, 16, &stale)
         .unwrap();
     let last = volume
-        .create_file(DirectoryCluster(directory), "O.TXT")
+        .create_file(DirectoryCluster(directory.0), "O.TXT")
         .unwrap();
     assert_eq!(last.place().short_slot, 15);
     assert_eq!(
         volume
             .as_volume_mut()
-            .read_slot(directory, 16)
+            .read_slot(directory.0, 16)
             .unwrap()
             .unwrap()[0],
         0
     );
     let names = volume
         .as_volume_mut()
-        .named_entries(DirectoryCluster(directory))
+        .named_entries(DirectoryCluster(directory.0))
         .map(|entry| entry.unwrap().short_name())
         .filter(|name| name[0] != b'.')
         .count();
@@ -442,12 +446,12 @@ fn a_rename_keeps_the_data_and_a_moved_directory_gets_a_new_dotdot() {
         .unwrap();
     let dotdot = volume
         .as_volume_mut()
-        .read_slot(a.first_cluster(), 1)
+        .read_slot(a.first_cluster().0, 1)
         .unwrap()
         .unwrap();
     assert_eq!(
         u16::from_le_bytes([dotdot[26], dotdot[27]]) as u32,
-        b.first_cluster()
+        b.first_cluster().0
     );
     assert!(volume.as_volume_mut().lookup("B/A Inside B").is_ok());
     // And back to the root, where `..` is 0.
@@ -457,7 +461,7 @@ fn a_rename_keeps_the_data_and_a_moved_directory_gets_a_new_dotdot() {
         .unwrap();
     let dotdot = volume
         .as_volume_mut()
-        .read_slot(a.first_cluster(), 1)
+        .read_slot(a.first_cluster().0, 1)
         .unwrap()
         .unwrap();
     assert_eq!(u16::from_le_bytes([dotdot[26], dotdot[27]]), 0);
@@ -481,7 +485,7 @@ fn a_directory_cannot_move_into_itself_or_below_and_dots_cannot_be_renamed() {
         innermost.first_cluster(),
     ] {
         assert_eq!(
-            volume.rename(&a, DirectoryCluster(target), "X"),
+            volume.rename(&a, DirectoryCluster(target.0), "X"),
             Err(WriteError::MovedIntoItself)
         );
     }
@@ -638,7 +642,7 @@ fn a_directory_stops_growing_at_65536_entries() {
             crate::RootDirectory::Cluster(root) => root,
             crate::RootDirectory::Region { .. } => unreachable!("a FAT32 root is a chain"),
         };
-        assert_eq!(volume.chain(first).count() as u64, wanted);
+        assert_eq!(volume.chain(Cluster::new(first)).count() as u64, wanted);
 
         // The last slot exists and one more is refused, before any growing is tried.
         assert_eq!(volume.ensure_slots(0, MOST_SLOTS), Ok(()));
@@ -647,7 +651,7 @@ fn a_directory_stops_growing_at_65536_entries() {
             Err(WriteError::DirectoryFull)
         );
         assert_eq!(volume.grow_directory(0), Ok(false));
-        assert_eq!(volume.chain(first).count() as u64, wanted);
+        assert_eq!(volume.chain(Cluster::new(first)).count() as u64, wanted);
     }
 }
 
@@ -681,7 +685,7 @@ fn a_fat32_root_named_by_its_cluster_is_still_0_in_dotdot() {
         .unwrap();
     let dotdot = volume
         .as_volume_mut()
-        .read_slot(made.first_cluster(), 1)
+        .read_slot(made.first_cluster().0, 1)
         .unwrap()
         .unwrap();
     assert_eq!(&dotdot[..11], b"..         ");

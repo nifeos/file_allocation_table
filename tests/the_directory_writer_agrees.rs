@@ -15,8 +15,8 @@ use std::path::Path;
 use std::process::Command;
 
 use file_allocation_table::{
-    DirectoryCluster, NoClock, SectorDevice, SectorSize, WritableSectorDevice, WritableVolume,
-    WriteError,
+    Cluster, DirectoryCluster, NoClock, SectorDevice, SectorSize, WritableSectorDevice,
+    WritableVolume, WriteError,
 };
 use lamfat::FatType;
 
@@ -378,7 +378,7 @@ fn directories_above_cluster_65535_keep_their_high_bits_through_a_move() {
     let a = volume
         .create_directory(DirectoryCluster::ROOT, "High A")
         .unwrap();
-    assert!(a.first_cluster() > 65_535);
+    assert!(a.first_cluster() > Cluster::new(65_535));
     let b = volume
         .create_directory(a.directory_cluster().unwrap(), "High B")
         .unwrap();

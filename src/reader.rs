@@ -18,12 +18,12 @@ pub enum ChainError<E> {
     Device(E),
     /// The cluster asked for, or a chain's first cluster, is not one of this volume's data
     /// clusters (2 to `clusters() + 1`).
-    NotADataCluster(u32),
+    NotADataCluster(Cluster),
     /// `cluster`'s table entry cannot continue a chain: it is free, reserved or bad, or names a
     /// cluster the volume does not have.
     Broken {
         /// The cluster whose entry was read.
-        cluster: u32,
+        cluster: Cluster,
         /// What the entry said.
         entry: TableEntry,
     },
@@ -41,7 +41,7 @@ pub enum ChainError<E> {
 /// ```
 /// use file_allocation_table::efi_system_partition::FILE_CLUSTER;
 /// use file_allocation_table::{
-///     NoClock, SectorDevice, SectorSize, Volume, VolumeLayout, VolumeLayoutOptions,
+///     Cluster, NoClock, SectorDevice, SectorSize, Volume, VolumeLayout, VolumeLayoutOptions,
 /// };
 ///
 /// // A volume this crate's writer lays out, held in memory.
@@ -68,8 +68,9 @@ pub enum ChainError<E> {
 /// let mut volume = Volume::open(Image(layout)).unwrap();
 /// // The layout puts the boot file at FILE_CLUSTER (5, after the root, EFI and BOOT), and its
 /// // 5,000 bytes take two clusters of 4,096 bytes.
-/// let clusters: Vec<u32> = volume.chain(FILE_CLUSTER).map(Result::unwrap).collect();
-/// assert_eq!(clusters, [FILE_CLUSTER, FILE_CLUSTER + 1]);
+/// let first = Cluster::new(FILE_CLUSTER);
+/// let clusters: Vec<Cluster> = volume.chain(first).map(Result::unwrap).collect();
+/// assert_eq!(clusters, [first, Cluster::new(FILE_CLUSTER + 1)]);
 /// ```
 #[derive(Debug)]
 pub struct Volume<D> {
@@ -161,10 +162,18 @@ impl<D: SectorDevice> Volume<D> {
     ///
     /// Refuses a cluster that is not a data cluster of this volume, and passes on the device's
     /// error. A FAT12 entry that straddles two sectors costs two reads.
-    pub fn table_entry(&mut self, cluster: u32) -> Result<TableEntry, ChainError<D::Error>> {
+    pub fn table_entry(&mut self, cluster: Cluster) -> Result<TableEntry, ChainError<D::Error>> {
+        self.read_table_entry(cluster.0)
+    }
+
+    /// [`Volume::table_entry`] by the bare number, for the walks and the writer inside the crate.
+    pub(crate) fn read_table_entry(
+        &mut self,
+        cluster: u32,
+    ) -> Result<TableEntry, ChainError<D::Error>> {
         self.boot
             .cluster_first_sector(cluster)
-            .ok_or(ChainError::NotADataCluster(cluster))?;
+            .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
         let raw = self.read_raw_entry(cluster)?;
         Ok(TableEntry::decode(
             self.boot.file_allocation_table_type(),
@@ -180,7 +189,7 @@ impl<D: SectorDevice> Volume<D> {
             index,
             self.boot.active_table().unwrap_or_default(),
         )
-        .ok_or(ChainError::NotADataCluster(index))?;
+        .ok_or(ChainError::NotADataCluster(Cluster(index)))?;
         let file_allocation_table_type = self.boot.file_allocation_table_type();
         let size = self.boot.sector_size().bytes();
         let mut bytes = [0u8; 4];
@@ -202,10 +211,10 @@ impl<D: SectorDevice> Volume<D> {
     /// entry. It ends with an error at an entry that cannot continue a chain, at a cluster the
     /// volume does not have, or once it would yield more clusters than the volume holds, which
     /// only a loop can make. After an error it yields nothing more.
-    pub fn chain(&mut self, first_cluster: u32) -> Chain<'_, D> {
+    pub fn chain(&mut self, first_cluster: Cluster) -> Chain<'_, D> {
         Chain {
             volume: self,
-            walk: Walk::new(first_cluster),
+            walk: Walk::new(first_cluster.0),
         }
     }
 
@@ -251,6 +260,44 @@ impl DirectoryCluster {
     pub const ROOT: DirectoryCluster = DirectoryCluster(0);
 }
 
+/// **A cluster number**, as a table entry, a directory entry or a chain walk names it: what
+/// [`Volume::chain`] and [`Volume::table_entry`] take and what they yield. The data clusters of a
+/// volume are numbered 2 to `clusters() + 1`; a number outside that range is still a `Cluster`,
+/// and the methods that take one refuse it with [`ChainError::NotADataCluster`].
+///
+/// It is its own type so that a sector count or a byte size cannot pass as a cluster. A
+/// [`DirectoryCluster`] converts to one: the root's is 0, which no chain starts at.
+///
+/// # Examples
+///
+/// ```
+/// use file_allocation_table::{Cluster, DirectoryCluster};
+///
+/// let cluster = Cluster::new(5);
+/// assert_eq!(cluster.get(), 5);
+/// assert_eq!(Cluster::from(DirectoryCluster::ROOT), Cluster::new(0));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Cluster(pub(crate) u32);
+
+impl Cluster {
+    /// The cluster numbered `number`.
+    pub const fn new(number: u32) -> Cluster {
+        Cluster(number)
+    }
+
+    /// The cluster's number.
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<DirectoryCluster> for Cluster {
+    fn from(directory: DirectoryCluster) -> Cluster {
+        Cluster(directory.0)
+    }
+}
+
 /// **What a chain walk reads**: how many data clusters the volume has, and one table entry at a
 /// time. [`Volume`] is the one implementation; the proofs supply a hostile one.
 pub(crate) trait Links {
@@ -272,7 +319,7 @@ impl<D: SectorDevice> Links for Volume<D> {
     }
 
     fn table_entry(&mut self, cluster: u32) -> Result<TableEntry, ChainError<D::Error>> {
-        Volume::table_entry(self, cluster)
+        Volume::read_table_entry(self, cluster)
     }
 }
 
@@ -322,17 +369,17 @@ impl Walk {
         let cluster = match (self.next.take(), self.last) {
             (Some(first), None) => {
                 if !is_data(clusters, first) {
-                    return Some(Err(ChainError::NotADataCluster(first)));
+                    return Some(Err(ChainError::NotADataCluster(Cluster(first))));
                 }
                 first
             }
             (None, Some(last)) => match links.table_entry(last) {
                 Err(error) => return Some(Err(error)),
                 Ok(TableEntry::EndOfChain) => return None,
-                Ok(TableEntry::Next(next)) if is_data(clusters, next) => next,
+                Ok(TableEntry::Next(Cluster(next))) if is_data(clusters, next) => next,
                 Ok(entry) => {
                     return Some(Err(ChainError::Broken {
-                        cluster: last,
+                        cluster: Cluster(last),
                         entry,
                     }));
                 }
@@ -358,10 +405,10 @@ pub struct Chain<'v, D> {
 }
 
 impl<D: SectorDevice> Iterator for Chain<'_, D> {
-    type Item = Result<u32, ChainError<D::Error>>;
+    type Item = Result<Cluster, ChainError<D::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.walk.step(self.volume)
+        self.walk.step(self.volume).map(|step| step.map(Cluster))
     }
 }
 

@@ -10,7 +10,7 @@
 
 use crate::boot_sector::BootSector;
 use crate::named_entry::NamedEntry;
-use crate::reader::{ChainError, Links, Volume, Walk};
+use crate::reader::{ChainError, Cluster, Links, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize};
 
 /// **Why an entry could not be opened as a file**, for reading
@@ -177,7 +177,7 @@ impl FileCursor {
         };
         let sector_bytes = boot.sector_size().bytes() as u32;
         let within = self.position % per_cluster;
-        let wrong_cluster = FileReadError::Chain(ChainError::NotADataCluster(cluster));
+        let wrong_cluster = FileReadError::Chain(ChainError::NotADataCluster(Cluster(cluster)));
         let sector = boot
             .cluster_first_sector(cluster)
             .and_then(|first| first.checked_add(within / sector_bytes))
@@ -296,7 +296,7 @@ impl<D: SectorDevice> Volume<D> {
         OpenError::check(self, entry)?;
         Ok(FileReader::new(
             self,
-            entry.first_cluster(),
+            entry.first_cluster().0,
             entry.size_bytes(),
         ))
     }

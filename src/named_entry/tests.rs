@@ -54,7 +54,10 @@ fn a_short_entry_carries_the_long_name_ahead_of_it() {
     let name = first.long_name().unwrap();
     assert!(name.chars().eq("A Long File Name.txt".chars()));
     assert_eq!(first.long_name_refusal(), None);
-    assert_eq!((first.first_cluster(), first.size_bytes()), (9, 77));
+    assert_eq!(
+        (first.first_cluster(), first.size_bytes()),
+        (Cluster::new(9), 77)
+    );
     assert_eq!(first.attributes(), 0x20);
     assert!(!first.is_directory() && !first.is_volume_label() && !first.is_dot_entry());
 
@@ -202,7 +205,7 @@ fn a_directory_entry_names_its_directory_and_a_file_or_the_label_names_none() {
         .create_file(DirectoryCluster::ROOT, "FILE.TXT")
         .unwrap();
     let inner = directory.directory_cluster().unwrap();
-    assert_eq!(inner, DirectoryCluster(directory.first_cluster()));
+    assert_eq!(inner, DirectoryCluster(directory.first_cluster().get()));
     assert_eq!(file.directory_cluster(), None);
     let label = volume
         .as_volume_mut()

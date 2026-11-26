@@ -23,10 +23,13 @@ fn allocation_takes_the_first_free_cluster_from_the_hint_and_ends_the_chain_ther
     assert_eq!(volume.as_volume_mut().allocate_cluster(None), Ok(2));
     assert_eq!(volume.as_volume_mut().allocate_cluster(None), Ok(3));
     assert_eq!(
-        volume.as_volume_mut().table_entry(2),
+        volume.as_volume_mut().table_entry(Cluster::new(2)),
         Ok(TableEntry::EndOfChain)
     );
-    assert_eq!(volume.as_volume_mut().table_entry(4), Ok(TableEntry::Free));
+    assert_eq!(
+        volume.as_volume_mut().table_entry(Cluster::new(4)),
+        Ok(TableEntry::Free)
+    );
     let image = volume.into_device();
     for copy in 0..2 {
         assert_eq!(raw(&image, copy, 2), 0xFFF);
@@ -49,8 +52,11 @@ fn extending_a_chain_links_the_old_end_to_the_new_cluster() {
         .unwrap();
     let chain: [u32; 3] = [first, second, third];
     let mut walked = [0u32; 3];
-    for (slot, cluster) in walked.iter_mut().zip(volume.as_volume_mut().chain(first)) {
-        *slot = cluster.unwrap();
+    for (slot, cluster) in walked
+        .iter_mut()
+        .zip(volume.as_volume_mut().chain(Cluster::new(first)))
+    {
+        *slot = cluster.unwrap().0;
     }
     assert_eq!(walked, chain);
     assert_eq!(
@@ -106,16 +112,16 @@ fn a_bad_or_reserved_cluster_is_never_allocated() {
 fn every_entry_stores_without_disturbing_its_neighbors_across_the_table() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     for cluster in 2..CLUSTERS + 2 {
-        let entry = TableEntry::Next(2 + (cluster * 7) % CLUSTERS);
+        let entry = TableEntry::Next(Cluster::new(2 + (cluster * 7) % CLUSTERS));
         volume
             .as_volume_mut()
             .write_table_entry(cluster, entry)
             .unwrap();
     }
     for cluster in 2..CLUSTERS + 2 {
-        let entry = TableEntry::Next(2 + (cluster * 7) % CLUSTERS);
+        let entry = TableEntry::Next(Cluster::new(2 + (cluster * 7) % CLUSTERS));
         assert_eq!(
-            volume.as_volume_mut().table_entry(cluster),
+            volume.as_volume_mut().table_entry(Cluster::new(cluster)),
             Ok(entry),
             "cluster {cluster}"
         );
@@ -135,27 +141,27 @@ fn a_straddling_entry_rewrites_both_of_its_sectors() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     volume
         .as_volume_mut()
-        .write_table_entry(341, TableEntry::Next(0x123))
+        .write_table_entry(341, TableEntry::Next(Cluster::new(0x123)))
         .unwrap();
     volume
         .as_volume_mut()
-        .write_table_entry(340, TableEntry::Next(0x456))
+        .write_table_entry(340, TableEntry::Next(Cluster::new(0x456)))
         .unwrap();
     volume
         .as_volume_mut()
-        .write_table_entry(342, TableEntry::Next(0x789))
+        .write_table_entry(342, TableEntry::Next(Cluster::new(0x789)))
         .unwrap();
     assert_eq!(
-        volume.as_volume_mut().table_entry(341),
-        Ok(TableEntry::Next(0x123))
+        volume.as_volume_mut().table_entry(Cluster::new(341)),
+        Ok(TableEntry::Next(Cluster::new(0x123)))
     );
     assert_eq!(
-        volume.as_volume_mut().table_entry(340),
-        Ok(TableEntry::Next(0x456))
+        volume.as_volume_mut().table_entry(Cluster::new(340)),
+        Ok(TableEntry::Next(Cluster::new(0x456)))
     );
     assert_eq!(
-        volume.as_volume_mut().table_entry(342),
-        Ok(TableEntry::Next(0x789))
+        volume.as_volume_mut().table_entry(Cluster::new(342)),
+        Ok(TableEntry::Next(Cluster::new(0x789)))
     );
 }
 
@@ -167,7 +173,7 @@ fn only_a_data_cluster_has_an_entry_to_write() {
             volume
                 .as_volume_mut()
                 .write_table_entry(cluster, TableEntry::Free),
-            Err(ChainError::NotADataCluster(cluster))
+            Err(ChainError::NotADataCluster(Cluster::new(cluster)))
         );
     }
 }
@@ -181,13 +187,13 @@ fn freeing_a_chain_frees_every_cluster_and_counts_them() {
     assert_eq!(volume.as_volume_mut().deallocate_chain(5), Ok(4));
     for cluster in [5, 9, 6, 20] {
         assert_eq!(
-            volume.as_volume_mut().table_entry(cluster),
+            volume.as_volume_mut().table_entry(Cluster::new(cluster)),
             Ok(TableEntry::Free)
         );
     }
     assert_eq!(
-        volume.as_volume_mut().table_entry(30),
-        Ok(TableEntry::Next(31))
+        volume.as_volume_mut().table_entry(Cluster::new(30)),
+        Ok(TableEntry::Next(Cluster::new(31)))
     );
     assert_eq!(
         volume.as_volume_mut().count_free_clusters(),
@@ -203,7 +209,7 @@ fn a_cut_keeps_the_head_ends_it_and_frees_the_tail() {
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
         assert_eq!(volume.as_volume_mut().truncate_chain(5, keep), Ok(4 - keep));
         let mut kept = 0;
-        for cluster in volume.as_volume_mut().chain(5) {
+        for cluster in volume.as_volume_mut().chain(Cluster::new(5)) {
             cluster.unwrap();
             kept += 1;
         }
@@ -234,15 +240,23 @@ fn a_broken_chain_frees_what_precedes_the_break_and_reports_it() {
     assert_eq!(
         volume.as_volume_mut().deallocate_chain(5),
         Err(AllocationError::Chain(ChainError::Broken {
-            cluster: 9,
+            cluster: Cluster::new(9),
             entry: TableEntry::Bad
         }))
     );
-    assert_eq!(volume.as_volume_mut().table_entry(5), Ok(TableEntry::Free));
-    assert_eq!(volume.as_volume_mut().table_entry(9), Ok(TableEntry::Bad));
+    assert_eq!(
+        volume.as_volume_mut().table_entry(Cluster::new(5)),
+        Ok(TableEntry::Free)
+    );
+    assert_eq!(
+        volume.as_volume_mut().table_entry(Cluster::new(9)),
+        Ok(TableEntry::Bad)
+    );
     assert_eq!(
         volume.as_volume_mut().deallocate_chain(1),
-        Err(AllocationError::Chain(ChainError::NotADataCluster(1)))
+        Err(AllocationError::Chain(ChainError::NotADataCluster(
+            Cluster::new(1)
+        )))
     );
 }
 
@@ -255,11 +269,14 @@ fn a_looping_chain_is_freed_once_and_ends_at_the_cluster_it_already_freed() {
     assert_eq!(
         volume.as_volume_mut().deallocate_chain(5),
         Err(AllocationError::Chain(ChainError::Broken {
-            cluster: 5,
+            cluster: Cluster::new(5),
             entry: TableEntry::Free
         }))
     );
-    assert_eq!(volume.as_volume_mut().table_entry(9), Ok(TableEntry::Free));
+    assert_eq!(
+        volume.as_volume_mut().table_entry(Cluster::new(9)),
+        Ok(TableEntry::Free)
+    );
 }
 
 #[test]
@@ -274,9 +291,12 @@ fn a_refused_write_is_the_devices_error_and_a_failed_link_leaks_nothing() {
         Err(AllocationError::Chain(ChainError::Device(2)))
     );
     // The new cluster was marked and released again, and the chain it would have joined is intact.
-    assert_eq!(volume.as_volume_mut().table_entry(2), Ok(TableEntry::Free));
     assert_eq!(
-        volume.as_volume_mut().table_entry(341),
+        volume.as_volume_mut().table_entry(Cluster::new(2)),
+        Ok(TableEntry::Free)
+    );
+    assert_eq!(
+        volume.as_volume_mut().table_entry(Cluster::new(341)),
         Ok(TableEntry::EndOfChain)
     );
 }
@@ -310,14 +330,14 @@ fn a_chain_that_links_outside_the_volume_is_broken_and_left_alone() {
     image.set(5, 400);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     let broken = AllocationError::Chain(ChainError::Broken {
-        cluster: 5,
-        entry: TableEntry::Next(400),
+        cluster: Cluster::new(5),
+        entry: TableEntry::Next(Cluster::new(400)),
     });
     assert_eq!(volume.as_volume_mut().deallocate_chain(5), Err(broken));
     assert_eq!(volume.as_volume_mut().truncate_chain(5, 1), Err(broken));
     assert_eq!(
-        volume.as_volume_mut().table_entry(5),
-        Ok(TableEntry::Next(400))
+        volume.as_volume_mut().table_entry(Cluster::new(5)),
+        Ok(TableEntry::Next(Cluster::new(400)))
     );
 }
 
@@ -567,11 +587,11 @@ fn allocate_extend_cut_and_free(label: &str, mebibytes: usize, fat_type: FatType
     assert_eq!(freed, 28);
     lengths[0] = 12;
     assert_eq!(
-        volume.as_volume_mut().chain(first[0]).count() as u32,
+        volume.as_volume_mut().chain(Cluster::new(first[0])).count() as u32,
         lengths[0]
     );
     assert_eq!(
-        volume.as_volume_mut().chain(first[1]).count() as u32,
+        volume.as_volume_mut().chain(Cluster::new(first[1])).count() as u32,
         lengths[1]
     );
     volume.mark_clean().unwrap();
@@ -692,7 +712,13 @@ fn scrambled(label: &str, mebibytes: usize, fat_type: FatType) {
                     last.swap_remove(i);
                 } else {
                     chains[i].1 = keep.min(length);
-                    last[i] = volume.as_volume_mut().chain(first).last().unwrap().unwrap();
+                    last[i] = volume
+                        .as_volume_mut()
+                        .chain(Cluster::new(first))
+                        .last()
+                        .unwrap()
+                        .unwrap()
+                        .get();
                 }
             }
             _ => {}
@@ -707,7 +733,7 @@ fn scrambled(label: &str, mebibytes: usize, fat_type: FatType) {
     }
     for (first, length) in &chains {
         assert_eq!(
-            volume.as_volume_mut().chain(*first).count() as u32,
+            volume.as_volume_mut().chain(Cluster::new(*first)).count() as u32,
             *length,
             "{label}"
         );
@@ -769,7 +795,7 @@ fn a_full_volume_is_refused_and_every_cluster_comes_back() {
     );
     assert_eq!(volume.as_volume_mut().count_free_clusters().unwrap(), 0);
     assert_eq!(
-        volume.as_volume_mut().table_entry(last),
+        volume.as_volume_mut().table_entry(Cluster::new(last)),
         Ok(TableEntry::EndOfChain)
     );
     assert_eq!(
@@ -810,11 +836,14 @@ fn freeing_a_cluster_whose_entry_straddles_sectors_keeps_its_neighbors_link() {
     );
     let walked: Vec<u32> = volume
         .as_volume_mut()
-        .chain(second)
-        .map(Result::unwrap)
+        .chain(Cluster::new(second))
+        .map(|cluster| cluster.unwrap().get())
         .collect();
     assert_eq!(walked, [683, 684, 685, 686, 687]);
-    assert_eq!(volume.as_volume_mut().chain(first).count(), 400);
+    assert_eq!(
+        volume.as_volume_mut().chain(Cluster::new(first)).count(),
+        400
+    );
     volume.as_volume_mut().deallocate_chain(first).unwrap();
     volume.as_volume_mut().deallocate_chain(second).unwrap();
     volume.mark_clean().unwrap();
@@ -908,15 +937,15 @@ fn a_link_in_one_table_sector_is_one_write_for_each_copy() {
         );
     }
     assert_eq!(
-        volume.as_volume_mut().table_entry(254),
-        Ok(TableEntry::Next(255))
+        volume.as_volume_mut().table_entry(Cluster::new(254)),
+        Ok(TableEntry::Next(Cluster::new(255)))
     );
     assert_eq!(
-        volume.as_volume_mut().table_entry(255),
-        Ok(TableEntry::Next(256))
+        volume.as_volume_mut().table_entry(Cluster::new(255)),
+        Ok(TableEntry::Next(Cluster::new(256)))
     );
     assert_eq!(
-        volume.as_volume_mut().table_entry(256),
+        volume.as_volume_mut().table_entry(Cluster::new(256)),
         Ok(TableEntry::EndOfChain)
     );
     let image = volume.into_device();

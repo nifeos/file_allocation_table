@@ -188,7 +188,7 @@ fn a_directory_and_its_dot_entries_carry_the_creation_time() {
         .create_directory(DirectoryCluster::ROOT, "D")
         .unwrap();
     assert_eq!(readings.get(), 1);
-    let cluster = directory.first_cluster() as usize;
+    let cluster = directory.first_cluster().get() as usize;
     let image = volume.into_device();
     let want = packed(time.get());
     assert_eq!(fields(&image.bytes, ROOT), want);
