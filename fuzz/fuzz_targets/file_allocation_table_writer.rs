@@ -145,7 +145,7 @@ fuzz_target!(|data: &[u8]| {
     for op in operations.chunks(4).take(64) {
         let picked = name(op);
         let found = |volume: &mut WritableVolume<Image, Fed>, path: &str| -> Option<NamedEntry> {
-            volume.as_volume_mut().lookup(path).ok()
+            volume.get_mut().lookup(path).ok()
         };
         match op[0] % 8 {
             0 => {
@@ -206,7 +206,7 @@ fuzz_target!(|data: &[u8]| {
     // On a volume this crate formatted, the tree still walks and the shutdown bit is clean.
     if formatted && synced {
         let mut listed = 0;
-        for entry in volume.as_volume_mut().root_named_entries() {
+        for entry in volume.get_mut().root_named_entries() {
             entry.expect("a volume the writer changed still lists");
             listed += 1;
         }
@@ -216,7 +216,7 @@ fuzz_target!(|data: &[u8]| {
         );
         // FAT12 keeps no such bit; FAT16 and FAT32 must read clean after `mark_clean`.
         assert_ne!(
-            volume.as_volume_mut().is_clean().expect("the table reads"),
+            volume.get_mut().is_clean().expect("the table reads"),
             Some(false)
         );
     }
