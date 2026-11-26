@@ -3,6 +3,25 @@
 Dates are UTC. One line per release, what changed and why, so a reader of the diff has the
 sentence beside it.
 
+## Unreleased
+
+- Breaking: `ShortEntry::attributes` and `NamedEntry::attributes`, the stored byte, are gone from
+  the interface. `user_attributes` on both gives the `Attributes` set, which now has `|`, `&` and
+  `!`.
+- Breaking: a cluster number is a `Cluster`, not a bare `u32`, so it cannot be passed where a
+  sector index or a count is wanted. A `DirectoryCluster` converts into one.
+- Breaking: both image builders take and report sectors as `u64`, and a refused fill says why
+  with `FillError`. A format too large for the widths it writes is `FormatError::TooLarge`.
+- Breaking: `WritableVolume` no longer dereferences to `Volume`; `as_volume` and
+  `as_volume_mut` lend it.
+- A `Volume`, `WritableVolume`, `Directory` and `FileReader` take the length of their sector
+  buffer as a const parameter, 4,096 bytes by default. `open_with_buffer` opens with 512, 1,024 or
+  2,048, and refuses a device whose sectors are longer with `ReadError::SectorLargerThanBuffer`.
+- The crate page carries the README's example, every example shows its errors with `?`, and every
+  fallible public function has an `# Errors` section, which clippy now asks for.
+- The README states the sizes the types have, and a test holds each figure to `size_of`.
+- Six value types derive `Hash`, and the manifest names its documentation.
+
 ## 0.1.0-pre.3
 
 - Two match arms that could never run are gone. A new entry now carries its name as one value, either a plain short name or a long name, and the table write that links a new cluster computes each entry's place once for every copy of the table. New tests cover the full-volume and corrupt-entry refusals, names outside Latin-1, and the hidden-sector count of a format.
