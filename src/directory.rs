@@ -351,10 +351,10 @@ impl Source {
 /// of the region or chain. A chain is walked with [`Volume::chain`]'s bound, so the read ends
 /// whatever the table holds. After an error it yields nothing more.
 #[derive(Debug)]
-pub struct Directory<'v, D> {
-    volume: &'v mut Volume<D>,
+pub struct Directory<'v, D, const BUFFER_BYTES: usize = { SectorSize::MAXIMUM_BYTES }> {
+    volume: &'v mut Volume<D, BUFFER_BYTES>,
     source: Source,
-    buffer: [u8; SectorSize::MAXIMUM_BYTES],
+    buffer: [u8; BUFFER_BYTES],
     /// The byte offset of the next slot in `buffer`; one sector or more means a sector is due.
     at: usize,
     done: bool,
@@ -364,23 +364,30 @@ pub struct Directory<'v, D> {
     index: u32,
 }
 
-impl<'v, D: SectorDevice> Directory<'v, D> {
+impl<'v, D: SectorDevice, const BUFFER_BYTES: usize> Directory<'v, D, BUFFER_BYTES> {
     /// The root directory of `volume`.
-    pub(crate) fn root(volume: &'v mut Volume<D>) -> Directory<'v, D> {
+    pub(crate) fn root(volume: &'v mut Volume<D, BUFFER_BYTES>) -> Directory<'v, D, BUFFER_BYTES> {
         let source = Source::root(volume.boot_sector());
         Directory::new(volume, source, 0)
     }
 
     /// The directory whose chain starts at `first`.
-    pub(crate) fn chain(volume: &'v mut Volume<D>, first: u32) -> Directory<'v, D> {
+    pub(crate) fn chain(
+        volume: &'v mut Volume<D, BUFFER_BYTES>,
+        first: u32,
+    ) -> Directory<'v, D, BUFFER_BYTES> {
         Directory::new(volume, Source::chain(first), first)
     }
 
-    fn new(volume: &'v mut Volume<D>, source: Source, first: u32) -> Directory<'v, D> {
+    fn new(
+        volume: &'v mut Volume<D, BUFFER_BYTES>,
+        source: Source,
+        first: u32,
+    ) -> Directory<'v, D, BUFFER_BYTES> {
         Directory {
             volume,
             source,
-            buffer: [0; SectorSize::MAXIMUM_BYTES],
+            buffer: [0; BUFFER_BYTES],
             at: SectorSize::MAXIMUM_BYTES,
             done: false,
             first,
@@ -452,7 +459,7 @@ impl<'v, D: SectorDevice> Directory<'v, D> {
     }
 }
 
-impl<D: SectorDevice> Iterator for Directory<'_, D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Iterator for Directory<'_, D, BUFFER_BYTES> {
     type Item = Result<DirectoryEntry, ChainError<D::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {

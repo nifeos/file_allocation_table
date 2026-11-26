@@ -188,7 +188,7 @@ impl WriterState {
     }
 }
 
-impl<D: WritableSectorDevice> LinksMut for Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> LinksMut for Volume<D, BUFFER_BYTES> {
     fn set_table_entry(
         &mut self,
         cluster: u32,
@@ -210,7 +210,7 @@ impl<D: WritableSectorDevice> LinksMut for Volume<D> {
     }
 }
 
-impl<D: WritableSectorDevice> Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// Read volume-relative `sector` into the volume's own buffer, which the cache no longer
     /// describes.
     fn read_into_buffer(&mut self, sector: u32) -> Result<(), ChainError<D::Error>> {
@@ -482,7 +482,7 @@ impl<D: WritableSectorDevice> Volume<D> {
     }
 }
 
-impl<D: crate::sector::SectorDevice> Volume<D> {
+impl<D: crate::sector::SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// The clean-shutdown bit of table entry 1, or `None` for FAT12, which has none.
     fn clean_bit(&self) -> Option<u32> {
         match self.boot.file_allocation_table_type() {
@@ -537,7 +537,7 @@ impl<D: crate::sector::SectorDevice> Volume<D> {
             return Ok(None);
         };
         let size = self.boot.sector_size().bytes();
-        let mut buffer = [0u8; crate::sector::SectorSize::MAXIMUM_BYTES];
+        let mut buffer = [0u8; BUFFER_BYTES];
         self.device
             .read_sector(u64::from(sector), &mut buffer[..size])
             .map_err(ChainError::Device)?;

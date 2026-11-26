@@ -163,10 +163,18 @@ fn every_device_level_error_has_its_own_message_and_its_source() {
             device: SectorSize::Bytes512,
             volume: SectorSize::Bytes4096,
         },
+        ReadError::SectorLargerThanBuffer {
+            device: SectorSize::Bytes4096,
+            buffer_bytes: 512,
+        },
     ]);
     assert_eq!(
         reads[2],
         "the device has 512-byte sectors and the volume 4096-byte sectors"
+    );
+    assert_eq!(
+        reads[3],
+        "the device has 4096-byte sectors and the volume's buffer holds 512 bytes"
     );
     assert_eq!(
         source_message(&ReadError::Device(DeviceGone)).as_deref(),
@@ -181,6 +189,11 @@ fn every_device_level_error_has_its_own_message_and_its_source() {
         volume: SectorSize::Bytes512,
     };
     assert!(mismatch.source().is_none());
+    let larger = ReadError::<DeviceGone>::SectorLargerThanBuffer {
+        device: SectorSize::Bytes4096,
+        buffer_bytes: 512,
+    };
+    assert!(larger.source().is_none());
 
     messages(&[
         MasterBootRecordReadError::Device(DeviceGone),

@@ -123,7 +123,7 @@ impl NamedEntry {
     }
 }
 
-impl<D: WritableSectorDevice> Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// **Set `entry`'s read-only, hidden, system and archive bits to exactly `attributes`**, and
     /// return the entry as stored. The directory bit and every other bit stay. Refuses the volume
     /// label, `.` and `..`.

@@ -143,6 +143,14 @@ pub enum ReadError<E> {
         /// What the volume's `BPB` states.
         volume: SectorSize,
     },
+    /// The device's sectors are larger than the buffer the volume was opened with (see
+    /// [`crate::Volume::open_with_buffer`]), so no sector would fit in it. Nothing was read.
+    SectorLargerThanBuffer {
+        /// What the device reports.
+        device: SectorSize,
+        /// The buffer's length in bytes.
+        buffer_bytes: usize,
+    },
 }
 
 /// **A parsed boot sector**: the volume's geometry, checked to be self-consistent.

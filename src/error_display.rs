@@ -60,6 +60,15 @@ impl<E> fmt::Display for ReadError<E> {
                 device.bytes(),
                 volume.bytes()
             ),
+            ReadError::SectorLargerThanBuffer {
+                device,
+                buffer_bytes,
+            } => write!(
+                f,
+                "the device has {}-byte sectors and the volume's buffer holds {} bytes",
+                device.bytes(),
+                buffer_bytes
+            ),
         }
     }
 }
@@ -69,7 +78,7 @@ impl<E: Error + 'static> Error for ReadError<E> {
         match self {
             ReadError::Device(error) => Some(error),
             ReadError::Refused(error) => Some(error),
-            ReadError::SectorSizeMismatch { .. } => None,
+            ReadError::SectorSizeMismatch { .. } | ReadError::SectorLargerThanBuffer { .. } => None,
         }
     }
 }

@@ -89,7 +89,7 @@ impl NamedEntry {
     }
 }
 
-impl<D: SectorDevice> Volume<D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// **The entry called `name` in `directory`**, or `Ok(None)`.
     ///
     /// # Errors

@@ -25,7 +25,7 @@ pub(crate) const MOST_SLOTS: u32 = 65_536;
 /// The first name byte of a free slot.
 pub(crate) const FREE: u8 = 0xE5;
 
-impl<D: WritableSectorDevice> Medium for Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Medium for Volume<D, BUFFER_BYTES> {
     fn read_data(&mut self, sector: u32, out: &mut [u8]) -> Result<(), ChainError<D::Error>> {
         self.read_sector(sector, out)
     }
@@ -63,7 +63,7 @@ pub(crate) fn short_name_bytes(name: &str) -> Option<[u8; 11]> {
     legal.then_some(bytes)
 }
 
-impl<D: SectorDevice> Volume<D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// The volume-relative sector and byte offset of slot `index` of directory `directory` (0 for
     /// the root), or `None` when the directory has no such slot.
     pub(crate) fn slot_location(
@@ -135,7 +135,7 @@ impl<D: SectorDevice> Volume<D> {
             return Ok(None);
         };
         let size = self.boot.sector_size().bytes();
-        let mut buffer = [0u8; SectorSize::MAXIMUM_BYTES];
+        let mut buffer = [0u8; BUFFER_BYTES];
         self.read_sector(sector, &mut buffer[..size])?;
         let mut slot = [0u8; SLOT_BYTES];
         slot.copy_from_slice(&buffer[offset..offset + SLOT_BYTES]);
@@ -168,7 +168,7 @@ impl<D: SectorDevice> Volume<D> {
     }
 }
 
-impl<D: WritableSectorDevice> Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// Replace slot `index` of `directory` with `slot`, leaving the rest of its sector. Returns
     /// `false` when the directory has no such slot.
     pub(crate) fn write_slot(
@@ -182,7 +182,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         };
         self.begin_change()?;
         let size = self.boot.sector_size().bytes();
-        let mut buffer = [0u8; SectorSize::MAXIMUM_BYTES];
+        let mut buffer = [0u8; BUFFER_BYTES];
         self.read_sector(sector, &mut buffer[..size])?;
         buffer[offset..offset + SLOT_BYTES].copy_from_slice(slot);
         self.write_data(sector, &buffer[..size])?;
@@ -232,7 +232,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         let start = boot
             .cluster_first_sector(cluster)
             .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
-        let zeros = [0u8; SectorSize::MAXIMUM_BYTES];
+        let zeros = [0u8; BUFFER_BYTES];
         for sector in 0..boot.sectors_per_cluster() {
             self.write_data(start + sector, &zeros[..boot.sector_size().bytes()])?;
         }
@@ -311,8 +311,8 @@ impl<D: WritableSectorDevice> Volume<D> {
 /// that changes the size or the first cluster it rewrites the directory entry, so the entry is
 /// true between calls; [`crate::WritableVolume::mark_clean`] writes the volume's own hints and clears the dirty bit.
 #[derive(Debug)]
-pub struct FileWriter<'v, D, C> {
-    volume: &'v mut Volume<D>,
+pub struct FileWriter<'v, D, C, const BUFFER_BYTES: usize = { SectorSize::MAXIMUM_BYTES }> {
+    volume: &'v mut Volume<D, BUFFER_BYTES>,
     clock: &'v mut C,
     place: EntryPlace,
     /// The short entry the writer was opened from, which its slot held at the open. From then on
@@ -323,14 +323,16 @@ pub struct FileWriter<'v, D, C> {
     failed: bool,
 }
 
-impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
+impl<'v, D: WritableSectorDevice, C: Clock, const BUFFER_BYTES: usize>
+    FileWriter<'v, D, C, BUFFER_BYTES>
+{
     /// Open `entry` for writing at its start, stamping with `clock`. Refuses a directory, the
     /// volume label and an entry its slot no longer holds.
     pub(crate) fn new(
-        volume: &'v mut Volume<D>,
+        volume: &'v mut Volume<D, BUFFER_BYTES>,
         clock: &'v mut C,
         entry: &NamedEntry,
-    ) -> Result<FileWriter<'v, D, C>, OpenError<D::Error>> {
+    ) -> Result<FileWriter<'v, D, C, BUFFER_BYTES>, OpenError<D::Error>> {
         OpenError::check(volume, entry)?;
         Ok(FileWriter {
             volume,
@@ -423,7 +425,7 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
         self.tick()?;
         let before = (self.state.first_cluster, self.state.size_bytes);
         let boot = self.volume.boot;
-        let mut scratch = [0u8; SectorSize::MAXIMUM_BYTES];
+        let mut scratch = [0u8; BUFFER_BYTES];
         self.volume.begin_change()?;
         let written = self
             .state
@@ -467,8 +469,8 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
         let resume = self.state.position;
         if length > self.state.size_bytes {
             let boot = self.volume.boot;
-            let zeros = [0u8; SectorSize::MAXIMUM_BYTES];
-            let mut scratch = [0u8; SectorSize::MAXIMUM_BYTES];
+            let zeros = [0u8; BUFFER_BYTES];
+            let mut scratch = [0u8; BUFFER_BYTES];
             self.volume.begin_change()?;
             self.state.seek(u32::MAX);
             let passes = (length - self.state.size_bytes) as usize / zeros.len() + 2;

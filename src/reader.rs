@@ -73,11 +73,11 @@ pub enum ChainError<E> {
 /// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug)]
-pub struct Volume<D> {
+pub struct Volume<D, const BUFFER_BYTES: usize = { SectorSize::MAXIMUM_BYTES }> {
     pub(crate) device: D,
     pub(crate) boot: BootSector,
     pub(crate) cached: Option<u32>,
-    pub(crate) buffer: [u8; SectorSize::MAXIMUM_BYTES],
+    pub(crate) buffer: [u8; BUFFER_BYTES],
     /// What the writer keeps between calls; a reader never touches it.
     pub(crate) writer: WriterState,
     /// The time the operation under way stamps: packed from the clock once per operation.
@@ -161,16 +161,95 @@ impl<D: SectorDevice> Volume<D> {
     /// # Errors
     ///
     /// As [`Volume::open`], with the boot sector read as `options` say.
-    pub fn open_with(
+    pub fn open_with(device: D, options: OpenOptions) -> Result<Volume<D>, ReadError<D::Error>> {
+        Volume::open_with_buffer(device, options)
+    }
+}
+
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
+    /// **Open the volume on `device` as `options` say, with a buffer of `BUFFER_BYTES`**: the
+    /// way to open a volume whose buffers are smaller than the default of 4,096 bytes, the
+    /// largest sector size. A device of 512-byte sectors needs only 512, and a `Volume`, a
+    /// [`Directory`] and a [`FileReader`](crate::FileReader) each hold one buffer of this length.
+    ///
+    /// `BUFFER_BYTES` must be 512, 1,024, 2,048 or 4,096, or the call does not compile.
+    ///
+    /// # Errors
+    ///
+    /// [`ReadError::SectorLargerThanBuffer`](crate::ReadError::SectorLargerThanBuffer) when the
+    /// device's sectors are longer than `BUFFER_BYTES`, before anything is read, and otherwise as
+    /// [`Volume::open_with`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use file_allocation_table::{
+    ///     NoClock, OpenOptions, ReadError, SectorDevice, SectorSize, Volume, VolumeLayout,
+    ///     VolumeLayoutOptions,
+    /// };
+    ///
+    /// struct Image(VolumeLayout);
+    /// impl SectorDevice for Image {
+    ///     type Error = core::convert::Infallible;
+    ///     fn sector_size(&self) -> SectorSize {
+    ///         SectorSize::Bytes512
+    ///     }
+    ///     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    ///         if self.0.fill_sector(index, buffer).is_err() {
+    ///             buffer.fill(0);
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let layout = VolumeLayout::new(VolumeLayoutOptions::new(70_000 * 8 + 2_000), &mut NoClock)?;
+    /// let small = Volume::<_, 512>::open_with_buffer(Image(layout), OpenOptions::new())?;
+    /// assert_eq!(small.boot_sector().sector_size(), SectorSize::Bytes512);
+    /// // The buffer is the only part that shrinks: 3,584 bytes fewer than the default.
+    /// assert_eq!(size_of::<Volume<Image, 512>>() + 3_584, size_of::<Volume<Image>>());
+    /// # Ok::<(), Box<dyn core::error::Error>>(())
+    /// ```
+    ///
+    /// A buffer of any other length does not compile:
+    ///
+    /// ```compile_fail
+    /// # use file_allocation_table::{OpenOptions, SectorDevice, SectorSize, Volume};
+    /// # struct Blank;
+    /// # impl SectorDevice for Blank {
+    /// #     type Error = core::convert::Infallible;
+    /// #     fn sector_size(&self) -> SectorSize {
+    /// #         SectorSize::Bytes512
+    /// #     }
+    /// #     fn read_sector(&mut self, _: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    /// #         buffer.fill(0);
+    /// #         Ok(())
+    /// #     }
+    /// # }
+    /// let _ = Volume::<_, 600>::open_with_buffer(Blank, OpenOptions::new());
+    /// ```
+    pub fn open_with_buffer(
         mut device: D,
         options: OpenOptions,
-    ) -> Result<Volume<D>, ReadError<D::Error>> {
+    ) -> Result<Volume<D, BUFFER_BYTES>, ReadError<D::Error>> {
+        const {
+            assert!(
+                matches!(BUFFER_BYTES, 512 | 1024 | 2048 | 4096),
+                "a volume's buffer holds 512, 1024, 2048 or 4096 bytes"
+            );
+        }
+        let device_sector = device.sector_size();
+        if device_sector.bytes() > BUFFER_BYTES {
+            return Err(ReadError::SectorLargerThanBuffer {
+                device: device_sector,
+                buffer_bytes: BUFFER_BYTES,
+            });
+        }
         let boot = BootSector::read_with(&mut device, options)?;
         Ok(Volume {
             device,
             boot,
             cached: None,
-            buffer: [0; SectorSize::MAXIMUM_BYTES],
+            buffer: [0; BUFFER_BYTES],
             writer: WriterState::new(),
             stamp: Stamp::ZERO,
             slot_cursor: None,
@@ -271,7 +350,7 @@ impl<D: SectorDevice> Volume<D> {
     /// entry. It ends with an error at an entry that cannot continue a chain, at a cluster the
     /// volume does not have, or once it would yield more clusters than the volume holds, which
     /// only a loop can make. After an error it yields nothing more.
-    pub fn chain(&mut self, first_cluster: Cluster) -> Chain<'_, D> {
+    pub fn chain(&mut self, first_cluster: Cluster) -> Chain<'_, D, BUFFER_BYTES> {
         Chain {
             volume: self,
             walk: Walk::new(first_cluster.0),
@@ -279,23 +358,26 @@ impl<D: SectorDevice> Volume<D> {
     }
 
     /// **The root directory**: a region of FAT12 and FAT16, a chain of FAT32.
-    pub fn root_directory(&mut self) -> Directory<'_, D> {
+    pub fn root_directory(&mut self) -> Directory<'_, D, BUFFER_BYTES> {
         Directory::root(self)
     }
 
     /// **The root directory as named entries**: each short entry with its checked long name.
-    pub fn root_named_entries(&mut self) -> NamedEntries<'_, D> {
+    pub fn root_named_entries(&mut self) -> NamedEntries<'_, D, BUFFER_BYTES> {
         NamedEntries::new(self.root_directory())
     }
 
     /// **The directory `directory`, as named entries.**
-    pub fn named_entries(&mut self, directory: DirectoryCluster) -> NamedEntries<'_, D> {
+    pub fn named_entries(
+        &mut self,
+        directory: DirectoryCluster,
+    ) -> NamedEntries<'_, D, BUFFER_BYTES> {
         NamedEntries::new(self.directory(directory))
     }
 
     /// **The directory `directory`**: the root for [`DirectoryCluster::ROOT`], else the chain
     /// from its first cluster.
-    pub fn directory(&mut self, directory: DirectoryCluster) -> Directory<'_, D> {
+    pub fn directory(&mut self, directory: DirectoryCluster) -> Directory<'_, D, BUFFER_BYTES> {
         if directory == DirectoryCluster::ROOT {
             Directory::root(self)
         } else {
@@ -371,7 +453,7 @@ pub(crate) trait Links {
     fn table_entry(&mut self, cluster: u32) -> Result<TableEntry, ChainError<Self::Error>>;
 }
 
-impl<D: SectorDevice> Links for Volume<D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Links for Volume<D, BUFFER_BYTES> {
     type Error = D::Error;
 
     fn clusters(&self) -> u32 {
@@ -459,12 +541,12 @@ impl Walk {
 ///
 /// It yields at most `clusters()` clusters and then ends, whatever the table holds.
 #[derive(Debug)]
-pub struct Chain<'v, D> {
-    volume: &'v mut Volume<D>,
+pub struct Chain<'v, D, const BUFFER_BYTES: usize = { SectorSize::MAXIMUM_BYTES }> {
+    volume: &'v mut Volume<D, BUFFER_BYTES>,
     walk: Walk,
 }
 
-impl<D: SectorDevice> Iterator for Chain<'_, D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Iterator for Chain<'_, D, BUFFER_BYTES> {
     type Item = Result<Cluster, ChainError<D::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {

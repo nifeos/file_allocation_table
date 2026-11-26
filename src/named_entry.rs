@@ -151,8 +151,8 @@ impl NamedEntry {
 /// [`Volume::root_named_entries`]: crate::Volume::root_named_entries
 /// [`Volume::named_entries`]: crate::Volume::named_entries
 #[derive(Debug)]
-pub struct NamedEntries<'v, D> {
-    directory: Directory<'v, D>,
+pub struct NamedEntries<'v, D, const BUFFER_BYTES: usize = { crate::SectorSize::MAXIMUM_BYTES }> {
+    directory: Directory<'v, D, BUFFER_BYTES>,
     joiner: Joiner,
 }
 
@@ -207,9 +207,11 @@ impl Joiner {
     }
 }
 
-impl<'v, D> NamedEntries<'v, D> {
+impl<'v, D, const BUFFER_BYTES: usize> NamedEntries<'v, D, BUFFER_BYTES> {
     /// Read `directory` as named entries.
-    pub(crate) const fn new(directory: Directory<'v, D>) -> NamedEntries<'v, D> {
+    pub(crate) const fn new(
+        directory: Directory<'v, D, BUFFER_BYTES>,
+    ) -> NamedEntries<'v, D, BUFFER_BYTES> {
         NamedEntries {
             directory,
             joiner: Joiner::new(),
@@ -226,7 +228,7 @@ impl<'v, D> NamedEntries<'v, D> {
 /// the read.
 pub(crate) type JoinedSlot<E> = Result<(u32, Slot, Option<NamedEntry>), ChainError<E>>;
 
-impl<D: SectorDevice> NamedEntries<'_, D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> NamedEntries<'_, D, BUFFER_BYTES> {
     /// **The next slot, free and end slots included**, with the named entry a short slot
     /// completes. It ends as [`Directory::advance_slot`] ends.
     pub(crate) fn advance_slot(&mut self) -> Option<JoinedSlot<D::Error>> {
@@ -244,7 +246,7 @@ impl<D: SectorDevice> NamedEntries<'_, D> {
     }
 }
 
-impl<D: SectorDevice> Iterator for NamedEntries<'_, D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Iterator for NamedEntries<'_, D, BUFFER_BYTES> {
     type Item = Result<NamedEntry, ChainError<D::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {

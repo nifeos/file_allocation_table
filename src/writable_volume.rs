@@ -62,8 +62,8 @@ use crate::write_cursor::WriteError;
 /// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug)]
-pub struct WritableVolume<D, C> {
-    volume: Volume<D>,
+pub struct WritableVolume<D, C, const BUFFER_BYTES: usize = { crate::SectorSize::MAXIMUM_BYTES }> {
+    volume: Volume<D, BUFFER_BYTES>,
     clock: C,
 }
 
@@ -87,8 +87,26 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
         clock: C,
         options: OpenOptions,
     ) -> Result<WritableVolume<D, C>, crate::ReadError<D::Error>> {
+        WritableVolume::open_with_buffer(device, clock, options)
+    }
+}
+
+impl<D: WritableSectorDevice, C: Clock, const BUFFER_BYTES: usize>
+    WritableVolume<D, C, BUFFER_BYTES>
+{
+    /// **Open the volume on `device` for writing as `options` say, with a buffer of
+    /// `BUFFER_BYTES`**, stamping with `clock`; see [`Volume::open_with_buffer`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Volume::open_with_buffer`].
+    pub fn open_with_buffer(
+        device: D,
+        clock: C,
+        options: OpenOptions,
+    ) -> Result<WritableVolume<D, C, BUFFER_BYTES>, crate::ReadError<D::Error>> {
         Ok(WritableVolume {
-            volume: Volume::open_with(device, options)?,
+            volume: Volume::open_with_buffer(device, options)?,
             clock,
         })
     }
@@ -99,19 +117,19 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     }
 
     /// Give the volume back without its clock, for reading.
-    pub fn into_volume(self) -> Volume<D> {
+    pub fn into_volume(self) -> Volume<D, BUFFER_BYTES> {
         self.volume
     }
 
     /// **Lend the volume for reading.** The volume's own methods take `&mut self` where they read
     /// the device; [`Self::as_volume_mut`] lends it for those.
-    pub const fn as_volume(&self) -> &Volume<D> {
+    pub const fn as_volume(&self) -> &Volume<D, BUFFER_BYTES> {
         &self.volume
     }
 
     /// **Lend the volume for reading through the device**: a lookup, a listing or a file reader.
     /// A `Volume` has no write method, so nothing done through it bypasses the clock.
-    pub const fn as_volume_mut(&mut self) -> &mut Volume<D> {
+    pub const fn as_volume_mut(&mut self) -> &mut Volume<D, BUFFER_BYTES> {
         &mut self.volume
     }
 
@@ -349,7 +367,7 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     pub fn open_file_writer(
         &mut self,
         entry: &NamedEntry,
-    ) -> Result<FileWriter<'_, D, C>, OpenError<D::Error>> {
+    ) -> Result<FileWriter<'_, D, C, BUFFER_BYTES>, OpenError<D::Error>> {
         FileWriter::new(&mut self.volume, &mut self.clock, entry)
     }
 }

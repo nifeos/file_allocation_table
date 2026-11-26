@@ -41,8 +41,8 @@ impl<E> From<ChainError<E>> for OpenError<E> {
 impl<E> OpenError<E> {
     /// Why `entry` cannot be opened as a file on `volume`, or `Ok` when it can: it is a file, and
     /// its slot still holds it.
-    pub(crate) fn check<D: SectorDevice<Error = E>>(
-        volume: &mut Volume<D>,
+    pub(crate) fn check<D: SectorDevice<Error = E>, const BUFFER_BYTES: usize>(
+        volume: &mut Volume<D, BUFFER_BYTES>,
         entry: &NamedEntry,
     ) -> Result<(), OpenError<E>> {
         if entry.is_directory() {
@@ -201,22 +201,22 @@ impl FileCursor {
 /// device read per sector it touches, plus the table reads the chain walk needs. A seek backwards
 /// walks the chain again from its start, bounded by the volume's cluster count.
 #[derive(Debug)]
-pub struct FileReader<'v, D> {
-    volume: &'v mut Volume<D>,
+pub struct FileReader<'v, D, const BUFFER_BYTES: usize = { SectorSize::MAXIMUM_BYTES }> {
+    volume: &'v mut Volume<D, BUFFER_BYTES>,
     cursor: FileCursor,
-    buffer: [u8; SectorSize::MAXIMUM_BYTES],
+    buffer: [u8; BUFFER_BYTES],
 }
 
-impl<'v, D: SectorDevice> FileReader<'v, D> {
+impl<'v, D: SectorDevice, const BUFFER_BYTES: usize> FileReader<'v, D, BUFFER_BYTES> {
     pub(crate) fn new(
-        volume: &'v mut Volume<D>,
+        volume: &'v mut Volume<D, BUFFER_BYTES>,
         first_cluster: u32,
         size: u32,
-    ) -> FileReader<'v, D> {
+    ) -> FileReader<'v, D, BUFFER_BYTES> {
         FileReader {
             volume,
             cursor: FileCursor::new(first_cluster, size),
-            buffer: [0; SectorSize::MAXIMUM_BYTES],
+            buffer: [0; BUFFER_BYTES],
         }
     }
 
@@ -290,7 +290,7 @@ impl<'v, D: SectorDevice> FileReader<'v, D> {
     }
 }
 
-impl<D: SectorDevice> Volume<D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// **Open the file `entry` names for reading.**
     ///
     /// Refuses a directory, the volume label, and an entry its directory slot no longer holds
@@ -308,7 +308,7 @@ impl<D: SectorDevice> Volume<D> {
     pub fn open_file_reader(
         &mut self,
         entry: &NamedEntry,
-    ) -> Result<FileReader<'_, D>, OpenError<D::Error>> {
+    ) -> Result<FileReader<'_, D, BUFFER_BYTES>, OpenError<D::Error>> {
         OpenError::check(self, entry)?;
         Ok(FileReader::new(
             self,
