@@ -31,7 +31,7 @@ const DIRECTORY_ENTRY_BYTES: usize = 32;
 
 /// Why a volume could not be laid out. Every one of these is a refusal before any byte is written,
 /// which is the only kind of refusal worth making about a disk.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum LayoutError {
     /// **Not FAT32** (the 32-bit file allocation table, "FAT: General Overview of On-Disk Format"
@@ -64,7 +64,7 @@ pub enum LayoutError {
 const NO_NAME: [u8; 11] = *b"NO NAME    ";
 
 /// The one file a layout holds at `EFI\BOOT\<name>`, checked when it was named.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct LayoutFile {
     /// The 8.3 name, or the alias of `long_name`.
     name: [u8; 11],
@@ -80,7 +80,7 @@ struct LayoutFile {
 /// Without a label, the boot sector holds `NO NAME` and the root has no volume-label entry, which
 /// every reader takes as no label. Without a file, the layout is an empty FAT32 volume: a root
 /// directory and nothing else.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VolumeLayoutOptions {
     total_sectors: u64,
     hidden_sectors: u64,
@@ -190,7 +190,7 @@ impl VolumeLayoutOptions {
 /// // then the file's own bytes, contiguous, at this LBA:
 /// assert_eq!(volume.file_first_sector(), volume.metadata_sectors());
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VolumeLayout {
     total_sectors: u32,
     hidden_sectors: u32,

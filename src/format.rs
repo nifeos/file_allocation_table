@@ -82,7 +82,7 @@ pub enum FillError {
 /// type follows from the count. A named cluster size,
 /// [`FormatOptions::with_sectors_per_cluster`], replaces the table, and the type then follows from
 /// the count: one sector to the cluster is the explicit choice of the smallest table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FormatOptions {
     bytes_per_sector: SectorSize,
     total_sectors: u64,
@@ -171,7 +171,7 @@ pub(crate) fn label_from_bytes(bytes: &[u8]) -> Option<[u8; 11]> {
 }
 
 /// **A volume's measurements**, from its size alone. Every field is derived by [`Geometry::new`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Geometry {
     pub(crate) kind: FileAllocationTableType,
     pub(crate) bytes_per_sector: SectorSize,
@@ -439,7 +439,7 @@ pub(crate) fn by_volume_size(
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FormatPlan {
     geometry: Geometry,
     volume_id: u32,

@@ -53,7 +53,7 @@ const fn is_short_punctuation(b: u8) -> bool {
 
 /// **A long name, checked and held as UCS-2 units.** Only [`LongName::from_units`] makes one, so
 /// a value of this type is a name the specification admits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct LongName {
     units: [u16; MAXIMUM_CODE_UNITS],
     unit_count: usize,

@@ -1,8 +1,8 @@
 //! The general format's sizing at the edges of each type, the sectors it writes, and its refusals.
 
 use super::*;
-use crate::{Cluster, NoClock};
 use crate::boot_sector::BootSector;
+use crate::{Cluster, NoClock};
 
 fn options(sectors: u32) -> FormatOptions {
     FormatOptions::new(SectorSize::Bytes512, u64::from(sectors))

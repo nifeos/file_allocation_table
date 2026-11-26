@@ -16,7 +16,7 @@ use crate::time::CivilDateTime;
 
 /// **A directory entry with its names**: the short entry, and the long name when the entry has one
 /// that passed its checks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NamedEntry {
     short: ShortEntry,
     long_name: Result<Option<LongFileName>, LongFileNameError>,
@@ -25,7 +25,7 @@ pub struct NamedEntry {
 
 /// **Where an entry sits**: its directory's first cluster (0 for the root), the index of the
 /// first slot of its long-name run, and the index of its short slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct EntryPlace {
     pub(crate) directory: u32,
     pub(crate) first_slot: u32,
