@@ -293,7 +293,7 @@ impl Source {
                 next: first_sector,
                 end: first_sector + sectors,
             },
-            RootDirectory::Cluster(first) => Source::chain(first),
+            RootDirectory::Cluster(first) => Source::chain(first.get()),
         }
     }
 

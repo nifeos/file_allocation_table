@@ -152,7 +152,10 @@ fn a_64_mebibyte_volume_mkfs_fat_formatted_is_fat32_with_its_reserved_pointers()
     );
     assert_eq!(boot.clusters(), 129_022);
     assert_eq!(boot.reserved_sectors(), 32);
-    assert_eq!(boot.root_directory(), RootDirectory::Cluster(2));
+    assert_eq!(
+        boot.root_directory(),
+        RootDirectory::Cluster(Cluster::new(2))
+    );
     assert_eq!(boot.first_data_sector(), 32 + 2 * 1009);
     assert_eq!(boot.file_system_information_sector(), Some(1));
     assert_eq!(boot.backup_boot_sector(), Some(6));
@@ -208,7 +211,10 @@ fn the_small_fat32_reading_takes_a_fat32_layout_under_the_floor_as_fat32() {
         FileAllocationTableType::Fat32
     );
     assert!(boot.clusters() < FAT32_MINIMUM_CLUSTERS);
-    assert_eq!(boot.root_directory(), RootDirectory::Cluster(2));
+    assert_eq!(
+        boot.root_directory(),
+        RootDirectory::Cluster(Cluster::new(2))
+    );
     // Two 512-sector tables after 32 reserved sectors: one cluster under the floor, and a single
     // cluster, both FAT32.
     for clusters in [65_524, 1] {
@@ -505,7 +511,7 @@ fn fat32s_own_fields_are_checked() {
         parse(&with(&base, 44, &70_001u32.to_le_bytes()))
             .unwrap()
             .root_directory(),
-        RootDirectory::Cluster(70_001)
+        RootDirectory::Cluster(Cluster::new(70_001))
     );
     // Mirroring on: the low bits mean nothing.
     assert_eq!(

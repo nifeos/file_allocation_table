@@ -625,7 +625,7 @@ fn a_directory_stops_growing_at_65536_entries() {
         }
         assert_eq!(grown, wanted);
         let first = match volume.boot.root_directory() {
-            crate::RootDirectory::Cluster(root) => root,
+            crate::RootDirectory::Cluster(root) => root.get(),
             crate::RootDirectory::Region { .. } => unreachable!("a FAT32 root is a chain"),
         };
         assert_eq!(volume.chain(Cluster::new(first)).count() as u64, wanted);
@@ -662,7 +662,7 @@ fn a_fat32_root_named_by_its_cluster_is_still_0_in_dotdot() {
     plan.write_to(&mut device).unwrap();
     let mut volume = WritableVolume::open(device, NoClock).unwrap();
     let root = match volume.get_mut().boot.root_directory() {
-        crate::RootDirectory::Cluster(root) => root,
+        crate::RootDirectory::Cluster(root) => root.get(),
         crate::RootDirectory::Region { .. } => unreachable!("a FAT32 root is a chain"),
     };
     assert_ne!(root, 0);

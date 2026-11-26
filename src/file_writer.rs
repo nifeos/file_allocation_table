@@ -92,7 +92,7 @@ impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
                     (byte % sector_bytes) as usize,
                 )));
             }
-            (0, RootDirectory::Cluster(root)) => root,
+            (0, RootDirectory::Cluster(root)) => root.get(),
             (other, _) => other,
         };
         let wanted = byte / u64::from(boot.bytes_per_cluster());
@@ -193,7 +193,7 @@ impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES>
     pub(crate) fn grow_directory(&mut self, directory: u32) -> Result<bool, WriteError<D::Error>> {
         let first = match (directory, self.boot.root_directory()) {
             (0, RootDirectory::Region { .. }) => return Ok(false),
-            (0, RootDirectory::Cluster(root)) => root,
+            (0, RootDirectory::Cluster(root)) => root.get(),
             (other, _) => other,
         };
         let mut last = first;

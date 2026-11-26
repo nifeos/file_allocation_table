@@ -190,7 +190,7 @@ impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES>
     /// The root as 0 for the one place a FAT32 root may be named two ways.
     fn directory_number(&self, directory: u32) -> u32 {
         match self.boot.root_directory() {
-            crate::RootDirectory::Cluster(root) if root == directory => 0,
+            crate::RootDirectory::Cluster(root) if root.get() == directory => 0,
             _ => directory,
         }
     }

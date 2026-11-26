@@ -79,7 +79,7 @@ pub enum RootDirectory {
         entries: u16,
     },
     /// FAT32: an ordinary cluster chain starting at this cluster.
-    Cluster(u32),
+    Cluster(crate::Cluster),
 }
 
 /// **Why a sector is not a boot sector this crate will read.** Each names the field it failed on.
@@ -422,7 +422,7 @@ impl BootSector {
         if self.first_sector_of(root).is_none() {
             return Err(ParseError::RootCluster);
         }
-        self.root = RootDirectory::Cluster(root);
+        self.root = RootDirectory::Cluster(crate::Cluster::new(root));
         // Bit 7 clear means every table is a mirror and a writer updates them all; set, bits 0 to
         // 3 name the one table that is live.
         let flags = get16(sector, 40);
