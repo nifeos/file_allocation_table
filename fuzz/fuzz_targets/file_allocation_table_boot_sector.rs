@@ -83,12 +83,12 @@ fn check(bytes: &[u8], sector: SectorSize) {
         }
     }
     if let RootDirectory::Cluster(root) = boot.root_directory() {
-        assert!(boot.cluster_first_sector(root).is_some());
+        assert!(boot.cluster_first_sector(Cluster::new(root)).is_some());
     }
     let last = boot.clusters() + 1;
     for cluster in [0, 1, 2, 3, last - 1, last, last + 1, u32::MAX] {
         let is_data = (2..=last).contains(&cluster);
-        match boot.cluster_first_sector(cluster) {
+        match boot.cluster_first_sector(Cluster::new(cluster)) {
             Some(first) => assert!(is_data && u64::from(first) + per_cluster <= total),
             None => assert!(!is_data),
         }

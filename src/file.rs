@@ -179,7 +179,7 @@ impl FileCursor {
         let within = self.position % per_cluster;
         let wrong_cluster = FileReadError::Chain(ChainError::NotADataCluster(Cluster(cluster)));
         let sector = boot
-            .cluster_first_sector(cluster)
+            .first_sector_of(cluster)
             .and_then(|first| first.checked_add(within / sector_bytes))
             .ok_or(wrong_cluster)?;
         let offset = within % sector_bytes;

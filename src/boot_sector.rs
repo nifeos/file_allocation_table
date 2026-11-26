@@ -419,7 +419,7 @@ impl BootSector {
             return Err(ParseError::Version);
         }
         let root = get32(sector, 44);
-        if self.cluster_first_sector(root).is_none() {
+        if self.first_sector_of(root).is_none() {
             return Err(ParseError::RootCluster);
         }
         self.root = RootDirectory::Cluster(root);
@@ -585,7 +585,12 @@ impl BootSector {
     /// **The volume-relative sector `cluster` begins at**, or `None` when `cluster` is not one of
     /// this volume's data clusters (2 to `clusters() + 1`). The cluster's
     /// [`BootSector::sectors_per_cluster`] sectors all lie inside the volume.
-    pub const fn cluster_first_sector(&self, cluster: u32) -> Option<u32> {
+    pub const fn cluster_first_sector(&self, cluster: crate::Cluster) -> Option<u32> {
+        self.first_sector_of(cluster.get())
+    }
+
+    /// [`BootSector::cluster_first_sector`] for a cluster number the crate holds as it was read.
+    pub(crate) const fn first_sector_of(&self, cluster: u32) -> Option<u32> {
         if cluster < 2 || cluster - 2 >= self.clusters {
             return None;
         }

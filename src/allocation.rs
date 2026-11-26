@@ -241,7 +241,7 @@ impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES>
         entry: TableEntry,
     ) -> Result<(), ChainError<D::Error>> {
         self.boot
-            .cluster_first_sector(cluster)
+            .first_sector_of(cluster)
             .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
         let raw = entry.encode(self.boot.file_allocation_table_type());
         self.write_raw_entry(cluster, raw)

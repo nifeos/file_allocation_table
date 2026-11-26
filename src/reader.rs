@@ -66,9 +66,9 @@ pub enum ChainError<E> {
 /// let mut volume = Volume::open(Image(layout))?;
 /// // The layout puts the boot file at FILE_CLUSTER (5, after the root, EFI and BOOT), and its
 /// // 5,000 bytes take two clusters of 4,096 bytes.
-/// let first = Cluster::new(FILE_CLUSTER);
+/// let first = FILE_CLUSTER;
 /// let clusters = volume.chain(first).collect::<Result<Vec<Cluster>, _>>()?;
-/// assert_eq!(clusters, [first, Cluster::new(FILE_CLUSTER + 1)]);
+/// assert_eq!(clusters, [first, Cluster::new(FILE_CLUSTER.get() + 1)]);
 /// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug)]
@@ -272,7 +272,7 @@ impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
         cluster: u32,
     ) -> Result<TableEntry, ChainError<D::Error>> {
         self.boot
-            .cluster_first_sector(cluster)
+            .first_sector_of(cluster)
             .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
         let raw = self.read_raw_entry(cluster)?;
         Ok(TableEntry::decode(

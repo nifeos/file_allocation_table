@@ -119,7 +119,7 @@ impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
         });
         let within = byte % u64::from(boot.bytes_per_cluster());
         let sector = boot
-            .cluster_first_sector(cluster)
+            .first_sector_of(cluster)
             .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?
             + (within / sector_bytes) as u32;
         Ok(Some((sector, (within % sector_bytes) as usize)))
@@ -230,7 +230,7 @@ impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES>
     fn zero_cluster(&mut self, cluster: u32) -> Result<(), WriteError<D::Error>> {
         let boot = self.boot;
         let start = boot
-            .cluster_first_sector(cluster)
+            .first_sector_of(cluster)
             .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
         let zeros = [0u8; BUFFER_BYTES];
         for sector in 0..boot.sectors_per_cluster() {

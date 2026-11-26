@@ -204,7 +204,7 @@ fn read_file(volume: &mut Volume<Memory<'_>>, image: &[u8], first: u32, size: u6
     let sector = boot.sector_size().bytes();
     let mut out = Vec::new();
     for cluster in clusters {
-        let at = boot.cluster_first_sector(cluster).unwrap() as usize * sector;
+        let at = boot.cluster_first_sector(Cluster::new(cluster)).unwrap() as usize * sector;
         out.extend_from_slice(&image[at..at + cluster_bytes as usize]);
     }
     out.truncate(size as usize);

@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::efi_system_partition::BYTES_PER_SECTOR;
-use crate::{NoClock, VolumeLayout, VolumeLayoutOptions};
+use crate::{Cluster, NoClock, VolumeLayout, VolumeLayoutOptions};
 
 const FAT12_FLOPPY: &[u8; 512] = include_bytes!("../../tests/fixtures/fat12-floppy.boot");
 const FAT16_32M: &[u8; 512] = include_bytes!("../../tests/fixtures/fat16-32m.boot");
@@ -277,7 +277,7 @@ fn what_this_crates_mkfs_writes_parses_to_the_same_geometry() {
             volume.first_data_sector()
         );
         assert_eq!(
-            u64::from(boot.cluster_first_sector(5).unwrap()),
+            u64::from(boot.cluster_first_sector(Cluster::new(5)).unwrap()),
             volume.cluster_first_sector(5)
         );
         assert_eq!(boot.hidden_sectors(), 2048);
@@ -561,14 +561,14 @@ fn the_volume_id_is_read_only_under_the_extended_signature() {
 fn every_data_cluster_has_a_sector_and_no_other_number_does() {
     let boot = parse(FAT16_32M).unwrap();
     let last = boot.clusters() + 1;
-    assert_eq!(boot.cluster_first_sector(0), None);
-    assert_eq!(boot.cluster_first_sector(1), None);
-    assert_eq!(boot.cluster_first_sector(2), Some(164));
-    assert_eq!(boot.cluster_first_sector(3), Some(168));
-    let sector = boot.cluster_first_sector(last).unwrap();
+    assert_eq!(boot.cluster_first_sector(Cluster::new(0)), None);
+    assert_eq!(boot.cluster_first_sector(Cluster::new(1)), None);
+    assert_eq!(boot.cluster_first_sector(Cluster::new(2)), Some(164));
+    assert_eq!(boot.cluster_first_sector(Cluster::new(3)), Some(168));
+    let sector = boot.cluster_first_sector(Cluster::new(last)).unwrap();
     assert_eq!(sector + boot.sectors_per_cluster(), boot.total_sectors());
-    assert_eq!(boot.cluster_first_sector(last + 1), None);
-    assert_eq!(boot.cluster_first_sector(u32::MAX), None);
+    assert_eq!(boot.cluster_first_sector(Cluster::new(last + 1)), None);
+    assert_eq!(boot.cluster_first_sector(Cluster::new(u32::MAX)), None);
 }
 
 /// A device over a byte slice, with a sector size of its own and a count of reads.

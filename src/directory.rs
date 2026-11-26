@@ -333,7 +333,7 @@ impl Source {
                         Err(error) => return Some(Err(error)),
                     };
                     // The walk yields only data clusters, which always have sectors.
-                    *next = boot.cluster_first_sector(cluster)?;
+                    *next = boot.first_sector_of(cluster)?;
                     *remaining = boot.sectors_per_cluster();
                 }
                 *remaining -= 1;

@@ -545,7 +545,7 @@ impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES>
     fn write_dot_entries(&mut self, cluster: u32, parent: u32) -> Result<(), WriteError<D::Error>> {
         let boot = self.boot;
         let first = boot
-            .cluster_first_sector(cluster)
+            .first_sector_of(cluster)
             .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
         let size = boot.sector_size().bytes();
         let mut sector = [0u8; BUFFER_BYTES];

@@ -86,7 +86,7 @@ impl TableEntry {
 /// table: `BootSector::parse` refuses a table too short to hold an entry for every cluster.
 #[cfg(any(kani, test))]
 pub(crate) fn entry_position(boot: &BootSector, cluster: u32) -> Option<(u32, usize)> {
-    boot.cluster_first_sector(cluster)?;
+    boot.first_sector_of(cluster)?;
     raw_position_in(boot, cluster, boot.active_table().unwrap_or_default())
 }
 

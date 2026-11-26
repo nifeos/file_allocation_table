@@ -226,7 +226,7 @@ impl WriteState {
             };
             let within = self.position % per_cluster;
             let sector = boot
-                .cluster_first_sector(cluster)
+                .first_sector_of(cluster)
                 .and_then(|first| first.checked_add(within / sector_bytes as u32))
                 .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
             let offset = (within % sector_bytes as u32) as usize;

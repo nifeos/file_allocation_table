@@ -370,7 +370,8 @@ fn the_formats_label_and_the_efi_volumes_directories_carry_the_clocks_time() {
         .unwrap();
     // The root directory's cluster, three clusters ahead of the file's first.
     let root = |layout: &VolumeLayout| {
-        layout.file_first_sector() - u64::from((FILE_CLUSTER - ROOT_CLUSTER) * SECTORS_PER_CLUSTER)
+        layout.file_first_sector()
+            - u64::from((FILE_CLUSTER.get() - ROOT_CLUSTER.get()) * SECTORS_PER_CLUSTER)
     };
     let mut sector = [0u8; 512];
     efi.fill_sector(root(&efi), &mut sector).unwrap();

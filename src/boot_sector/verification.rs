@@ -102,7 +102,7 @@ fn only_a_data_cluster_has_sectors() {
     };
     let cluster: u32 = kani::any();
     let is_data = cluster >= 2 && u64::from(cluster) < u64::from(boot.clusters()) + 2;
-    match boot.cluster_first_sector(cluster) {
+    match boot.cluster_first_sector(crate::Cluster::new(cluster)) {
         Some(first) => {
             assert!(is_data);
             assert!(first >= boot.first_data_sector());

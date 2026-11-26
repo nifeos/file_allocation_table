@@ -4,14 +4,23 @@
 //! public here.
 
 use crate::boot_sector::FileAllocationTableType;
+use crate::efi_system_partition as shape;
 use crate::efi_system_partition::{
-    BOOT_CLUSTER, BYTES_PER_CLUSTER, BYTES_PER_SECTOR, EFI_CLUSTER, FILE_CLUSTER, RESERVED_SECTORS,
-    ROOT_CLUSTER, SECTORS_PER_CLUSTER, TABLE_COUNT,
+    BYTES_PER_CLUSTER, BYTES_PER_SECTOR, RESERVED_SECTORS, SECTORS_PER_CLUSTER, TABLE_COUNT,
 };
 use crate::format::{FillError, Geometry, GeometryError, label_bytes, put16, put32, write_fs_info};
 use crate::long_name::{self, LongName};
 use crate::sector::SectorSize;
 use crate::time::{Clock, Stamp};
+
+/// [`shape::ROOT_CLUSTER`]'s number, which the arithmetic and the table's patterns below use.
+const ROOT_CLUSTER: u32 = shape::ROOT_CLUSTER.get();
+/// [`shape::EFI_CLUSTER`]'s number.
+const EFI_CLUSTER: u32 = shape::EFI_CLUSTER.get();
+/// [`shape::BOOT_CLUSTER`]'s number.
+const BOOT_CLUSTER: u32 = shape::BOOT_CLUSTER.get();
+/// [`shape::FILE_CLUSTER`]'s number.
+const FILE_CLUSTER: u32 = shape::FILE_CLUSTER.get();
 
 /// The largest cluster number FAT32 addresses. The top four bits of a 32-bit entry are reserved.
 const MAXIMUM_CLUSTER: u32 = 0x0FFF_FFF5;
@@ -321,7 +330,7 @@ impl VolumeLayout {
 
     /// The partition-relative sector where `cluster` begins.
     ///
-    /// `cluster` must be at least [`ROOT_CLUSTER`] (2); clusters 0 and 1 are the FAT's own
+    /// `cluster` must be at least [`shape::ROOT_CLUSTER`] (2); clusters 0 and 1 are the FAT's own
     /// reserved entries and have no sectors, and the subtraction below underflows on them (a panic
     /// in a debug build, a wrap in release). Every caller in this crate passes a constant from 2
     /// up. It is not made checked, because a `const fn` returning an `Option` would push a `?` into
@@ -734,7 +743,7 @@ mod tests {
     }
 
     /// The file's chain, read out of the table the way a driver would walk it: start at
-    /// [`FILE_CLUSTER`], follow each entry, and stop at the end-of-chain marker. What it proves is
+    /// [`shape::FILE_CLUSTER`], follow each entry, and stop at the end-of-chain marker. What it proves is
     /// that the chain is exactly as long as the file needs and that it is contiguous, which is what
     /// lets the caller write the file's bytes as one run.
     #[test]
