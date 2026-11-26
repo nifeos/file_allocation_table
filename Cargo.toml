@@ -6,6 +6,7 @@ rust-version = "1.88"
 description = "FAT12, FAT16 and FAT32 sans I/O: read, write and format volumes, with Kani-proven parsers"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/partsfoundry/file_allocation_table"
+documentation = "https://docs.rs/file_allocation_table"
 readme = "README.md"
 keywords = ["fat", "fat32", "vfat", "no-std", "filesystem"]
 categories = ["no-std", "filesystem", "embedded"]
