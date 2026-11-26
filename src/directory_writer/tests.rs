@@ -98,7 +98,7 @@ fn an_alias_past_the_first_window_is_the_next_free_number() {
     use crate::{FormatOptions, FormatPlan, SectorSize};
     let sectors = 16 * 1024u32;
     let plan = FormatPlan::new(
-        FormatOptions::new(SectorSize::Bytes512, sectors),
+        FormatOptions::new(SectorSize::Bytes512, u64::from(sectors)),
         &mut NoClock,
     )
     .unwrap();
@@ -616,7 +616,7 @@ fn a_directory_stops_growing_at_65536_entries() {
     for sectors_per_cluster in [1u32, 2] {
         let sectors = 140 * 1024u32;
         let plan = FormatPlan::new(
-            FormatOptions::new(SectorSize::Bytes512, sectors)
+            FormatOptions::new(SectorSize::Bytes512, u64::from(sectors))
                 .with_file_allocation_table_type(FileAllocationTableType::Fat32)
                 .with_sectors_per_cluster(sectors_per_cluster),
             &mut NoClock,
@@ -663,7 +663,7 @@ fn a_fat32_root_named_by_its_cluster_is_still_0_in_dotdot() {
     use crate::{FileAllocationTableType, FormatOptions, FormatPlan, SectorSize};
     let sectors = 140 * 1024u32;
     let plan = FormatPlan::new(
-        FormatOptions::new(SectorSize::Bytes512, sectors)
+        FormatOptions::new(SectorSize::Bytes512, u64::from(sectors))
             .with_file_allocation_table_type(FileAllocationTableType::Fat32),
         &mut NoClock,
     )

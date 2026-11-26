@@ -264,7 +264,7 @@ fn what_this_crates_mkfs_writes_parses_to_the_same_geometry() {
         .unwrap();
     let mut sector = [0u8; BYTES_PER_SECTOR];
     for index in [0, 6] {
-        assert!(volume.fill_sector(index, &mut sector));
+        volume.fill_sector(index, &mut sector).unwrap();
         let boot = parse(&sector).unwrap();
         assert_eq!(
             boot.file_allocation_table_type(),

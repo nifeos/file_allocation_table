@@ -8,9 +8,10 @@ use std::error::Error;
 use std::fmt;
 
 use file_allocation_table::{
-    ChainError, CivilDateTimeError, FileReadError, FileSystemInformationError, FormatError,
-    LayoutError, LongFileNameError, LookupError, MasterBootRecordError, MasterBootRecordReadError,
-    OpenError, ParseError, PartitionError, ReadError, SectorSize, TableEntry, WriteError,
+    ChainError, CivilDateTimeError, FileReadError, FileSystemInformationError, FillError,
+    FormatError, LayoutError, LongFileNameError, LookupError, MasterBootRecordError,
+    MasterBootRecordReadError, OpenError, ParseError, PartitionError, ReadError, SectorSize,
+    TableEntry, WriteError,
 };
 
 /// A device error that is a `std::error::Error`.
@@ -78,7 +79,9 @@ fn every_parse_and_format_error_has_its_own_message() {
         FormatError::LabelRefused,
         FormatError::TimeOutOfRange,
         FormatError::ClusterSizeRefused,
+        FormatError::TooLarge,
     ]);
+    messages(&[FillError::PastMetadata, FillError::WrongLength]);
     messages(&[
         LayoutError::NotFat32,
         LayoutError::TooLarge,

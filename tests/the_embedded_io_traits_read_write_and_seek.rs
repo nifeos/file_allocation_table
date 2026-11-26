@@ -102,7 +102,7 @@ fn the_readme_carries_this_example() {
 
 /// A formatted volume of `sectors` sectors, open for writing, with one empty file `NAME.BIN`.
 fn volume_with_file(sectors: u32) -> WritableVolume<Memory, NoClock> {
-    let options = FormatOptions::new(SectorSize::Bytes512, sectors);
+    let options = FormatOptions::new(SectorSize::Bytes512, u64::from(sectors));
     let mut device = Memory(vec![0; sectors as usize * 512]);
     FormatPlan::new(options, &mut NoClock)
         .unwrap()

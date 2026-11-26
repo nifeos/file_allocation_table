@@ -5,7 +5,7 @@ use crate::NoClock;
 use crate::boot_sector::BootSector;
 
 fn options(sectors: u32) -> FormatOptions {
-    FormatOptions::new(SectorSize::Bytes512, sectors)
+    FormatOptions::new(SectorSize::Bytes512, u64::from(sectors))
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn the_fat32_numbers_are_the_efi_volumes_numbers() {
         .and_then(|o| crate::VolumeLayout::new(o, &mut NoClock))
         .unwrap();
     assert_eq!(format.clusters(), layout.clusters());
-    assert_eq!(format.table_sectors(), layout.table_sectors());
+    assert_eq!(format.table_sectors(), u64::from(layout.table_sectors()));
     assert_eq!(
         u64::from(format.geometry.first_data_sector()),
         layout.first_data_sector()
@@ -166,15 +166,21 @@ fn every_sector_the_format_writes_is_whole_and_the_boot_sector_parses_to_the_sam
     let format =
         FormatPlan::new(options(64 * 1024).with_volume_id(0x1234_5678), &mut NoClock).unwrap();
     let mut sector = [0u8; 512];
-    assert!(format.fill_sector(0, &mut sector));
+    format.fill_sector(0, &mut sector).unwrap();
     let boot = BootSector::parse(&sector).unwrap();
     assert_eq!(boot.clusters(), format.clusters());
-    assert_eq!(boot.table_sectors(), format.table_sectors());
+    assert_eq!(u64::from(boot.table_sectors()), format.table_sectors());
     assert_eq!(boot.volume_id(), Some(0x1234_5678));
     // Past the metadata, or into a buffer of the wrong length, nothing is written.
     let mut untouched = [0xAAu8; 512];
-    assert!(!format.fill_sector(format.metadata_sectors(), &mut untouched));
-    assert!(!format.fill_sector(0, &mut [0xAAu8; 100]));
+    assert_eq!(
+        format.fill_sector(format.metadata_sectors(), &mut untouched),
+        Err(FillError::PastMetadata)
+    );
+    assert_eq!(
+        format.fill_sector(0, &mut [0xAAu8; 100]),
+        Err(FillError::WrongLength)
+    );
     assert_eq!(untouched, [0xAAu8; 512]);
 }
 
@@ -187,10 +193,10 @@ fn a_fat32_volume_carries_fs_info_its_backups_and_a_root_cluster() {
     .unwrap();
     let (mut zero, mut backup, mut info, mut info_backup) =
         ([0u8; 512], [0u8; 512], [0u8; 512], [0u8; 512]);
-    assert!(format.fill_sector(0, &mut zero));
-    assert!(format.fill_sector(6, &mut backup));
-    assert!(format.fill_sector(1, &mut info));
-    assert!(format.fill_sector(7, &mut info_backup));
+    format.fill_sector(0, &mut zero).unwrap();
+    format.fill_sector(6, &mut backup).unwrap();
+    format.fill_sector(1, &mut info).unwrap();
+    format.fill_sector(7, &mut info_backup).unwrap();
     assert_eq!(zero, backup);
     assert_eq!(info, info_backup);
     let parsed = crate::FileSystemInformation::parse(&info, format.clusters()).unwrap();
@@ -198,7 +204,7 @@ fn a_fat32_volume_carries_fs_info_its_backups_and_a_root_cluster() {
     assert_eq!(parsed.next_free_cluster(), Some(3));
     // The first table sector says media, clean, and the end of the root's chain.
     let mut table = [0u8; 512];
-    assert!(format.fill_sector(32, &mut table));
+    format.fill_sector(32, &mut table).unwrap();
     assert_eq!(
         table[..12],
         [
@@ -206,9 +212,11 @@ fn a_fat32_volume_carries_fs_info_its_backups_and_a_root_cluster() {
         ]
     );
     // The second copy begins the same way, and the sector after the first entry is zero.
-    assert!(format.fill_sector(32 + format.table_sectors(), &mut table));
+    format
+        .fill_sector(32 + format.table_sectors(), &mut table)
+        .unwrap();
     assert_eq!(table[0], 0xF8);
-    assert!(format.fill_sector(33, &mut table));
+    format.fill_sector(33, &mut table).unwrap();
     assert!(table.iter().all(|b| *b == 0));
 }
 
@@ -220,16 +228,16 @@ fn a_label_becomes_the_boot_sectors_label_and_the_roots_first_entry() {
     )
     .unwrap();
     let mut boot = [0u8; 512];
-    assert!(format.fill_sector(0, &mut boot));
+    format.fill_sector(0, &mut boot).unwrap();
     assert_eq!(&boot[43..54], b"MY DISK    ");
-    let root = format.geometry.reserved_sectors + 2 * format.table_sectors();
+    let root = u64::from(format.geometry.reserved_sectors) + 2 * format.table_sectors();
     let mut sector = [0xFFu8; 512];
-    assert!(format.fill_sector(root, &mut sector));
+    format.fill_sector(root, &mut sector).unwrap();
     assert_eq!(&sector[..11], b"MY DISK    ");
     assert_eq!(sector[11], 0x08);
     // Without a label the root starts empty and the boot sector says NO NAME.
     let plain = FormatPlan::new(options(64 * 1024), &mut NoClock).unwrap();
-    assert!(plain.fill_sector(root, &mut sector));
+    plain.fill_sector(root, &mut sector).unwrap();
     assert!(sector.iter().all(|b| *b == 0));
 }
 
@@ -242,7 +250,7 @@ fn a_volume_of_65536_sectors_or_more_uses_the_32_bit_total_and_a_smaller_one_the
         )
         .unwrap();
         let mut boot = [0u8; 512];
-        assert!(format.fill_sector(0, &mut boot));
+        format.fill_sector(0, &mut boot).unwrap();
         let total16 = u16::from_le_bytes([boot[19], boot[20]]);
         let total32 = u32::from_le_bytes([boot[32], boot[33], boot[34], boot[35]]);
         assert_eq!((total16 != 0, total32 != 0), (small, !small));
@@ -358,13 +366,13 @@ fn a_volume_with_one_sector_to_each_table_keeps_its_label_in_the_root() {
     // the tables' range must end there, or the label entry lands in neither.
     let format = FormatPlan::new(options(256).with_label("SMALL").unwrap(), &mut NoClock).unwrap();
     assert_eq!(format.table_sectors(), 1);
-    let root = format.geometry.reserved_sectors + 2 * format.table_sectors();
+    let root = u64::from(format.geometry.reserved_sectors) + 2 * format.table_sectors();
     let mut sector = [0xFFu8; 512];
-    assert!(format.fill_sector(root, &mut sector));
+    format.fill_sector(root, &mut sector).unwrap();
     assert_eq!(&sector[..11], b"SMALL      ");
     assert_eq!(sector[11], 0x08);
     let mut second_table = [0u8; 512];
-    assert!(format.fill_sector(root - 1, &mut second_table));
+    format.fill_sector(root - 1, &mut second_table).unwrap();
     assert_eq!(second_table[0], 0xF8);
 }
 
@@ -373,13 +381,36 @@ fn the_hidden_sector_count_lands_in_the_boot_sector_and_defaults_to_zero() {
     let read = |options: FormatOptions| {
         let format = FormatPlan::new(options, &mut NoClock).unwrap();
         let mut sector = [0u8; 512];
-        assert!(format.fill_sector(0, &mut sector));
+        format.fill_sector(0, &mut sector).unwrap();
         u32::from_le_bytes(sector[28..32].try_into().unwrap())
     };
     assert_eq!(read(options(8_000)), 0);
     assert_eq!(read(options(8_000).with_hidden_sectors(2048)), 2048);
     assert_eq!(
-        read(options(2_000_000).with_hidden_sectors(u32::MAX)),
+        read(options(2_000_000).with_hidden_sectors(u64::from(u32::MAX))),
         u32::MAX
+    );
+}
+
+#[test]
+fn a_count_past_the_boot_sectors_32_bit_fields_is_refused() {
+    let past = u64::from(u32::MAX) + 1;
+    assert_eq!(
+        FormatPlan::new(FormatOptions::new(SectorSize::Bytes512, past), &mut NoClock),
+        Err(FormatError::TooLarge)
+    );
+    assert_eq!(
+        FormatPlan::new(options(8_000).with_hidden_sectors(past), &mut NoClock),
+        Err(FormatError::TooLarge)
+    );
+}
+
+#[test]
+fn an_index_past_32_bits_is_past_the_metadata() {
+    let format = FormatPlan::new(options(8_000), &mut NoClock).unwrap();
+    let mut sector = [0u8; 512];
+    assert_eq!(
+        format.fill_sector(u64::from(u32::MAX) + 1, &mut sector),
+        Err(FillError::PastMetadata)
     );
 }

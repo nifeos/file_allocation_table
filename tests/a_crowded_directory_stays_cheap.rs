@@ -137,7 +137,7 @@ fn check_with_fsck(image: &[u8], label: &str) {
 fn volume() -> (WritableVolume<Counting, NoClock>, Counts) {
     let plan = FormatPlan::new(
         // The FAT32 volume at one sector to the cluster that the README's figures count.
-        FormatOptions::new(SectorSize::Bytes512, SECTORS)
+        FormatOptions::new(SectorSize::Bytes512, u64::from(SECTORS))
             .with_file_allocation_table_type(FileAllocationTableType::Fat32)
             .with_sectors_per_cluster(1),
         &mut NoClock,

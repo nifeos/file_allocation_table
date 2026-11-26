@@ -74,7 +74,7 @@ impl WritableSectorDevice for Memory {
 
 /// A volume with directories, a long-named file, a label and some bytes, on each FAT type.
 fn populated(sectors: u32) -> Vec<u8> {
-    let options = FormatOptions::new(SectorSize::Bytes512, sectors)
+    let options = FormatOptions::new(SectorSize::Bytes512, u64::from(sectors))
         .with_label("READS")
         .unwrap();
     let format = FormatPlan::new(options, &mut NoClock).unwrap();

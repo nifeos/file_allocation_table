@@ -101,7 +101,7 @@ fn mtools(tool: &str, image: &Path, arguments: &[&str]) -> String {
 /// A formatted volume of `sectors` of `kind`, labeled, with a directory, a file with a long name
 /// inside it and a hidden short-named file in the root.
 fn filled(kind: FileAllocationTableType, sectors: u32) -> Memory {
-    let options = FormatOptions::new(SectorSize::Bytes512, sectors)
+    let options = FormatOptions::new(SectorSize::Bytes512, u64::from(sectors))
         .with_file_allocation_table_type(kind)
         .with_label("MTOOLS")
         .expect("a legal label");
@@ -181,8 +181,8 @@ fn the_crate_reads_what_mtools_writes_and_writes_beside_it() {
     std::fs::write(&source, bytes).expect("write the source file");
     let source_name = source.to_str().expect("a UTF-8 path");
     for (label, kind, sectors) in VOLUMES {
-        let options =
-            FormatOptions::new(SectorSize::Bytes512, sectors).with_file_allocation_table_type(kind);
+        let options = FormatOptions::new(SectorSize::Bytes512, u64::from(sectors))
+            .with_file_allocation_table_type(kind);
         let plan = FormatPlan::new(options, &mut NoClock).expect("a legal size");
         let mut device = Memory(vec![0; sectors as usize * 512]);
         plan.write_to(&mut device).expect("the format writes");

@@ -125,7 +125,7 @@ fuzz_target!(|data: &[u8]| {
         bytes: vec![0; IMAGE],
     };
     let operations = if formatted {
-        let options = FormatOptions::new(SectorSize::Bytes512, (IMAGE / 512) as u32);
+        let options = FormatOptions::new(SectorSize::Bytes512, (IMAGE / 512) as u64);
         let Ok(format) = FormatPlan::new(options, &mut NoClock) else {
             return;
         };

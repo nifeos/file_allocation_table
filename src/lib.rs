@@ -130,7 +130,7 @@ pub use directory::{Directory, DirectoryEntry, LongNameEntry, SLOT_BYTES, ShortE
 pub use file::{FileReadError, FileReader, OpenError};
 pub use file_system_information::{FileSystemInformation, FileSystemInformationError};
 pub use file_writer::FileWriter;
-pub use format::{FormatError, FormatOptions, FormatPlan};
+pub use format::{FillError, FormatError, FormatOptions, FormatPlan};
 pub use label::VolumeLabel;
 pub use long_name_assembly::{LongFileName, LongFileNameError};
 pub use lookup::LookupError;

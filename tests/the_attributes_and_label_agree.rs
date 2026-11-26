@@ -295,7 +295,7 @@ fn labels_agree_on_fat32() {
 #[test]
 fn a_label_the_format_wrote_reads_back_and_changes() {
     for sectors in [8 * 1024u32, 64 * 1024, 200 * 1024] {
-        let options = FormatOptions::new(SectorSize::Bytes512, sectors)
+        let options = FormatOptions::new(SectorSize::Bytes512, u64::from(sectors))
             .with_label("FORMATTED")
             .unwrap();
         let format = FormatPlan::new(options, &mut NoClock).unwrap();

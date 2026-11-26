@@ -99,7 +99,7 @@ fn format(path: &Path, mebibytes: u32) -> Result<(), Failure> {
         .checked_mul(2048)
         .ok_or("the size does not fit a FAT volume")?;
     let plan = FormatPlan::new(
-        FormatOptions::new(SectorSize::Bytes512, sectors),
+        FormatOptions::new(SectorSize::Bytes512, u64::from(sectors)),
         &mut NoClock,
     )?;
     let file = OpenOptions::new()

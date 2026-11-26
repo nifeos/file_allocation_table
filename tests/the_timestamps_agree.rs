@@ -373,7 +373,7 @@ fn the_formats_label_and_the_efi_volumes_directories_carry_the_clocks_time() {
         layout.file_first_sector() - u64::from((FILE_CLUSTER - ROOT_CLUSTER) * SECTORS_PER_CLUSTER)
     };
     let mut sector = [0u8; 512];
-    assert!(efi.fill_sector(root(&efi), &mut sector));
+    efi.fill_sector(root(&efi), &mut sector).unwrap();
     for slot in 0..2 {
         let at = slot * 32;
         assert_eq!(
@@ -387,6 +387,6 @@ fn the_formats_label_and_the_efi_volumes_directories_carry_the_clocks_time() {
         .and_then(|o| o.with_file("BOOTX64.EFI", 4096))
         .and_then(|o| VolumeLayout::new(o, &mut NoClock))
         .unwrap();
-    assert!(zero.fill_sector(root(&zero), &mut sector));
+    zero.fill_sector(root(&zero), &mut sector).unwrap();
     assert_eq!(sector[22..26], [0, 0, 0, 0]);
 }

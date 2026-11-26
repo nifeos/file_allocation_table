@@ -8,7 +8,7 @@ use crate::efi_system_partition::{
     BOOT_CLUSTER, BYTES_PER_CLUSTER, BYTES_PER_SECTOR, EFI_CLUSTER, FILE_CLUSTER, RESERVED_SECTORS,
     ROOT_CLUSTER, SECTORS_PER_CLUSTER, TABLE_COUNT,
 };
-use crate::format::{Geometry, GeometryError, label_bytes, put16, put32, write_fs_info};
+use crate::format::{FillError, Geometry, GeometryError, label_bytes, put16, put32, write_fs_info};
 use crate::long_name::{self, LongName};
 use crate::sector::SectorSize;
 use crate::time::{Clock, Stamp};
@@ -184,7 +184,7 @@ impl VolumeLayoutOptions {
 ///
 /// let mut sector = [0u8; BYTES_PER_SECTOR];
 /// for index in 0..volume.metadata_sectors() {
-///     assert!(volume.fill_sector(index, &mut sector));
+///     volume.fill_sector(index, &mut sector).expect("a metadata sector");
 ///     // write `sector` at partition-relative LBA `index`
 /// }
 /// // then the file's own bytes, contiguous, at this LBA:
@@ -336,16 +336,21 @@ impl VolumeLayout {
 
     /// **Fill `out` with partition-relative sector `index`.**
     ///
-    /// `false` when `index` is at or past [`VolumeLayout::metadata_sectors`] (the caller's own file
-    /// bytes begin there) or when `out` is not [`BYTES_PER_SECTOR`] bytes; in neither case is `out`
-    /// touched.
-    ///
     /// Every sector this answers for is written whole, zeros included, so that a volume laid over a
     /// disk that held something before does not inherit a single stale directory entry or table
     /// word.
-    pub fn fill_sector(&self, index: u64, out: &mut [u8]) -> bool {
-        if out.len() != BYTES_PER_SECTOR || index >= self.metadata_sectors() {
-            return false;
+    ///
+    /// # Errors
+    ///
+    /// With `out` untouched, [`FillError::WrongLength`] when `out` is not [`BYTES_PER_SECTOR`]
+    /// bytes, and [`FillError::PastMetadata`] when `index` is at or past
+    /// [`VolumeLayout::metadata_sectors`], where the caller's own file bytes begin.
+    pub fn fill_sector(&self, index: u64, out: &mut [u8]) -> Result<(), FillError> {
+        if out.len() != BYTES_PER_SECTOR {
+            return Err(FillError::WrongLength);
+        }
+        if index >= self.metadata_sectors() {
+            return Err(FillError::PastMetadata);
         }
         out.fill(0);
         let fat_start = RESERVED_SECTORS as u64;
@@ -375,7 +380,7 @@ impl VolumeLayout {
             // and `EFI`: zero, which is what `out.fill(0)` above already made them.
             _ => {}
         }
-        true
+        Ok(())
     }
 
     /// The `BPB` and the boot signature, written by the general format's builder.
@@ -598,7 +603,8 @@ mod tests {
 
     fn sector(v: &VolumeLayout, index: u64) -> [u8; BYTES_PER_SECTOR] {
         let mut out = [0u8; BYTES_PER_SECTOR];
-        assert!(v.fill_sector(index, &mut out), "sector {index} is metadata");
+        v.fill_sector(index, &mut out)
+            .expect("sector {index} is metadata");
         out
     }
 
@@ -818,12 +824,14 @@ mod tests {
         assert_eq!(v.file_first_sector(), v.metadata_sectors());
         assert_eq!(v.file_first_sector(), v.cluster_first_sector(FILE_CLUSTER));
         let mut out = [0u8; BYTES_PER_SECTOR];
-        assert!(
-            !v.fill_sector(v.file_first_sector(), &mut out),
+        assert_eq!(
+            v.fill_sector(v.file_first_sector(), &mut out),
+            Err(FillError::PastMetadata),
             "not metadata"
         );
-        assert!(
-            !v.fill_sector(0, &mut out[..100]),
+        assert_eq!(
+            v.fill_sector(0, &mut out[..100]),
+            Err(FillError::WrongLength),
             "a short buffer is refused"
         );
     }

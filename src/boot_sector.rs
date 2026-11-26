@@ -167,7 +167,7 @@ pub enum ReadError<E> {
 ///     .unwrap();
 /// let volume = VolumeLayout::new(options, &mut NoClock).unwrap();
 /// let mut sector = [0u8; BYTES_PER_SECTOR];
-/// volume.fill_sector(0, &mut sector);
+/// volume.fill_sector(0, &mut sector).unwrap();
 ///
 /// let boot = BootSector::parse(&sector).unwrap();
 /// assert_eq!(boot.file_allocation_table_type(), FileAllocationTableType::Fat32);

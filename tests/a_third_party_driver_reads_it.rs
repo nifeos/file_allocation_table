@@ -64,10 +64,9 @@ fn write_image(path: &Path) -> Vec<u8> {
     let mut image = std::fs::File::create(path).expect("create the image");
     let mut sector = [0u8; BYTES_PER_SECTOR];
     for index in 0..volume.metadata_sectors() {
-        assert!(
-            volume.fill_sector(index, &mut sector),
-            "sector {index} is metadata"
-        );
+        volume
+            .fill_sector(index, &mut sector)
+            .unwrap_or_else(|error| panic!("sector {index}: {error}"));
         image.write_all(&sector).expect("write a metadata sector");
     }
 

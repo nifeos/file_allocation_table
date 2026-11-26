@@ -58,7 +58,7 @@ pub enum ChainError<E> {
 ///         SectorSize::Bytes512
 ///     }
 ///     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), ()> {
-///         if !self.0.fill_sector(index, buffer) {
+///         if self.0.fill_sector(index, buffer).is_err() {
 ///             buffer.fill(0);
 ///         }
 ///         Ok(())

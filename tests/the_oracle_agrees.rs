@@ -478,7 +478,9 @@ fn rust_fatfs_reads_what_this_crate_wrote() {
     let mut image = vec![0u8; total as usize * BYTES_PER_SECTOR];
     for index in 0..layout.metadata_sectors() {
         let at = index as usize * BYTES_PER_SECTOR;
-        assert!(layout.fill_sector(index, &mut image[at..at + BYTES_PER_SECTOR]));
+        layout
+            .fill_sector(index, &mut image[at..at + BYTES_PER_SECTOR])
+            .unwrap();
     }
     let body: Vec<u8> = (0..FILE_LENGTH_BYTES).map(|i| (i % 251) as u8).collect();
     let at = layout.file_first_sector() as usize * BYTES_PER_SECTOR;
@@ -548,7 +550,9 @@ fn a_layout_without_a_label_or_a_file_is_an_empty_volume_both_readers_accept() {
         let mut image = vec![0u8; total as usize * BYTES_PER_SECTOR];
         for index in 0..layout.metadata_sectors() {
             let at = index as usize * BYTES_PER_SECTOR;
-            assert!(layout.fill_sector(index, &mut image[at..at + BYTES_PER_SECTOR]));
+            layout
+                .fill_sector(index, &mut image[at..at + BYTES_PER_SECTOR])
+                .unwrap();
         }
         check_with_fsck(&image, &format!("layout-{label}"));
         let fs = lamfat::FileSystem::new(
