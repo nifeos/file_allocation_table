@@ -3,7 +3,7 @@
 Dates are UTC. One line per release, what changed and why, so a reader of the diff has the
 sentence beside it.
 
-## Unreleased
+## 0.1.0-pre.3
 
 - Two match arms that could never run are gone. A new entry now carries its name as one value, either a plain short name or a long name, and the table write that links a new cluster computes each entry's place once for every copy of the table. New tests cover the full-volume and corrupt-entry refusals, names outside Latin-1, and the hidden-sector count of a format.
 - The README and the rustdoc now answer the nine gaps that the second stranger run found. They name
