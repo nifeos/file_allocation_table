@@ -251,11 +251,13 @@ nearest its meaning: a full volume is `WriteZero`, as `embedded_io::Write` asks,
 ## Footprint
 
 The crate allocates nothing; every byte below lives where the caller puts the value or on the stack
-of the call. A `Volume` or a `WritableVolume` is 4,192 bytes plus the device, most of it one sector
+of the call. A `Volume` or a `WritableVolume` is 4,216 bytes plus the device, most of it one sector
 buffer of 4,096 bytes, the largest sector size. A `Directory` or a `FileReader` borrows the volume
-and holds its own buffer, 4,152 bytes each. A `FileWriter` is 88 bytes, a `NamedEntry` 576 (it
+and holds its own buffer, 4,152 bytes each. A `FileWriter` is 96 bytes, a `NamedEntry` 576 (it
 holds the long name), a `FormatPlan` 64 and a `VolumeLayout` 624. These are the sizes on a 64-bit
-host. The write paths put sector-sized arrays on the stack for each call. Measured on x86-64 in a
+host. A device of 512-byte sectors may open the volume with `Volume::open_with_buffer` and a
+buffer of 512 bytes, which takes 3,584 bytes off the volume, each `Directory` and each
+`FileReader`. The write paths put sector-sized arrays on the stack for each call. Measured on x86-64 in a
 release build, a thread that formats a volume and then creates a directory and a file, writes
 10,000 bytes, renames, looks up and reads needed about 40 KiB of stack, the volume itself included.
 
