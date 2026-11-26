@@ -403,6 +403,21 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
     /// trait, and the error type is [`WriteError`]. The `embedded-io-07` feature implements
     /// `embedded_io::Write` and `embedded_io::Seek` through this method and
     /// [`FileWriter::set_position`].
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::ReadOnly`](crate::WriteError::ReadOnly) for a read-only file,
+    /// [`WriteError::Failed`](crate::WriteError::Failed) on every call after an error,
+    /// [`WriteError::TimeOutOfRange`](crate::WriteError::TimeOutOfRange) when the clock reports a
+    /// time FAT cannot store, before anything is written,
+    /// [`WriteError::VolumeFull`](crate::WriteError::VolumeFull) when no cluster is free and
+    /// nothing could be written, [`WriteError::FileTooLarge`](crate::WriteError::FileTooLarge) when
+    /// the file would pass 4 GiB less one byte,
+    /// [`WriteError::ShorterThanItsSize`](crate::WriteError::ShorterThanItsSize) when the chain
+    /// ends before the file's size, [`WriteError::EntryChanged`](crate::WriteError::EntryChanged)
+    /// when the entry's slot no longer holds `entry`; look it up again, and
+    /// [`WriteError::Chain`](crate::WriteError::Chain) when the device refuses a read or a write or
+    /// a chain the change follows is damaged.
     pub fn write(&mut self, data: &[u8]) -> Result<usize, WriteError<D::Error>> {
         self.check()?;
         self.tick()?;
@@ -424,6 +439,19 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
     /// **Set the file's length**, as `std::fs::File::set_len` does. A longer length reads as zeros between the old end and the new;
     /// a shorter one frees the clusters past it. The position moves to the new end if it was
     /// past it.
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::ReadOnly`](crate::WriteError::ReadOnly) for a read-only file,
+    /// [`WriteError::Failed`](crate::WriteError::Failed) on every call after an error,
+    /// [`WriteError::TimeOutOfRange`](crate::WriteError::TimeOutOfRange) when the clock reports a
+    /// time FAT cannot store, before anything is written,
+    /// [`WriteError::VolumeFull`](crate::WriteError::VolumeFull) when the volume fills before the
+    /// new length, [`WriteError::ShorterThanItsSize`](crate::WriteError::ShorterThanItsSize) when
+    /// the chain ends before the file's size,
+    /// [`WriteError::EntryChanged`](crate::WriteError::EntryChanged) when the entry's slot no
+    /// longer holds `entry`; look it up again, and [`WriteError::Chain`](crate::WriteError::Chain)
+    /// when the device refuses a read or a write or a chain the change follows is damaged.
     pub fn set_len(&mut self, size_bytes: u32) -> Result<(), WriteError<D::Error>> {
         self.check()?;
         self.tick()?;

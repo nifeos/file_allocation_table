@@ -147,6 +147,11 @@ impl FormatOptions {
 
     /// The volume label: up to eleven upper-case letters, digits, spaces and the punctuation a
     /// short name admits. A label also becomes the volume-label entry of the root directory.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::LabelRefused`](crate::FormatError::LabelRefused) when `label` is empty, over
+    /// eleven bytes, or holds a byte a short name refuses.
     pub fn with_label(mut self, label: &str) -> Result<FormatOptions, FormatError> {
         self.label = label_bytes(label).ok_or(FormatError::LabelRefused)?;
         self.has_label = true;
@@ -453,6 +458,18 @@ impl FormatPlan {
     /// **Lay out the volume `options` describe**, or say why none exists. The label entry, when
     /// there is one, carries the time `clock` reports now (read once); `NoClock` gives the zero
     /// timestamp and a byte-for-byte reproducible image.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::ClusterSizeRefused`](crate::FormatError::ClusterSizeRefused) for a cluster
+    /// size that is not a power of two from 1 to 128 sectors,
+    /// [`FormatError::TooLarge`](crate::FormatError::TooLarge) for a total or hidden sector count
+    /// past 32 bits, [`FormatError::TimeOutOfRange`](crate::FormatError::TimeOutOfRange) when the
+    /// clock reports a time FAT cannot store,
+    /// [`FormatError::TooSmall`](crate::FormatError::TooSmall) when the device cannot hold the
+    /// reserved sectors, a table and one cluster, and
+    /// [`FormatError::NoSuchGeometry`](crate::FormatError::NoSuchGeometry) when no cluster size
+    /// gives the type a legal cluster count.
     pub fn new(options: FormatOptions, clock: &mut impl Clock) -> Result<FormatPlan, FormatError> {
         const KINDS: [FileAllocationTableType; 3] = [
             FileAllocationTableType::Fat12,
@@ -614,6 +631,11 @@ impl FormatPlan {
 
     /// **Write the whole format to `device`**, sector by sector, and return the device's first
     /// error. The device must have the sector size the options named.
+    ///
+    /// # Errors
+    ///
+    /// The device's own error, unchanged, from the first write it refuses. The sectors before it
+    /// are written and the ones after it are not.
     pub fn write_to<D: WritableSectorDevice>(&self, device: &mut D) -> Result<(), D::Error> {
         let mut sector = [0u8; SectorSize::MAXIMUM_BYTES];
         let size = self.geometry.bytes_per_sector.bytes();

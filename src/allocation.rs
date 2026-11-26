@@ -495,6 +495,10 @@ impl<D: crate::sector::SectorDevice> Volume<D> {
     /// **Whether the volume was shut down cleanly**, from the bit in table entry 1: `Ok(None)` on
     /// FAT12, which keeps no such bit. A volume this crate is changing reads as not clean until
     /// [`crate::WritableVolume::mark_clean`] sets the bit again.
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::Device`](crate::ChainError::Device) when the device refuses a read.
     pub fn is_clean(&mut self) -> Result<Option<bool>, ChainError<D::Error>> {
         let Some(bit) = self.clean_bit() else {
             return Ok(None);
@@ -504,6 +508,10 @@ impl<D: crate::sector::SectorDevice> Volume<D> {
 
     /// **Count the free clusters** by reading the whole table: exact where the file system
     /// information sector is a hint.
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::Device`](crate::ChainError::Device) when the device refuses a read.
     pub fn count_free_clusters(&mut self) -> Result<u32, ChainError<D::Error>> {
         let clusters = self.boot.clusters();
         let mut free = 0;
@@ -517,6 +525,11 @@ impl<D: crate::sector::SectorDevice> Volume<D> {
 
     /// **The file system information hints the device holds**, or `Ok(None)` for a volume with no
     /// file system information sector or one whose signatures are wrong.
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::Device`](crate::ChainError::Device) when the device refuses a read. A sector
+    /// that is not a file system information sector is `Ok(None)`, not an error.
     pub fn file_system_information(
         &mut self,
     ) -> Result<Option<FileSystemInformation>, ChainError<D::Error>> {

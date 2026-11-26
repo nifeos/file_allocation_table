@@ -69,11 +69,19 @@ pub struct WritableVolume<D, C> {
 
 impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     /// **Open the volume on `device` for writing**, stamping with `clock`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Volume::open`].
     pub fn open(device: D, clock: C) -> Result<WritableVolume<D, C>, crate::ReadError<D::Error>> {
         WritableVolume::open_with(device, clock, OpenOptions::new())
     }
 
     /// **Open the volume on `device` for writing as `options` say**, stamping with `clock`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Volume::open_with`].
     pub fn open_with(
         device: D,
         clock: C,
@@ -117,6 +125,10 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     }
 
     /// **Write the file system information hints and set the clean-shutdown bit again.**
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::Device`](crate::ChainError::Device) when the device refuses a read or a write.
     pub fn mark_clean(&mut self) -> Result<(), ChainError<D::Error>> {
         self.volume.mark_clean()
     }
@@ -126,6 +138,19 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     /// A name may not end in a dot or a space. Windows and Linux strip those, and this crate
     /// refuses with [`WriteError::NameRefused`] rather than create a name other than the one asked
     /// for.
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::TimeOutOfRange`](crate::WriteError::TimeOutOfRange) when the clock reports a
+    /// time FAT cannot store, before anything is written,
+    /// [`WriteError::NameRefused`](crate::WriteError::NameRefused) for a name that is neither a
+    /// legal short name nor a long name,
+    /// [`WriteError::AlreadyExists`](crate::WriteError::AlreadyExists) when the directory holds an
+    /// entry of that name, [`WriteError::DirectoryFull`](crate::WriteError::DirectoryFull) when the
+    /// directory has no free run of slots and cannot grow,
+    /// [`WriteError::VolumeFull`](crate::WriteError::VolumeFull) when it would grow and no cluster
+    /// is free, and [`WriteError::Chain`](crate::WriteError::Chain) when the device refuses a read
+    /// or a write or a chain the change follows is damaged.
     ///
     /// # Examples
     ///
@@ -192,6 +217,20 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     /// A name may not end in a dot or a space. Windows and Linux strip those, and this crate
     /// refuses with [`WriteError::NameRefused`] rather than create a name other than the one asked
     /// for.
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::TimeOutOfRange`](crate::WriteError::TimeOutOfRange) when the clock reports a
+    /// time FAT cannot store, before anything is written,
+    /// [`WriteError::NameRefused`](crate::WriteError::NameRefused) for a name that is neither a
+    /// legal short name nor a long name,
+    /// [`WriteError::AlreadyExists`](crate::WriteError::AlreadyExists) when the directory holds an
+    /// entry of that name, [`WriteError::DirectoryFull`](crate::WriteError::DirectoryFull) when the
+    /// directory has no free run of slots and cannot grow,
+    /// [`WriteError::VolumeFull`](crate::WriteError::VolumeFull) when it would grow and no cluster
+    /// is free (the new directory's own cluster included), and
+    /// [`WriteError::Chain`](crate::WriteError::Chain) when the device refuses a read or a write or
+    /// a chain the change follows is damaged.
     pub fn create_directory(
         &mut self,
         directory: DirectoryCluster,
@@ -202,6 +241,15 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     }
 
     /// **Remove the empty directory that `entry` names.**
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::NotADirectory`](crate::WriteError::NotADirectory) for a file, `.` and `..`,
+    /// [`WriteError::DirectoryNotEmpty`](crate::WriteError::DirectoryNotEmpty) when the directory
+    /// holds other entries, [`WriteError::EntryChanged`](crate::WriteError::EntryChanged) when the
+    /// entry's slot no longer holds `entry`; look it up again, and
+    /// [`WriteError::Chain`](crate::WriteError::Chain) when the device refuses a read or a write or
+    /// a chain the change follows is damaged.
     pub fn remove_directory(&mut self, entry: &NamedEntry) -> Result<(), WriteError<D::Error>> {
         self.volume.remove_directory(entry)
     }
@@ -211,6 +259,22 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     /// The new entry is written first, then a moved directory's `..`, then the old slots are
     /// freed. A crash before the last step leaves the file under both names, on one chain, which
     /// `fsck.fat` repairs as shared clusters; it never leaves the file under neither.
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::NotAFile`](crate::WriteError::NotAFile) for `.`, `..` and the volume label,
+    /// [`WriteError::MovedIntoItself`](crate::WriteError::MovedIntoItself) when a directory would
+    /// move into itself or below itself,
+    /// [`WriteError::NameRefused`](crate::WriteError::NameRefused) for a name that is neither a
+    /// legal short name nor a long name,
+    /// [`WriteError::AlreadyExists`](crate::WriteError::AlreadyExists) when the directory holds an
+    /// entry of that name, [`WriteError::DirectoryFull`](crate::WriteError::DirectoryFull) when the
+    /// directory has no free run of slots and cannot grow,
+    /// [`WriteError::VolumeFull`](crate::WriteError::VolumeFull) when it would grow and no cluster
+    /// is free, [`WriteError::EntryChanged`](crate::WriteError::EntryChanged) when the entry's slot
+    /// no longer holds `entry`; look it up again, and
+    /// [`WriteError::Chain`](crate::WriteError::Chain) when the device refuses a read or a write or
+    /// a chain the change follows is damaged.
     pub fn rename(
         &mut self,
         entry: &NamedEntry,
@@ -221,12 +285,27 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     }
 
     /// **Delete the file that `entry` names.**
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::NotAFile`](crate::WriteError::NotAFile) for a directory and the volume label,
+    /// [`WriteError::ReadOnly`](crate::WriteError::ReadOnly) for a read-only file,
+    /// [`WriteError::EntryChanged`](crate::WriteError::EntryChanged) when the entry's slot no
+    /// longer holds `entry`; look it up again, and [`WriteError::Chain`](crate::WriteError::Chain)
+    /// when the device refuses a read or a write or a chain the change follows is damaged.
     pub fn remove_file(&mut self, entry: &NamedEntry) -> Result<(), WriteError<D::Error>> {
         self.volume.remove_file(entry)
     }
 
     /// **Set `entry`'s read-only, hidden, system and archive bits to exactly `attributes`.** The
     /// entry's times do not change.
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::NotAFile`](crate::WriteError::NotAFile) for `.`, `..` and the volume label,
+    /// [`WriteError::EntryChanged`](crate::WriteError::EntryChanged) when the entry's slot no
+    /// longer holds `entry`; look it up again, and [`WriteError::Chain`](crate::WriteError::Chain)
+    /// when the device refuses a read or a write or a chain the change follows is damaged.
     pub fn set_attributes(
         &mut self,
         entry: &NamedEntry,
@@ -236,6 +315,18 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     }
 
     /// **Set the volume label.**
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::TimeOutOfRange`](crate::WriteError::TimeOutOfRange) when the clock reports a
+    /// time FAT cannot store, before anything is written,
+    /// [`WriteError::LabelRefused`](crate::WriteError::LabelRefused) when `label` is empty, over
+    /// eleven bytes, or holds a byte a short name refuses,
+    /// [`WriteError::DirectoryFull`](crate::WriteError::DirectoryFull) when the root has no free
+    /// slot for a new label entry and cannot grow,
+    /// [`WriteError::VolumeFull`](crate::WriteError::VolumeFull) when it would grow and no cluster
+    /// is free, and [`WriteError::Chain`](crate::WriteError::Chain) when the device refuses a read
+    /// or a write or a chain the change follows is damaged.
     pub fn set_volume_label(&mut self, label: &str) -> Result<(), WriteError<D::Error>> {
         self.tick()?;
         self.volume.set_volume_label(label)
@@ -247,6 +338,14 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     /// as [`Volume::open_file_reader`] does. The entry [`Self::create_file`] returns says size 0
     /// and no cluster, so after writing through it, call [`lookup`](crate::Volume::lookup) again
     /// before opening another reader or writer.
+    ///
+    /// # Errors
+    ///
+    /// [`OpenError::IsADirectory`](crate::OpenError::IsADirectory) for a directory,
+    /// [`OpenError::IsAVolumeLabel`](crate::OpenError::IsAVolumeLabel) for the volume label,
+    /// [`OpenError::EntryChanged`](crate::OpenError::EntryChanged) when the entry's slot no longer
+    /// holds `entry`, and [`OpenError::Chain`](crate::OpenError::Chain) when that slot cannot be
+    /// read, as [`Volume::open_file_reader`] returns them.
     pub fn open_file_writer(
         &mut self,
         entry: &NamedEntry,

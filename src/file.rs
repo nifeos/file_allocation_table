@@ -246,6 +246,14 @@ impl<'v, D: SectorDevice> FileReader<'v, D> {
     /// and the error type is [`FileReadError`]. The `embedded-io-07` feature implements
     /// `embedded_io::Read` and `embedded_io::Seek` through this method and
     /// [`FileReader::set_position`].
+    ///
+    /// # Errors
+    ///
+    /// [`FileReadError::Chain`](crate::FileReadError::Chain) when the device refuses a read or the
+    /// file's chain is damaged,
+    /// [`FileReadError::ShorterThanItsSize`](crate::FileReadError::ShorterThanItsSize) when the
+    /// chain ends before the file's size, and
+    /// [`FileReadError::Failed`](crate::FileReadError::Failed) on every call after an error.
     pub fn read(&mut self, buffer: &mut [u8]) -> Result<usize, FileReadError<D::Error>> {
         let boot = *self.volume.boot_sector();
         let sector_bytes = boot.sector_size().bytes();
@@ -289,6 +297,14 @@ impl<D: SectorDevice> Volume<D> {
     /// ([`OpenError::EntryChanged`]), which it reads to check. The entry's first cluster and size
     /// came off the volume: a first cluster that is not a data cluster, and a size the chain cannot
     /// cover, surface as errors on the first read that needs them.
+    ///
+    /// # Errors
+    ///
+    /// [`OpenError::IsADirectory`](crate::OpenError::IsADirectory) for a directory,
+    /// [`OpenError::IsAVolumeLabel`](crate::OpenError::IsAVolumeLabel) for the volume label,
+    /// [`OpenError::EntryChanged`](crate::OpenError::EntryChanged) when the entry's slot no longer
+    /// holds `entry`, and [`OpenError::Chain`](crate::OpenError::Chain) when that slot cannot be
+    /// read.
     pub fn open_file_reader(
         &mut self,
         entry: &NamedEntry,

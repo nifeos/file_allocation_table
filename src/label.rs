@@ -45,6 +45,13 @@ impl<D: SectorDevice> Volume<D> {
 
     /// **The volume's label**, or `None` when it has none: the root's label entry if there is one,
     /// else the boot sector's if it is set and is not `NO NAME`.
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::Device`](crate::ChainError::Device) when the device refuses a read, and
+    /// [`ChainError::Broken`](crate::ChainError::Broken) or
+    /// [`ChainError::TooLong`](crate::ChainError::TooLong) when the root directory's chain is
+    /// damaged.
     pub fn volume_label(&mut self) -> Result<Option<VolumeLabel>, ChainError<D::Error>> {
         for entry in self.root_named_entries() {
             let entry = entry?;

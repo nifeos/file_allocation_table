@@ -102,6 +102,13 @@ impl<D: SectorDevice> Volume<D> {
     /// Refuses what [`BootSector::read`] refuses, including a volume whose sector size is not the
     /// device's.
     ///
+    /// # Errors
+    ///
+    /// [`ReadError::Device`](crate::ReadError::Device),
+    /// [`ReadError::Refused`](crate::ReadError::Refused) and
+    /// [`ReadError::SectorSizeMismatch`](crate::ReadError::SectorSizeMismatch), as
+    /// [`BootSector::read`] returns them.
+    ///
     /// # Examples
     ///
     /// ```
@@ -150,6 +157,10 @@ impl<D: SectorDevice> Volume<D> {
 
     /// **Open the volume on `device` as `options` say**; [`Volume::open`] is this with
     /// [`OpenOptions::new`], the strict reading.
+    ///
+    /// # Errors
+    ///
+    /// As [`Volume::open`], with the boot sector read as `options` say.
     pub fn open_with(
         mut device: D,
         options: OpenOptions,
@@ -205,6 +216,12 @@ impl<D: SectorDevice> Volume<D> {
     ///
     /// Refuses a cluster that is not a data cluster of this volume, and passes on the device's
     /// error. A FAT12 entry that straddles two sectors costs two reads.
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::NotADataCluster`](crate::ChainError::NotADataCluster) when `cluster` is not a
+    /// data cluster of this volume, and [`ChainError::Device`](crate::ChainError::Device) when the
+    /// device refuses a read.
     pub fn table_entry(&mut self, cluster: Cluster) -> Result<TableEntry, ChainError<D::Error>> {
         self.read_table_entry(cluster.0)
     }

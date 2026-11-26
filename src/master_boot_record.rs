@@ -113,6 +113,16 @@ impl MasterBootRecord {
     /// when any entry breaks that, since a table with one wrong entry cannot be trusted about the
     /// rest. Partitions that overlap each other, or run past the device, are not detected; the
     /// device refuses a read past its end.
+    ///
+    /// # Errors
+    ///
+    /// [`MasterBootRecordError::TooShort`](crate::MasterBootRecordError::TooShort) for a sector
+    /// under 512 bytes,
+    /// [`MasterBootRecordError::NoSignature`](crate::MasterBootRecordError::NoSignature) without
+    /// `0x55 0xAA`, and for the first entry that breaks the rules,
+    /// [`MasterBootRecordError::BadStatus`](crate::MasterBootRecordError::BadStatus),
+    /// [`MasterBootRecordError::EmptyPartition`](crate::MasterBootRecordError::EmptyPartition) or
+    /// [`MasterBootRecordError::PartitionOverflows`].
     pub fn parse(sector: &[u8]) -> Result<MasterBootRecord, MasterBootRecordError> {
         if sector.len() < SectorSize::Bytes512.bytes() {
             return Err(MasterBootRecordError::TooShort);
@@ -152,6 +162,13 @@ impl MasterBootRecord {
     }
 
     /// **Read sector 0 of `device` and parse it.**
+    ///
+    /// # Errors
+    ///
+    /// [`MasterBootRecordReadError::Device`](crate::MasterBootRecordReadError::Device) when the
+    /// device refuses the read, and
+    /// [`MasterBootRecordReadError::Parse`](crate::MasterBootRecordReadError::Parse) with what
+    /// [`MasterBootRecord::parse`] refuses.
     pub fn read<D: SectorDevice>(
         device: &mut D,
     ) -> Result<MasterBootRecord, MasterBootRecordReadError<D::Error>> {

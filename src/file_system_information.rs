@@ -69,6 +69,13 @@ impl FileSystemInformation {
     ///
     /// Checks the three signatures. A free count above `clusters`, or all ones, is `None`, and so
     /// is a next-free cluster that is not a data cluster. Never panics, whatever `sector` holds.
+    ///
+    /// # Errors
+    ///
+    /// [`FileSystemInformationError::TooShort`](crate::FileSystemInformationError::TooShort) for a
+    /// sector under 512 bytes, and
+    /// [`FileSystemInformationError::NoSignature`](crate::FileSystemInformationError::NoSignature)
+    /// when one of the three signatures is wrong.
     pub fn parse(
         sector: &[u8],
         clusters: u32,

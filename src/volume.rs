@@ -123,6 +123,11 @@ impl VolumeLayoutOptions {
     /// The volume label, written to the boot sector's `BS_VolLab` and as the root directory's
     /// volume-label entry: up to eleven upper-case letters, digits, spaces and the punctuation a
     /// short name admits, as [`crate::FormatOptions::with_label`] takes.
+    ///
+    /// # Errors
+    ///
+    /// [`LayoutError::LabelRefused`](crate::LayoutError::LabelRefused) when `label` is empty, over
+    /// eleven bytes, or holds a byte a short name refuses.
     pub fn with_label(mut self, label: &str) -> Result<VolumeLayoutOptions, LayoutError> {
         self.label = Some(label_bytes(label).ok_or(LayoutError::LabelRefused)?);
         Ok(self)
@@ -131,6 +136,12 @@ impl VolumeLayoutOptions {
     /// The one file the volume holds, at `EFI\BOOT\<name>`, of `size_bytes` bytes. An 8.3 name
     /// is stored as a short entry; any other legal name gets a long-name run ahead of a short
     /// alias. Whether the file fits is checked by [`VolumeLayout::new`], against the volume.
+    ///
+    /// # Errors
+    ///
+    /// [`LayoutError::NameRefused`](crate::LayoutError::NameRefused) when `name` is neither an 8.3
+    /// short name nor a long name a VFAT entry may carry. The size is checked later, by
+    /// [`VolumeLayout::new`].
     pub fn with_file(
         mut self,
         name: &str,
@@ -219,6 +230,16 @@ impl VolumeLayout {
     /// Refuses a partition too small to be FAT32 or larger than it addresses, a time FAT cannot
     /// store, and a file over 4 GiB less one byte or larger than the volume holds after its three
     /// directories.
+    ///
+    /// # Errors
+    ///
+    /// [`LayoutError::TooLarge`](crate::LayoutError::TooLarge) for a partition or a hidden sector
+    /// count past what FAT32 addresses,
+    /// [`LayoutError::TimeOutOfRange`](crate::LayoutError::TimeOutOfRange) when the clock reports a
+    /// time FAT cannot store, [`LayoutError::NotFat32`](crate::LayoutError::NotFat32) for a
+    /// partition too small to hold FAT32's clusters, and
+    /// [`LayoutError::FileTooBig`](crate::LayoutError::FileTooBig) for a file over 4 GiB less one
+    /// byte or larger than the volume holds after its three directories.
     pub fn new(
         options: VolumeLayoutOptions,
         clock: &mut impl Clock,

@@ -285,12 +285,25 @@ impl BootSector {
     ///
     /// Returns the volume's geometry, or the first field that makes it unreadable. Never panics
     /// and never reads past byte 511, whatever `sector` holds.
+    ///
+    /// # Errors
+    ///
+    /// The [`ParseError`](crate::ParseError) variant that names the first field the sector fails
+    /// on, from [`ParseError::TooShort`](crate::ParseError::TooShort) for a buffer under 512 bytes
+    /// to [`ParseError::ActiveTable`](crate::ParseError::ActiveTable); each variant names its
+    /// field.
     pub fn parse(sector: &[u8]) -> Result<BootSector, ParseError> {
         BootSector::parse_with(sector, OpenOptions::new())
     }
 
     /// **Parse a boot sector from `sector` as `options` say**; [`BootSector::parse`] with
     /// [`OpenOptions::new`] is the strict reading.
+    ///
+    /// # Errors
+    ///
+    /// As [`BootSector::parse`]; with [`OpenOptions::with_small_fat32`] a small FAT32 layout is
+    /// read rather than refused with
+    /// [`ParseError::LayoutContradictsClusterCount`].
     pub fn parse_with(sector: &[u8], options: OpenOptions) -> Result<BootSector, ParseError> {
         let sector = sector.get(..PARSED).ok_or(ParseError::TooShort)?;
         if sector[510] != 0x55 || sector[511] != 0xAA {
@@ -423,6 +436,14 @@ impl BootSector {
     ///
     /// Refuses a volume whose `BPB_BytsPerSec` is not the device's sector size, since every later
     /// read would land at the wrong offset.
+    ///
+    /// # Errors
+    ///
+    /// [`ReadError::Device`](crate::ReadError::Device) when the device refuses the read,
+    /// [`ReadError::Refused`](crate::ReadError::Refused) with the [`ParseError`](crate::ParseError)
+    /// when sector 0 is not a boot sector this crate reads, and
+    /// [`ReadError::SectorSizeMismatch`](crate::ReadError::SectorSizeMismatch) when the volume's
+    /// sector size is not the device's.
     pub fn read<D: SectorDevice>(device: &mut D) -> Result<BootSector, ReadError<D::Error>> {
         BootSector::read_with(device, OpenOptions::new())
     }
