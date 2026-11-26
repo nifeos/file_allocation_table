@@ -214,7 +214,7 @@ fn create_files(volume: &mut WritableVolume<Memory, NoClock>, plan: &mut Plan, f
     }
     if fat_type != FatType::Fat12 {
         assert_eq!(
-            volume.is_clean().unwrap(),
+            volume.as_volume_mut().is_clean().unwrap(),
             Some(false),
             "{}: dirty",
             plan.label
@@ -223,7 +223,7 @@ fn create_files(volume: &mut WritableVolume<Memory, NoClock>, plan: &mut Plan, f
     volume.mark_clean().unwrap();
     if fat_type != FatType::Fat12 {
         assert_eq!(
-            volume.is_clean().unwrap(),
+            volume.as_volume_mut().is_clean().unwrap(),
             Some(true),
             "{}: clean",
             plan.label
@@ -234,7 +234,7 @@ fn create_files(volume: &mut WritableVolume<Memory, NoClock>, plan: &mut Plan, f
 /// Overwrite across a cluster boundary, append, shrink, grow, empty and delete.
 fn change_files(volume: &mut WritableVolume<Memory, NoClock>, plan: &mut Plan) {
     let c = plan.cluster_bytes;
-    let entry = volume.lookup("FILE9.BIN").unwrap();
+    let entry = volume.as_volume_mut().lookup("FILE9.BIN").unwrap();
     {
         let mut writer = volume.open_file_writer(&entry).unwrap();
         writer.set_position(c as u32 - 3);
@@ -250,7 +250,7 @@ fn change_files(volume: &mut WritableVolume<Memory, NoClock>, plan: &mut Plan) {
         ("FILE1.BIN", 2 * c + 9),
         ("FILE5.BIN", 0),
     ] {
-        let entry = volume.lookup(name).unwrap();
+        let entry = volume.as_volume_mut().lookup(name).unwrap();
         volume
             .open_file_writer(&entry)
             .unwrap()
@@ -258,18 +258,18 @@ fn change_files(volume: &mut WritableVolume<Memory, NoClock>, plan: &mut Plan) {
             .unwrap();
         plan.bytes_of(name).resize(length, 0);
     }
-    let entry = volume.lookup("FILE7.BIN").unwrap();
+    let entry = volume.as_volume_mut().lookup("FILE7.BIN").unwrap();
     volume.remove_file(&entry).unwrap();
     plan.expected.retain(|(n, _)| n != "FILE7.BIN");
-    assert!(volume.lookup("FILE7.BIN").is_err());
+    assert!(volume.as_volume_mut().lookup("FILE7.BIN").is_err());
     volume.mark_clean().unwrap();
 }
 
 /// Read every file back through this crate's reader.
 fn read_files(volume: &mut WritableVolume<Memory, NoClock>, plan: &Plan) {
     for (name, bytes) in &plan.expected {
-        let entry = volume.lookup(name).unwrap();
-        let mut reader = volume.open_file_reader(&entry).unwrap();
+        let entry = volume.as_volume_mut().lookup(name).unwrap();
+        let mut reader = volume.as_volume_mut().open_file_reader(&entry).unwrap();
         let mut read = vec![0u8; bytes.len() + 1];
         assert_eq!(reader.read(&mut read).unwrap(), bytes.len(), "{name}");
         assert_eq!(&read[..bytes.len()], &bytes[..], "{name}");
@@ -281,8 +281,8 @@ fn the_writer_agrees(label: &str, mebibytes: usize, fat_type: FatType, sector: u
     let mut plan = Plan {
         label: label.to_string(),
         expected: Vec::new(),
-        total: volume.count_free_clusters().unwrap(),
-        cluster_bytes: volume.boot_sector().bytes_per_cluster() as usize,
+        total: volume.as_volume_mut().count_free_clusters().unwrap(),
+        cluster_bytes: volume.as_volume_mut().boot_sector().bytes_per_cluster() as usize,
     };
     create_files(&mut volume, &mut plan, fat_type);
     let image = volume.into_device();
@@ -296,7 +296,7 @@ fn the_writer_agrees(label: &str, mebibytes: usize, fat_type: FatType, sector: u
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     read_files(&mut volume, &plan);
     for (name, _) in std::mem::take(&mut plan.expected) {
-        let entry = volume.lookup(&name).unwrap();
+        let entry = volume.as_volume_mut().lookup(&name).unwrap();
         volume.remove_file(&entry).unwrap();
     }
     volume.mark_clean().unwrap();
@@ -326,7 +326,7 @@ fn files_write_and_agree_on_fat32() {
 #[test]
 fn a_fat32_root_grows_past_one_cluster_and_a_fat16_root_refuses() {
     let mut volume = WritableVolume::open(formatted(64, FatType::Fat32, 512), NoClock).unwrap();
-    let per_cluster = volume.boot_sector().bytes_per_cluster() as usize / 32;
+    let per_cluster = volume.as_volume_mut().boot_sector().bytes_per_cluster() as usize / 32;
     for i in 0..per_cluster + 3 {
         volume
             .create_file(DirectoryCluster::ROOT, &format!("N{i}.TXT"))
@@ -373,7 +373,7 @@ fn names_and_stale_entries_are_refused() {
         .unwrap();
     assert!(volume.open_file_writer(&again).is_ok());
     // The freed slot is reused.
-    assert!(volume.lookup("ONE.TXT").is_err());
+    assert!(volume.as_volume_mut().lookup("ONE.TXT").is_err());
 }
 
 #[test]
@@ -404,8 +404,8 @@ fn a_second_writer_from_the_entry_create_file_returned_is_refused_and_nothing_le
 #[test]
 fn a_full_volume_writes_what_fits_then_refuses_and_deleting_restores_the_space() {
     let mut volume = WritableVolume::open(formatted(1, FatType::Fat12, 512), NoClock).unwrap();
-    let total = volume.count_free_clusters().unwrap() as usize;
-    let cluster = volume.boot_sector().bytes_per_cluster() as usize;
+    let total = volume.as_volume_mut().count_free_clusters().unwrap() as usize;
+    let cluster = volume.as_volume_mut().boot_sector().bytes_per_cluster() as usize;
     let entry = volume
         .create_file(DirectoryCluster::ROOT, "BIG.BIN")
         .unwrap();
@@ -415,10 +415,13 @@ fn a_full_volume_writes_what_fits_then_refuses_and_deleting_restores_the_space()
     assert_eq!(written, total * cluster);
     assert_eq!(writer.write(&data[written..]), Err(WriteError::VolumeFull));
     assert_eq!(writer.write(b"x"), Err(WriteError::Failed));
-    let entry = volume.lookup("BIG.BIN").unwrap();
+    let entry = volume.as_volume_mut().lookup("BIG.BIN").unwrap();
     assert_eq!(entry.size_bytes() as usize, total * cluster);
     volume.remove_file(&entry).unwrap();
-    assert_eq!(volume.count_free_clusters().unwrap() as usize, total);
+    assert_eq!(
+        volume.as_volume_mut().count_free_clusters().unwrap() as usize,
+        total
+    );
     volume.mark_clean().unwrap();
     check_with_fsck(&volume.into_device().bytes, "full");
 }
@@ -439,14 +442,23 @@ fn a_volume_found_dirty_stays_dirty_after_a_sync() {
             NoClock,
         )
         .unwrap();
-        let table = boot.boot_sector().table_first_sector(0).unwrap() as usize * 512;
+        let table = boot
+            .as_volume()
+            .boot_sector()
+            .table_first_sector(0)
+            .unwrap() as usize
+            * 512;
         let top = table + at + if fat_type == FatType::Fat16 { 1 } else { 3 };
         image.bytes[top] &= !bit;
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
-        assert_eq!(volume.is_clean().unwrap(), Some(false));
+        assert_eq!(volume.as_volume_mut().is_clean().unwrap(), Some(false));
         volume.create_file(DirectoryCluster::ROOT, "A.TXT").unwrap();
         volume.mark_clean().unwrap();
-        assert_eq!(volume.is_clean().unwrap(), Some(false), "{fat_type:?}");
+        assert_eq!(
+            volume.as_volume_mut().is_clean().unwrap(),
+            Some(false),
+            "{fat_type:?}"
+        );
     }
 }
 
@@ -470,11 +482,12 @@ fn files_in_a_subdirectory_write_and_the_subdirectory_grows() {
         }
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
         let directory = volume
+            .as_volume_mut()
             .lookup("Sub Directory")
             .unwrap()
             .directory_cluster()
             .unwrap();
-        let cluster = volume.boot_sector().bytes_per_cluster() as usize;
+        let cluster = volume.as_volume_mut().boot_sector().bytes_per_cluster() as usize;
         // Slot 0 and 1 are `.` and `..`; this many files fill the first cluster and spill over.
         let count = cluster / 32 + 5;
         for i in 0..count {
@@ -483,9 +496,15 @@ fn files_in_a_subdirectory_write_and_the_subdirectory_grows() {
             writer.write(format!("file number {i}").as_bytes()).unwrap();
         }
         // Entries found by path carry their directory: shrink one, delete another.
-        let found = volume.lookup("Sub Directory/F3.DAT").unwrap();
+        let found = volume
+            .as_volume_mut()
+            .lookup("Sub Directory/F3.DAT")
+            .unwrap();
         volume.open_file_writer(&found).unwrap().set_len(4).unwrap();
-        let doomed = volume.lookup("Sub Directory/F4.DAT").unwrap();
+        let doomed = volume
+            .as_volume_mut()
+            .lookup("Sub Directory/F4.DAT")
+            .unwrap();
         volume.remove_file(&doomed).unwrap();
         volume.mark_clean().unwrap();
         let image = volume.into_device();
@@ -568,7 +587,7 @@ fn a_directory_that_grows_into_a_multi_sector_cluster_zeroes_all_of_it() {
         NoClock,
     )
     .unwrap();
-    let boot = *probe.boot_sector();
+    let boot = *probe.as_volume().boot_sector();
     assert_eq!(boot.sectors_per_cluster(), 4);
     let data = boot.first_data_sector() as usize * 512;
     // Everything after the root's first cluster is stale.
@@ -616,7 +635,14 @@ fn a_fat32_file_beyond_cluster_65535_keeps_its_high_cluster_bits() {
         .unwrap()
         .write(b"late")
         .unwrap();
-    assert!(volume.lookup("LATE.TXT").unwrap().first_cluster() > 65_535);
+    assert!(
+        volume
+            .as_volume_mut()
+            .lookup("LATE.TXT")
+            .unwrap()
+            .first_cluster()
+            > 65_535
+    );
     volume.mark_clean().unwrap();
     let image = volume.into_device();
     let files = lamfat_files(&image.bytes);

@@ -98,22 +98,26 @@ fn main() {
         .unwrap()
         .write(b"hello, volume")
         .unwrap();
-    let stored = volume.lookup("Documents/A long file name.txt").unwrap();
+    let stored = volume
+        .as_volume_mut()
+        .lookup("Documents/A long file name.txt")
+        .unwrap();
     let hidden = Attributes::ARCHIVE.union(Attributes::HIDDEN);
     volume.set_attributes(&stored, hidden).unwrap();
     volume.mark_clean().unwrap();
 
-    // Read it back by path, as another program would.
-    let entry = volume.lookup("documents/A LONG FILE NAME.TXT").unwrap();
+    // Read it back by path, as another program would, through the volume the writer lends.
+    let reader = volume.as_volume_mut();
+    let entry = reader.lookup("documents/A LONG FILE NAME.TXT").unwrap();
     let mut bytes = [0u8; 32];
-    let read = volume
+    let read = reader
         .open_file_reader(&entry)
         .unwrap()
         .read(&mut bytes)
         .unwrap();
     assert_eq!(&bytes[..read], b"hello, volume");
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
+        reader.volume_label().unwrap().unwrap().trim_ascii_end(),
         b"EXAMPLE"
     );
 }
@@ -235,6 +239,7 @@ fn main() {
 
     greet(&mut volume.open_file_writer(&file).unwrap()).unwrap();
 
+    let volume = volume.as_volume_mut();
     let entry = volume.lookup("GREETING.TXT").unwrap();
     let mut reader = volume.open_file_reader(&entry).unwrap();
     reader.seek(SeekFrom::End(-11)).unwrap();

@@ -13,9 +13,9 @@
 
 #![no_main]
 
-use file_allocation_table::{DirectoryCluster, 
-    CivilDateTime, Clock, FormatOptions, FormatPlan, NamedEntry, NoClock, SectorDevice, SectorSize,
-    WritableSectorDevice, WritableVolume,
+use file_allocation_table::{
+    CivilDateTime, Clock, DirectoryCluster, FormatOptions, FormatPlan, NamedEntry, NoClock,
+    SectorDevice, SectorSize, WritableSectorDevice, WritableVolume,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -145,7 +145,7 @@ fuzz_target!(|data: &[u8]| {
     for op in operations.chunks(4).take(64) {
         let picked = name(op);
         let found = |volume: &mut WritableVolume<Image, Fed>, path: &str| -> Option<NamedEntry> {
-            volume.lookup(path).ok()
+            volume.as_volume_mut().lookup(path).ok()
         };
         match op[0] % 8 {
             0 => {
@@ -206,7 +206,7 @@ fuzz_target!(|data: &[u8]| {
     // On a volume this crate formatted, the tree still walks and the shutdown bit is clean.
     if formatted && synced {
         let mut listed = 0;
-        for entry in volume.root_named_entries() {
+        for entry in volume.as_volume_mut().root_named_entries() {
             entry.expect("a volume the writer changed still lists");
             listed += 1;
         }
@@ -215,6 +215,9 @@ fuzz_target!(|data: &[u8]| {
             "more entries than the writer made"
         );
         // FAT12 keeps no such bit; FAT16 and FAT32 must read clean after `mark_clean`.
-        assert_ne!(volume.is_clean().expect("the table reads"), Some(false));
+        assert_ne!(
+            volume.as_volume_mut().is_clean().expect("the table reads"),
+            Some(false)
+        );
     }
 });

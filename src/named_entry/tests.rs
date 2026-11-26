@@ -205,6 +205,7 @@ fn a_directory_entry_names_its_directory_and_a_file_or_the_label_names_none() {
     assert_eq!(inner, DirectoryCluster(directory.first_cluster()));
     assert_eq!(file.directory_cluster(), None);
     let label = volume
+        .as_volume_mut()
         .root_named_entries()
         .map(|entry| entry.unwrap())
         .find(NamedEntry::is_volume_label)
@@ -212,6 +213,7 @@ fn a_directory_entry_names_its_directory_and_a_file_or_the_label_names_none() {
     assert_eq!(label.directory_cluster(), None);
     // In a subdirectory of the root, `.` names the subdirectory and `..` names the root.
     let mut dots = volume
+        .as_volume_mut()
         .named_entries(inner)
         .map(|entry| entry.unwrap().directory_cluster());
     assert_eq!(dots.next(), Some(Some(inner)));

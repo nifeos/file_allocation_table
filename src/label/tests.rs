@@ -7,20 +7,31 @@ use crate::{DirectoryCluster, NoClock, WritableVolume};
 #[test]
 fn a_volume_with_no_label_reads_as_none_and_a_set_label_reads_back() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    assert_eq!(volume.volume_label(), Ok(None));
+    assert_eq!(volume.as_volume_mut().volume_label(), Ok(None));
     volume.set_volume_label("MY DISK").unwrap();
-    let label = volume.volume_label().unwrap().unwrap();
+    let label = volume.as_volume_mut().volume_label().unwrap().unwrap();
     assert_eq!(label.as_bytes(), b"MY DISK    ");
     assert_eq!(label.trim_ascii_end(), b"MY DISK");
     // The entry is the first in the root and the root still lists it as the label.
-    let first = volume.root_named_entries().next().unwrap().unwrap();
+    let first = volume
+        .as_volume_mut()
+        .root_named_entries()
+        .next()
+        .unwrap()
+        .unwrap();
     assert!(first.is_volume_label());
     volume.set_volume_label("OTHER").unwrap();
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
+        volume
+            .as_volume_mut()
+            .volume_label()
+            .unwrap()
+            .unwrap()
+            .trim_ascii_end(),
         b"OTHER"
     );
     let labels = volume
+        .as_volume_mut()
         .root_named_entries()
         .map(|e| e.unwrap())
         .filter(|e| e.is_volume_label())
@@ -38,7 +49,7 @@ fn an_illegal_label_is_refused_and_changes_nothing() {
             "{bad}"
         );
     }
-    assert_eq!(volume.volume_label(), Ok(None));
+    assert_eq!(volume.as_volume_mut().volume_label(), Ok(None));
 }
 
 #[test]
@@ -49,18 +60,26 @@ fn the_boot_sectors_copy_is_read_when_the_root_has_no_entry() {
     image.bytes[43..54].copy_from_slice(b"BOOT LABEL ");
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
+        volume
+            .as_volume_mut()
+            .volume_label()
+            .unwrap()
+            .unwrap()
+            .trim_ascii_end(),
         b"BOOT LABEL"
     );
     // "NO NAME" is the absence of a label, and so is an all-space field.
     let mut image = volume.into_device();
     image.bytes[43..54].copy_from_slice(b"NO NAME    ");
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    assert_eq!(volume.volume_label(), Ok(None));
+    assert_eq!(volume.as_volume_mut().volume_label(), Ok(None));
     let mut image = volume.into_device();
     image.bytes[43..54].copy_from_slice(&[b' '; 11]);
     assert_eq!(
-        WritableVolume::open(image, NoClock).unwrap().volume_label(),
+        WritableVolume::open(image, NoClock)
+            .unwrap()
+            .as_volume_mut()
+            .volume_label(),
         Ok(None)
     );
 }
@@ -96,7 +115,7 @@ fn trim_ascii_end_matches_the_standard_library_on_the_stored_bytes() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     for name in ["A", "MY DISK", "ELEVEN CHRS", "TWO  SPACES"] {
         volume.set_volume_label(name).unwrap();
-        let label = volume.volume_label().unwrap().unwrap();
+        let label = volume.as_volume_mut().volume_label().unwrap().unwrap();
         assert_eq!(label.trim_ascii_end(), label.as_bytes().trim_ascii_end());
         assert_eq!(label.trim_ascii_end(), name.as_bytes());
     }

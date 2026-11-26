@@ -181,6 +181,7 @@ fn five_hundred_colliding_long_names_stay_under_their_read_ceiling() {
     );
     // The aliases count up from 1, so the last of the five hundred carries ~500.
     let last = volume
+        .as_volume_mut()
         .lookup(&format!("many/file number {}.txt", NAMES - 1))
         .unwrap();
     assert_eq!(last.short_name(), *b"FILE~500TXT");

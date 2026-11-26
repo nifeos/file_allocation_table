@@ -2,17 +2,15 @@
 //!
 //! The clock is required: a read-only [`Volume`] has no write methods, and the only way to the
 //! write methods is a `WritableVolume`, which cannot exist without a clock. A caller with no time
-//! source passes [`NoClock`](crate::NoClock) and says so. A `WritableVolume` derefs to its
-//! `Volume`, so every read (lookup, listing, file reads, the label, the clean bit) works on it
-//! unchanged. A read stamps nothing, so no read takes the clock and no access date changes on a
+//! source passes [`NoClock`](crate::NoClock) and says so. Every read (lookup, listing, file reads, the
+//! label, the clean bit) goes through [`WritableVolume::as_volume`] or
+//! [`WritableVolume::as_volume_mut`], which lend the `Volume` itself. A read stamps nothing, so no read takes the clock and no access date changes on a
 //! read.
 //!
 //! The clock is read once per operation, and every entry the operation writes carries that one
 //! reading. A new file or directory is created, written and accessed at that time. A write or a
 //! resize sets the write time, the write date and the access date. A rename keeps the entry's
 //! times. Attribute and label changes stamp nothing except a label's first entry.
-
-use core::ops::{Deref, DerefMut};
 
 use crate::attributes::Attributes;
 use crate::boot_sector::OpenOptions;
@@ -92,6 +90,18 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     /// Give the volume back without its clock, for reading.
     pub fn into_volume(self) -> Volume<D> {
         self.volume
+    }
+
+    /// **Lend the volume for reading.** The volume's own methods take `&mut self` where they read
+    /// the device; [`Self::as_volume_mut`] lends it for those.
+    pub const fn as_volume(&self) -> &Volume<D> {
+        &self.volume
+    }
+
+    /// **Lend the volume for reading through the device**: a lookup, a listing or a file reader.
+    /// A `Volume` has no write method, so nothing done through it bypasses the clock.
+    pub const fn as_volume_mut(&mut self) -> &mut Volume<D> {
+        &mut self.volume
     }
 
     /// Read the clock once for the operation about to run.
@@ -188,20 +198,6 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
         entry: &NamedEntry,
     ) -> Result<FileWriter<'_, D, C>, OpenError<D::Error>> {
         FileWriter::new(&mut self.volume, &mut self.clock, entry)
-    }
-}
-
-impl<D, C> Deref for WritableVolume<D, C> {
-    type Target = Volume<D>;
-
-    fn deref(&self) -> &Volume<D> {
-        &self.volume
-    }
-}
-
-impl<D, C> DerefMut for WritableVolume<D, C> {
-    fn deref_mut(&mut self) -> &mut Volume<D> {
-        &mut self.volume
     }
 }
 

@@ -20,10 +20,13 @@ fn raw(image: &Image, copy: usize, cluster: u32) -> u16 {
 #[test]
 fn allocation_takes_the_first_free_cluster_from_the_hint_and_ends_the_chain_there() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    assert_eq!(volume.allocate_cluster(None), Ok(2));
-    assert_eq!(volume.allocate_cluster(None), Ok(3));
-    assert_eq!(volume.table_entry(2), Ok(TableEntry::EndOfChain));
-    assert_eq!(volume.table_entry(4), Ok(TableEntry::Free));
+    assert_eq!(volume.as_volume_mut().allocate_cluster(None), Ok(2));
+    assert_eq!(volume.as_volume_mut().allocate_cluster(None), Ok(3));
+    assert_eq!(
+        volume.as_volume_mut().table_entry(2),
+        Ok(TableEntry::EndOfChain)
+    );
+    assert_eq!(volume.as_volume_mut().table_entry(4), Ok(TableEntry::Free));
     let image = volume.into_device();
     for copy in 0..2 {
         assert_eq!(raw(&image, copy, 2), 0xFFF);
@@ -35,17 +38,23 @@ fn allocation_takes_the_first_free_cluster_from_the_hint_and_ends_the_chain_ther
 #[test]
 fn extending_a_chain_links_the_old_end_to_the_new_cluster() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let first = volume.allocate_cluster(None).unwrap();
-    let second = volume.allocate_cluster(Some(first)).unwrap();
-    let third = volume.allocate_cluster(Some(second)).unwrap();
+    let first = volume.as_volume_mut().allocate_cluster(None).unwrap();
+    let second = volume
+        .as_volume_mut()
+        .allocate_cluster(Some(first))
+        .unwrap();
+    let third = volume
+        .as_volume_mut()
+        .allocate_cluster(Some(second))
+        .unwrap();
     let chain: [u32; 3] = [first, second, third];
     let mut walked = [0u32; 3];
-    for (slot, cluster) in walked.iter_mut().zip(volume.chain(first)) {
+    for (slot, cluster) in walked.iter_mut().zip(volume.as_volume_mut().chain(first)) {
         *slot = cluster.unwrap();
     }
     assert_eq!(walked, chain);
     assert_eq!(
-        volume.allocate_cluster(Some(first)),
+        volume.as_volume_mut().allocate_cluster(Some(first)),
         Err(AllocationError::NotTheEndOfAChain(first))
     );
 }
@@ -56,10 +65,13 @@ fn the_search_wraps_past_the_last_cluster_to_the_first_free_one() {
     image.set(2, 0xFFF);
     image.set(3, 0xFFF);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    volume.writer.next_free = CLUSTERS + 1;
-    assert_eq!(volume.allocate_cluster(None), Ok(CLUSTERS + 1));
-    assert_eq!(volume.writer.next_free, 2);
-    assert_eq!(volume.allocate_cluster(None), Ok(4));
+    volume.as_volume_mut().writer.next_free = CLUSTERS + 1;
+    assert_eq!(
+        volume.as_volume_mut().allocate_cluster(None),
+        Ok(CLUSTERS + 1)
+    );
+    assert_eq!(volume.as_volume_mut().writer.next_free, 2);
+    assert_eq!(volume.as_volume_mut().allocate_cluster(None), Ok(4));
 }
 
 #[test]
@@ -70,11 +82,11 @@ fn a_full_volume_is_refused_and_one_freed_cluster_is_found_again() {
     }
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     assert_eq!(
-        volume.allocate_cluster(None),
+        volume.as_volume_mut().allocate_cluster(None),
         Err(AllocationError::VolumeFull)
     );
-    assert_eq!(volume.deallocate_chain(200), Ok(1));
-    assert_eq!(volume.allocate_cluster(None), Ok(200));
+    assert_eq!(volume.as_volume_mut().deallocate_chain(200), Ok(1));
+    assert_eq!(volume.as_volume_mut().allocate_cluster(None), Ok(200));
 }
 
 #[test]
@@ -85,7 +97,7 @@ fn a_bad_or_reserved_cluster_is_never_allocated() {
     }
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     assert_eq!(
-        volume.allocate_cluster(None),
+        volume.as_volume_mut().allocate_cluster(None),
         Err(AllocationError::VolumeFull)
     );
 }
@@ -95,11 +107,18 @@ fn every_entry_stores_without_disturbing_its_neighbors_across_the_table() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     for cluster in 2..CLUSTERS + 2 {
         let entry = TableEntry::Next(2 + (cluster * 7) % CLUSTERS);
-        volume.write_table_entry(cluster, entry).unwrap();
+        volume
+            .as_volume_mut()
+            .write_table_entry(cluster, entry)
+            .unwrap();
     }
     for cluster in 2..CLUSTERS + 2 {
         let entry = TableEntry::Next(2 + (cluster * 7) % CLUSTERS);
-        assert_eq!(volume.table_entry(cluster), Ok(entry), "cluster {cluster}");
+        assert_eq!(
+            volume.as_volume_mut().table_entry(cluster),
+            Ok(entry),
+            "cluster {cluster}"
+        );
     }
     let image = volume.into_device();
     for cluster in 2..CLUSTERS + 2 {
@@ -115,17 +134,29 @@ fn a_straddling_entry_rewrites_both_of_its_sectors() {
     // Cluster 341's entry starts at byte 511 of the first table sector.
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     volume
+        .as_volume_mut()
         .write_table_entry(341, TableEntry::Next(0x123))
         .unwrap();
     volume
+        .as_volume_mut()
         .write_table_entry(340, TableEntry::Next(0x456))
         .unwrap();
     volume
+        .as_volume_mut()
         .write_table_entry(342, TableEntry::Next(0x789))
         .unwrap();
-    assert_eq!(volume.table_entry(341), Ok(TableEntry::Next(0x123)));
-    assert_eq!(volume.table_entry(340), Ok(TableEntry::Next(0x456)));
-    assert_eq!(volume.table_entry(342), Ok(TableEntry::Next(0x789)));
+    assert_eq!(
+        volume.as_volume_mut().table_entry(341),
+        Ok(TableEntry::Next(0x123))
+    );
+    assert_eq!(
+        volume.as_volume_mut().table_entry(340),
+        Ok(TableEntry::Next(0x456))
+    );
+    assert_eq!(
+        volume.as_volume_mut().table_entry(342),
+        Ok(TableEntry::Next(0x789))
+    );
 }
 
 #[test]
@@ -133,7 +164,9 @@ fn only_a_data_cluster_has_an_entry_to_write() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     for cluster in [0, 1, CLUSTERS + 2, u32::MAX] {
         assert_eq!(
-            volume.write_table_entry(cluster, TableEntry::Free),
+            volume
+                .as_volume_mut()
+                .write_table_entry(cluster, TableEntry::Free),
             Err(ChainError::NotADataCluster(cluster))
         );
     }
@@ -145,12 +178,21 @@ fn freeing_a_chain_frees_every_cluster_and_counts_them() {
     image.link(&[5, 9, 6, 20]);
     image.link(&[30, 31]);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    assert_eq!(volume.deallocate_chain(5), Ok(4));
+    assert_eq!(volume.as_volume_mut().deallocate_chain(5), Ok(4));
     for cluster in [5, 9, 6, 20] {
-        assert_eq!(volume.table_entry(cluster), Ok(TableEntry::Free));
+        assert_eq!(
+            volume.as_volume_mut().table_entry(cluster),
+            Ok(TableEntry::Free)
+        );
     }
-    assert_eq!(volume.table_entry(30), Ok(TableEntry::Next(31)));
-    assert_eq!(volume.count_free_clusters(), Ok(CLUSTERS - 2));
+    assert_eq!(
+        volume.as_volume_mut().table_entry(30),
+        Ok(TableEntry::Next(31))
+    );
+    assert_eq!(
+        volume.as_volume_mut().count_free_clusters(),
+        Ok(CLUSTERS - 2)
+    );
 }
 
 #[test]
@@ -159,14 +201,17 @@ fn a_cut_keeps_the_head_ends_it_and_frees_the_tail() {
         let mut image = Image::fat12();
         image.link(&[5, 9, 6, 20]);
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
-        assert_eq!(volume.truncate_chain(5, keep), Ok(4 - keep));
+        assert_eq!(volume.as_volume_mut().truncate_chain(5, keep), Ok(4 - keep));
         let mut kept = 0;
-        for cluster in volume.chain(5) {
+        for cluster in volume.as_volume_mut().chain(5) {
             cluster.unwrap();
             kept += 1;
         }
         assert_eq!(kept, keep);
-        assert_eq!(volume.count_free_clusters(), Ok(CLUSTERS - keep));
+        assert_eq!(
+            volume.as_volume_mut().count_free_clusters(),
+            Ok(CLUSTERS - keep)
+        );
     }
 }
 
@@ -175,9 +220,9 @@ fn a_cut_past_the_end_frees_nothing_and_a_cut_to_zero_frees_all() {
     let mut image = Image::fat12();
     image.link(&[5, 9]);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    assert_eq!(volume.truncate_chain(5, 9), Ok(0));
-    assert_eq!(volume.truncate_chain(5, 0), Ok(2));
-    assert_eq!(volume.count_free_clusters(), Ok(CLUSTERS));
+    assert_eq!(volume.as_volume_mut().truncate_chain(5, 9), Ok(0));
+    assert_eq!(volume.as_volume_mut().truncate_chain(5, 0), Ok(2));
+    assert_eq!(volume.as_volume_mut().count_free_clusters(), Ok(CLUSTERS));
 }
 
 #[test]
@@ -187,16 +232,16 @@ fn a_broken_chain_frees_what_precedes_the_break_and_reports_it() {
     image.set(9, 0xFF7);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     assert_eq!(
-        volume.deallocate_chain(5),
+        volume.as_volume_mut().deallocate_chain(5),
         Err(AllocationError::Chain(ChainError::Broken {
             cluster: 9,
             entry: TableEntry::Bad
         }))
     );
-    assert_eq!(volume.table_entry(5), Ok(TableEntry::Free));
-    assert_eq!(volume.table_entry(9), Ok(TableEntry::Bad));
+    assert_eq!(volume.as_volume_mut().table_entry(5), Ok(TableEntry::Free));
+    assert_eq!(volume.as_volume_mut().table_entry(9), Ok(TableEntry::Bad));
     assert_eq!(
-        volume.deallocate_chain(1),
+        volume.as_volume_mut().deallocate_chain(1),
         Err(AllocationError::Chain(ChainError::NotADataCluster(1)))
     );
 }
@@ -208,13 +253,13 @@ fn a_looping_chain_is_freed_once_and_ends_at_the_cluster_it_already_freed() {
     image.set(9, 5);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     assert_eq!(
-        volume.deallocate_chain(5),
+        volume.as_volume_mut().deallocate_chain(5),
         Err(AllocationError::Chain(ChainError::Broken {
             cluster: 5,
             entry: TableEntry::Free
         }))
     );
-    assert_eq!(volume.table_entry(9), Ok(TableEntry::Free));
+    assert_eq!(volume.as_volume_mut().table_entry(9), Ok(TableEntry::Free));
 }
 
 #[test]
@@ -225,25 +270,34 @@ fn a_refused_write_is_the_devices_error_and_a_failed_link_leaks_nothing() {
     image.refuse_write = Some(2);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     assert_eq!(
-        volume.allocate_cluster(Some(341)),
+        volume.as_volume_mut().allocate_cluster(Some(341)),
         Err(AllocationError::Chain(ChainError::Device(2)))
     );
     // The new cluster was marked and released again, and the chain it would have joined is intact.
-    assert_eq!(volume.table_entry(2), Ok(TableEntry::Free));
-    assert_eq!(volume.table_entry(341), Ok(TableEntry::EndOfChain));
+    assert_eq!(volume.as_volume_mut().table_entry(2), Ok(TableEntry::Free));
+    assert_eq!(
+        volume.as_volume_mut().table_entry(341),
+        Ok(TableEntry::EndOfChain)
+    );
 }
 
 #[test]
 fn the_hints_follow_allocation_and_release() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    volume.writer.free_clusters = Some(CLUSTERS);
-    volume.writer.loaded = true;
-    volume.allocate_cluster(None).unwrap();
-    volume.allocate_cluster(None).unwrap();
-    assert_eq!(volume.writer.free_clusters, Some(CLUSTERS - 2));
-    assert_eq!(volume.writer.next_free, 4);
-    volume.deallocate_chain(2).unwrap();
-    assert_eq!(volume.writer.free_clusters, Some(CLUSTERS - 1));
+    volume.as_volume_mut().writer.free_clusters = Some(CLUSTERS);
+    volume.as_volume_mut().writer.loaded = true;
+    volume.as_volume_mut().allocate_cluster(None).unwrap();
+    volume.as_volume_mut().allocate_cluster(None).unwrap();
+    assert_eq!(
+        volume.as_volume_mut().writer.free_clusters,
+        Some(CLUSTERS - 2)
+    );
+    assert_eq!(volume.as_volume_mut().writer.next_free, 4);
+    volume.as_volume_mut().deallocate_chain(2).unwrap();
+    assert_eq!(
+        volume.as_volume_mut().writer.free_clusters,
+        Some(CLUSTERS - 1)
+    );
     // A volume with no file system information has nowhere to write them, and a `mark_clean` is
     // still clean.
     assert_eq!(volume.mark_clean(), Ok(()));
@@ -259,19 +313,25 @@ fn a_chain_that_links_outside_the_volume_is_broken_and_left_alone() {
         cluster: 5,
         entry: TableEntry::Next(400),
     });
-    assert_eq!(volume.deallocate_chain(5), Err(broken));
-    assert_eq!(volume.truncate_chain(5, 1), Err(broken));
-    assert_eq!(volume.table_entry(5), Ok(TableEntry::Next(400)));
+    assert_eq!(volume.as_volume_mut().deallocate_chain(5), Err(broken));
+    assert_eq!(volume.as_volume_mut().truncate_chain(5, 1), Err(broken));
+    assert_eq!(
+        volume.as_volume_mut().table_entry(5),
+        Ok(TableEntry::Next(400))
+    );
 }
 
 #[test]
 fn the_hint_wraps_to_the_first_cluster_only_after_the_last() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    volume.writer.next_free = CLUSTERS;
-    assert_eq!(volume.allocate_cluster(None), Ok(CLUSTERS));
-    assert_eq!(volume.writer.next_free, CLUSTERS + 1);
-    assert_eq!(volume.allocate_cluster(None), Ok(CLUSTERS + 1));
-    assert_eq!(volume.writer.next_free, 2);
+    volume.as_volume_mut().writer.next_free = CLUSTERS;
+    assert_eq!(volume.as_volume_mut().allocate_cluster(None), Ok(CLUSTERS));
+    assert_eq!(volume.as_volume_mut().writer.next_free, CLUSTERS + 1);
+    assert_eq!(
+        volume.as_volume_mut().allocate_cluster(None),
+        Ok(CLUSTERS + 1)
+    );
+    assert_eq!(volume.as_volume_mut().writer.next_free, 2);
 }
 
 #[test]
@@ -279,10 +339,10 @@ fn a_release_that_frees_nothing_leaves_the_hints_unchanged() {
     let mut image = Image::fat12();
     image.link(&[5, 9]);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    assert_eq!(volume.truncate_chain(5, 2), Ok(0));
-    assert!(!volume.writer.hints_changed);
-    assert_eq!(volume.truncate_chain(5, 1), Ok(1));
-    assert!(volume.writer.hints_changed);
+    assert_eq!(volume.as_volume_mut().truncate_chain(5, 2), Ok(0));
+    assert!(!volume.as_volume_mut().writer.hints_changed);
+    assert_eq!(volume.as_volume_mut().truncate_chain(5, 1), Ok(1));
+    assert!(volume.as_volume_mut().writer.hints_changed);
 }
 
 #[test]
@@ -290,7 +350,7 @@ fn a_volume_over_a_borrowed_device_writes_through_it() {
     let mut image = Image::fat12();
     {
         let mut volume = WritableVolume::open(&mut image, NoClock).unwrap();
-        assert_eq!(volume.allocate_cluster(None), Ok(2));
+        assert_eq!(volume.as_volume_mut().allocate_cluster(None), Ok(2));
     }
     assert_eq!(raw(&image, 0, 2), 0xFFF);
 }
@@ -444,7 +504,7 @@ fn metadata(image: &Memory) -> Vec<u8> {
         NoClock,
     )
     .unwrap();
-    let boot = *volume.boot_sector();
+    let boot = *volume.as_volume().boot_sector();
     let sector = image.bytes_per_sector.bytes();
     let end = boot.first_data_sector() as usize * sector;
     let mut bytes = image.bytes[..end].to_vec();
@@ -476,7 +536,7 @@ fn allocate_extend_cut_and_free(label: &str, mebibytes: usize, fat_type: FatType
     let original = metadata(&image);
     check_with_fsck(&image.bytes, &format!("{label}-empty"));
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let total = volume.count_free_clusters().unwrap();
+    let total = volume.as_volume_mut().count_free_clusters().unwrap();
     assert_eq!(total, lamfat_free_clusters(&volume.into_device().bytes));
     let image = formatted(mebibytes, fat_type, sector);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
@@ -487,7 +547,7 @@ fn allocate_extend_cut_and_free(label: &str, mebibytes: usize, fat_type: FatType
     for (chain, length) in first.iter_mut().zip(lengths) {
         let mut last = None;
         for _ in 0..length {
-            let cluster = volume.allocate_cluster(last).unwrap();
+            let cluster = volume.as_volume_mut().allocate_cluster(last).unwrap();
             if last.is_none() {
                 *chain = cluster;
             }
@@ -499,12 +559,21 @@ fn allocate_extend_cut_and_free(label: &str, mebibytes: usize, fat_type: FatType
     assert_eq!(lamfat_free_clusters(&image.bytes), total - 47, "{label}");
 
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    assert_eq!(volume.count_free_clusters().unwrap(), total - 47);
-    let freed = volume.truncate_chain(first[0], 12).unwrap();
+    assert_eq!(
+        volume.as_volume_mut().count_free_clusters().unwrap(),
+        total - 47
+    );
+    let freed = volume.as_volume_mut().truncate_chain(first[0], 12).unwrap();
     assert_eq!(freed, 28);
     lengths[0] = 12;
-    assert_eq!(volume.chain(first[0]).count() as u32, lengths[0]);
-    assert_eq!(volume.chain(first[1]).count() as u32, lengths[1]);
+    assert_eq!(
+        volume.as_volume_mut().chain(first[0]).count() as u32,
+        lengths[0]
+    );
+    assert_eq!(
+        volume.as_volume_mut().chain(first[1]).count() as u32,
+        lengths[1]
+    );
     volume.mark_clean().unwrap();
     let image = volume.into_device();
     assert_eq!(lamfat_free_clusters(&image.bytes), total - 19, "{label}");
@@ -517,6 +586,7 @@ fn allocate_extend_cut_and_free(label: &str, mebibytes: usize, fat_type: FatType
         NoClock,
     )
     .unwrap()
+    .as_volume_mut()
     .file_system_information()
     .unwrap();
     // Only FAT32 has a file system information sector, and the count it holds is the true one.
@@ -534,8 +604,14 @@ fn allocate_extend_cut_and_free(label: &str, mebibytes: usize, fat_type: FatType
     }
 
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    assert_eq!(volume.deallocate_chain(first[0]).unwrap(), 12);
-    assert_eq!(volume.deallocate_chain(first[1]).unwrap(), 7);
+    assert_eq!(
+        volume.as_volume_mut().deallocate_chain(first[0]).unwrap(),
+        12
+    );
+    assert_eq!(
+        volume.as_volume_mut().deallocate_chain(first[1]).unwrap(),
+        7
+    );
     volume.mark_clean().unwrap();
     let image = volume.into_device();
     assert_eq!(lamfat_free_clusters(&image.bytes), total, "{label}");
@@ -578,7 +654,7 @@ fn scrambled(label: &str, mebibytes: usize, fat_type: FatType) {
     let image = formatted(mebibytes, fat_type, 512);
     let original = metadata(&image);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let total = volume.count_free_clusters().unwrap();
+    let total = volume.as_volume_mut().count_free_clusters().unwrap();
     let mut chains: Vec<(u32, u32)> = Vec::new(); // (first cluster, length)
     let mut last: Vec<u32> = Vec::new();
     let mut rng = Sequence(0x5EED);
@@ -586,7 +662,7 @@ fn scrambled(label: &str, mebibytes: usize, fat_type: FatType) {
     for step in 0..400 {
         match rng.next(4) {
             0 | 1 if chains.len() < 12 => {
-                let first = volume.allocate_cluster(None).unwrap();
+                let first = volume.as_volume_mut().allocate_cluster(None).unwrap();
                 chains.push((first, 1));
                 last.push(first);
                 used += 1;
@@ -595,7 +671,10 @@ fn scrambled(label: &str, mebibytes: usize, fat_type: FatType) {
                 let i = rng.next(chains.len() as u64) as usize;
                 let grow = 1 + rng.next(20) as u32;
                 for _ in 0..grow {
-                    let next = volume.allocate_cluster(Some(last[i])).unwrap();
+                    let next = volume
+                        .as_volume_mut()
+                        .allocate_cluster(Some(last[i]))
+                        .unwrap();
                     last[i] = next;
                     chains[i].1 += 1;
                     used += 1;
@@ -605,7 +684,7 @@ fn scrambled(label: &str, mebibytes: usize, fat_type: FatType) {
                 let i = rng.next(chains.len() as u64) as usize;
                 let (first, length) = chains[i];
                 let keep = rng.next(u64::from(length) + 1) as u32;
-                let freed = volume.truncate_chain(first, keep).unwrap();
+                let freed = volume.as_volume_mut().truncate_chain(first, keep).unwrap();
                 assert_eq!(freed, length - keep.min(length), "{label} step {step}");
                 used -= freed;
                 if keep == 0 {
@@ -613,29 +692,36 @@ fn scrambled(label: &str, mebibytes: usize, fat_type: FatType) {
                     last.swap_remove(i);
                 } else {
                     chains[i].1 = keep.min(length);
-                    last[i] = volume.chain(first).last().unwrap().unwrap();
+                    last[i] = volume.as_volume_mut().chain(first).last().unwrap().unwrap();
                 }
             }
             _ => {}
         }
         if step % 50 == 0 {
             assert_eq!(
-                volume.count_free_clusters().unwrap(),
+                volume.as_volume_mut().count_free_clusters().unwrap(),
                 total - used,
                 "{label}"
             );
         }
     }
     for (first, length) in &chains {
-        assert_eq!(volume.chain(*first).count() as u32, *length, "{label}");
+        assert_eq!(
+            volume.as_volume_mut().chain(*first).count() as u32,
+            *length,
+            "{label}"
+        );
     }
     volume.mark_clean().unwrap();
-    assert_eq!(volume.count_free_clusters().unwrap(), total - used);
+    assert_eq!(
+        volume.as_volume_mut().count_free_clusters().unwrap(),
+        total - used
+    );
     let image = volume.into_device();
     assert_eq!(lamfat_free_clusters(&image.bytes), total - used, "{label}");
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     for (first, _) in chains {
-        volume.deallocate_chain(first).unwrap();
+        volume.as_volume_mut().deallocate_chain(first).unwrap();
     }
     volume.mark_clean().unwrap();
     let image = volume.into_device();
@@ -667,23 +753,29 @@ fn a_full_volume_is_refused_and_every_cluster_comes_back() {
     let image = formatted(1, FatType::Fat12, 512);
     let original = metadata(&image);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let total = volume.count_free_clusters().unwrap();
-    let first = volume.allocate_cluster(None).unwrap();
+    let total = volume.as_volume_mut().count_free_clusters().unwrap();
+    let first = volume.as_volume_mut().allocate_cluster(None).unwrap();
     let mut last = first;
     for _ in 1..total {
-        last = volume.allocate_cluster(Some(last)).unwrap();
+        last = volume.as_volume_mut().allocate_cluster(Some(last)).unwrap();
     }
     assert_eq!(
-        volume.allocate_cluster(Some(last)),
+        volume.as_volume_mut().allocate_cluster(Some(last)),
         Err(AllocationError::VolumeFull)
     );
     assert_eq!(
-        volume.allocate_cluster(None),
+        volume.as_volume_mut().allocate_cluster(None),
         Err(AllocationError::VolumeFull)
     );
-    assert_eq!(volume.count_free_clusters().unwrap(), 0);
-    assert_eq!(volume.table_entry(last), Ok(TableEntry::EndOfChain));
-    assert_eq!(volume.deallocate_chain(first).unwrap(), total);
+    assert_eq!(volume.as_volume_mut().count_free_clusters().unwrap(), 0);
+    assert_eq!(
+        volume.as_volume_mut().table_entry(last),
+        Ok(TableEntry::EndOfChain)
+    );
+    assert_eq!(
+        volume.as_volume_mut().deallocate_chain(first).unwrap(),
+        total
+    );
     volume.mark_clean().unwrap();
     assert_eq!(metadata(&volume.into_device()), original);
 }
@@ -701,23 +793,30 @@ fn freeing_a_cluster_whose_entry_straddles_sectors_keeps_its_neighbors_link() {
     let mut last = None;
     let mut first = 0;
     for _ in 2..=682 {
-        let cluster = volume.allocate_cluster(last).unwrap();
+        let cluster = volume.as_volume_mut().allocate_cluster(last).unwrap();
         first = if last.is_none() { cluster } else { first };
         last = Some(cluster);
     }
     assert_eq!(last, Some(682));
-    let second = volume.allocate_cluster(None).unwrap();
+    let second = volume.as_volume_mut().allocate_cluster(None).unwrap();
     assert_eq!(second, 683);
     let mut tail = second;
     for _ in 0..4 {
-        tail = volume.allocate_cluster(Some(tail)).unwrap();
+        tail = volume.as_volume_mut().allocate_cluster(Some(tail)).unwrap();
     }
-    assert_eq!(volume.truncate_chain(first, 400).unwrap(), 281);
-    let walked: Vec<u32> = volume.chain(second).map(Result::unwrap).collect();
+    assert_eq!(
+        volume.as_volume_mut().truncate_chain(first, 400).unwrap(),
+        281
+    );
+    let walked: Vec<u32> = volume
+        .as_volume_mut()
+        .chain(second)
+        .map(Result::unwrap)
+        .collect();
     assert_eq!(walked, [683, 684, 685, 686, 687]);
-    assert_eq!(volume.chain(first).count(), 400);
-    volume.deallocate_chain(first).unwrap();
-    volume.deallocate_chain(second).unwrap();
+    assert_eq!(volume.as_volume_mut().chain(first).count(), 400);
+    volume.as_volume_mut().deallocate_chain(first).unwrap();
+    volume.as_volume_mut().deallocate_chain(second).unwrap();
     volume.mark_clean().unwrap();
     assert_eq!(metadata(&volume.into_device()), original);
 }
@@ -734,7 +833,7 @@ fn raw_fat32_entry(image: &Memory, copy: u8, cluster: u32) -> u32 {
         NoClock,
     )
     .unwrap();
-    let boot = volume.boot_sector();
+    let boot = volume.as_volume().boot_sector();
     let sector = boot.sector_size().bytes();
     let at = boot.table_first_sector(copy).unwrap() as usize * sector + cluster as usize * 4;
     let bytes = &image.bytes[at..at + 4];
@@ -751,13 +850,16 @@ fn only_the_live_table_is_written_when_mirroring_is_off() {
         image.bytes[40] = 0x80 | live;
         image.bytes[41] = 0;
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
-        assert_eq!(volume.boot_sector().active_table(), Some(live));
-        let cluster = volume.allocate_cluster(None).unwrap();
+        assert_eq!(
+            volume.as_volume_mut().boot_sector().active_table(),
+            Some(live)
+        );
+        let cluster = volume.as_volume_mut().allocate_cluster(None).unwrap();
         let image = volume.into_device();
         assert_eq!(raw_fat32_entry(&image, live, cluster), 0x0FFF_FFFF);
         assert_eq!(raw_fat32_entry(&image, 1 - live, cluster), 0);
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
-        assert_eq!(volume.deallocate_chain(cluster).unwrap(), 1);
+        assert_eq!(volume.as_volume_mut().deallocate_chain(cluster).unwrap(), 1);
         let image = volume.into_device();
         assert_eq!(raw_fat32_entry(&image, live, cluster), 0);
     }
@@ -775,7 +877,7 @@ fn raw_fat16_entry(image: &Memory, copy: u8, cluster: u32) -> u16 {
         NoClock,
     )
     .unwrap();
-    let boot = volume.boot_sector();
+    let boot = volume.as_volume().boot_sector();
     let sector = boot.sector_size().bytes();
     let at = boot.table_first_sector(copy).unwrap() as usize * sector + cluster as usize * 2;
     u16::from_le_bytes([image.bytes[at], image.bytes[at + 1]])
@@ -789,24 +891,34 @@ fn raw_fat16_entry(image: &Memory, copy: u8, cluster: u32) -> u16 {
 #[test]
 fn a_link_in_one_table_sector_is_one_write_for_each_copy() {
     let mut volume = WritableVolume::open(formatted(16, FatType::Fat16, 512), NoClock).unwrap();
-    volume.begin_change().unwrap();
-    volume.load_hints().unwrap();
+    volume.as_volume_mut().begin_change().unwrap();
+    volume.as_volume_mut().load_hints().unwrap();
     volume
+        .as_volume_mut()
         .write_table_entry(254, TableEntry::EndOfChain)
         .unwrap();
     for (last, new, writes) in [(254, 255, 2), (255, 256, 4)] {
-        volume.writer.next_free = new;
-        let before = volume.device.writes;
-        assert_eq!(volume.allocate_cluster(Some(last)), Ok(new));
+        volume.as_volume_mut().writer.next_free = new;
+        let before = volume.as_volume_mut().device.writes;
+        assert_eq!(volume.as_volume_mut().allocate_cluster(Some(last)), Ok(new));
         assert_eq!(
-            volume.device.writes - before,
+            volume.as_volume_mut().device.writes - before,
             writes,
             "linking {last} to {new}"
         );
     }
-    assert_eq!(volume.table_entry(254), Ok(TableEntry::Next(255)));
-    assert_eq!(volume.table_entry(255), Ok(TableEntry::Next(256)));
-    assert_eq!(volume.table_entry(256), Ok(TableEntry::EndOfChain));
+    assert_eq!(
+        volume.as_volume_mut().table_entry(254),
+        Ok(TableEntry::Next(255))
+    );
+    assert_eq!(
+        volume.as_volume_mut().table_entry(255),
+        Ok(TableEntry::Next(256))
+    );
+    assert_eq!(
+        volume.as_volume_mut().table_entry(256),
+        Ok(TableEntry::EndOfChain)
+    );
     let image = volume.into_device();
     for cluster in [254, 255, 256] {
         assert_eq!(
@@ -825,8 +937,11 @@ fn a_link_writes_only_the_live_table_when_mirroring_is_off() {
         image.bytes[40] = 0x80 | live;
         image.bytes[41] = 0;
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
-        let first = volume.allocate_cluster(None).unwrap();
-        let second = volume.allocate_cluster(Some(first)).unwrap();
+        let first = volume.as_volume_mut().allocate_cluster(None).unwrap();
+        let second = volume
+            .as_volume_mut()
+            .allocate_cluster(Some(first))
+            .unwrap();
         let image = volume.into_device();
         assert_eq!(raw_fat32_entry(&image, live, first), second);
         assert_eq!(raw_fat32_entry(&image, live, second), 0x0FFF_FFFF);
@@ -844,9 +959,9 @@ fn a_link_between_packed_or_straddling_entries_lands_both() {
     image.set(340, 0xFFF);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     for (last, new) in [(2, 3), (340, 341)] {
-        volume.writer.loaded = true;
-        volume.writer.next_free = new;
-        assert_eq!(volume.allocate_cluster(Some(last)), Ok(new));
+        volume.as_volume_mut().writer.loaded = true;
+        volume.as_volume_mut().writer.next_free = new;
+        assert_eq!(volume.as_volume_mut().allocate_cluster(Some(last)), Ok(new));
     }
     let image = volume.into_device();
     for copy in 0..2 {

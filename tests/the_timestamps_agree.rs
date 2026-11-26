@@ -195,7 +195,10 @@ fn times_agree(label: &str, mebibytes: usize, fat_type: FatType) {
         .unwrap();
     // A later write: the write and access times move, the creation time stays.
     now.set(at(2027, 2, 3, 4, 5, 6));
-    let entry = volume.lookup("Stamped File With A Long Name.txt").unwrap();
+    let entry = volume
+        .as_volume_mut()
+        .lookup("Stamped File With A Long Name.txt")
+        .unwrap();
     volume
         .open_file_writer(&entry)
         .unwrap()
@@ -316,7 +319,7 @@ fn no_clock_and_a_clock_with_no_time_write_the_zero_timestamp() {
     with_no_clock
         .create_file(DirectoryCluster::ROOT, "ZERO.TXT")
         .unwrap();
-    let entry = with_no_clock.lookup("ZERO.TXT").unwrap();
+    let entry = with_no_clock.as_volume_mut().lookup("ZERO.TXT").unwrap();
     assert_eq!(
         (entry.created(), entry.modified(), entry.accessed()),
         (None, None, None),

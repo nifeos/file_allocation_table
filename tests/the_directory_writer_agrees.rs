@@ -253,17 +253,23 @@ fn directories_and_moves(label: &str, image: Memory) -> Memory {
         volume.rename(&docs, docs_cluster, "Moved"),
         Err(WriteError::MovedIntoItself)
     );
-    let notes = volume.lookup("Documents And Settings/notes.txt").unwrap();
+    let notes = volume
+        .as_volume_mut()
+        .lookup("Documents And Settings/notes.txt")
+        .unwrap();
     let moved = volume
         .rename(&notes, DirectoryCluster::ROOT, "Renamed Notes.txt")
         .unwrap();
     assert_eq!(moved.size_bytes(), 5);
     // The directory with its contents moves under another parent, and its `..` follows.
-    let sub = volume.lookup("Documents And Settings/Sub").unwrap();
+    let sub = volume
+        .as_volume_mut()
+        .lookup("Documents And Settings/Sub")
+        .unwrap();
     volume
         .rename(&sub, DirectoryCluster::ROOT, "Sub Moved")
         .unwrap();
-    let case_only = volume.lookup("lower.txt").unwrap();
+    let case_only = volume.as_volume_mut().lookup("lower.txt").unwrap();
     volume
         .rename(&case_only, DirectoryCluster::ROOT, "LOWER.txt")
         .unwrap();
@@ -299,14 +305,15 @@ fn directories_and_moves(label: &str, image: Memory) -> Memory {
 fn remove_all(label: &str, image: Memory) {
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     for path in ["Sub Moved/deep file.txt", "Renamed Notes.txt"] {
-        let entry = volume.lookup(path).unwrap();
+        let entry = volume.as_volume_mut().lookup(path).unwrap();
         volume.remove_file(&entry).unwrap();
     }
     for path in ["Sub Moved", "Documents And Settings"] {
-        let entry = volume.lookup(path).unwrap();
+        let entry = volume.as_volume_mut().lookup(path).unwrap();
         volume.remove_directory(&entry).unwrap();
     }
     let rest: Vec<String> = volume
+        .as_volume_mut()
         .root_named_entries()
         .map(|e| e.unwrap())
         .filter(|e| !e.is_volume_label())
@@ -451,6 +458,7 @@ fn a_new_directory_in_a_multi_sector_cluster_is_zeroed_past_its_dots() {
         NoClock,
     )
     .unwrap()
+    .as_volume_mut()
     .boot_sector();
     let data = boot.first_data_sector() as usize * 512;
     image.bytes[data + 2048..].fill(0xAA);
