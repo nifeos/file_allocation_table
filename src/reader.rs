@@ -48,16 +48,15 @@ pub enum ChainError<E> {
 /// let options = VolumeLayoutOptions::new(70_000 * 8 + 2_000)
 ///     .with_volume_id(1)
 ///     .with_label("EFI SYSTEM")
-///     .and_then(|options| options.with_file("BOOTX64.EFI", 5_000))
-///     .unwrap();
-/// let layout = VolumeLayout::new(options, &mut NoClock).unwrap();
+///     .and_then(|options| options.with_file("BOOTX64.EFI", 5_000))?;
+/// let layout = VolumeLayout::new(options, &mut NoClock)?;
 /// struct Image(VolumeLayout);
 /// impl SectorDevice for Image {
-///     type Error = ();
+///     type Error = core::convert::Infallible;
 ///     fn sector_size(&self) -> SectorSize {
 ///         SectorSize::Bytes512
 ///     }
-///     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), ()> {
+///     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
 ///         if self.0.fill_sector(index, buffer).is_err() {
 ///             buffer.fill(0);
 ///         }
@@ -65,12 +64,13 @@ pub enum ChainError<E> {
 ///     }
 /// }
 ///
-/// let mut volume = Volume::open(Image(layout)).unwrap();
+/// let mut volume = Volume::open(Image(layout))?;
 /// // The layout puts the boot file at FILE_CLUSTER (5, after the root, EFI and BOOT), and its
 /// // 5,000 bytes take two clusters of 4,096 bytes.
 /// let first = Cluster::new(FILE_CLUSTER);
-/// let clusters: Vec<Cluster> = volume.chain(first).map(Result::unwrap).collect();
+/// let clusters = volume.chain(first).collect::<Result<Vec<Cluster>, _>>()?;
 /// assert_eq!(clusters, [first, Cluster::new(FILE_CLUSTER + 1)]);
+/// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug)]
 pub struct Volume<D> {
@@ -101,6 +101,49 @@ impl<D: SectorDevice> Volume<D> {
     ///
     /// Refuses what [`BootSector::read`] refuses, including a volume whose sector size is not the
     /// device's.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use file_allocation_table::{
+    ///     NoClock, ReadError, SectorDevice, SectorSize, Volume, VolumeLayout, VolumeLayoutOptions,
+    /// };
+    ///
+    /// /// The sectors of an empty FAT32 volume, as the layout fills them; the rest read as zeros.
+    /// struct Image(VolumeLayout);
+    /// impl SectorDevice for Image {
+    ///     type Error = core::convert::Infallible;
+    ///     fn sector_size(&self) -> SectorSize {
+    ///         SectorSize::Bytes512
+    ///     }
+    ///     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    ///         if self.0.fill_sector(index, buffer).is_err() {
+    ///             buffer.fill(0);
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let options = VolumeLayoutOptions::new(70_000 * 8 + 2_000);
+    /// let mut volume = Volume::open(Image(VolumeLayout::new(options, &mut NoClock)?))?;
+    /// assert_eq!(volume.boot_sector().sector_size(), SectorSize::Bytes512);
+    /// assert!(volume.root_named_entries().next().is_none());
+    ///
+    /// // A device of zeros holds no boot sector.
+    /// struct Blank;
+    /// impl SectorDevice for Blank {
+    ///     type Error = core::convert::Infallible;
+    ///     fn sector_size(&self) -> SectorSize {
+    ///         SectorSize::Bytes512
+    ///     }
+    ///     fn read_sector(&mut self, _: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    ///         buffer.fill(0);
+    ///         Ok(())
+    ///     }
+    /// }
+    /// assert!(matches!(Volume::open(Blank), Err(ReadError::Refused(_))));
+    /// # Ok::<(), Box<dyn core::error::Error>>(())
+    /// ```
     pub fn open(device: D) -> Result<Volume<D>, ReadError<D::Error>> {
         Volume::open_with(device, OpenOptions::new())
     }

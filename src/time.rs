@@ -31,12 +31,13 @@
 /// ```
 /// use file_allocation_table::{CivilDateTime, CivilDateTimeError};
 ///
-/// let noon = CivilDateTime::new(2026, 11, 10, 12, 0, 0).unwrap();
+/// let noon = CivilDateTime::new(2026, 11, 10, 12, 0, 0)?;
 /// assert_eq!((noon.year(), noon.month(), noon.day()), (2026, 11, 10));
 /// assert_eq!(
 ///     CivilDateTime::new(2026, 2, 29, 0, 0, 0),
 ///     Err(CivilDateTimeError::Day)
 /// );
+/// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CivilDateTime {

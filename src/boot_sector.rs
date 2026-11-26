@@ -163,15 +163,15 @@ pub enum ReadError<E> {
 /// let options = VolumeLayoutOptions::new(1024 * 1024)
 ///     .with_volume_id(1)
 ///     .with_label("EFI SYSTEM")
-///     .and_then(|options| options.with_file("BOOTX64.EFI", 4096))
-///     .unwrap();
-/// let volume = VolumeLayout::new(options, &mut NoClock).unwrap();
+///     .and_then(|options| options.with_file("BOOTX64.EFI", 4096))?;
+/// let volume = VolumeLayout::new(options, &mut NoClock)?;
 /// let mut sector = [0u8; BYTES_PER_SECTOR];
-/// volume.fill_sector(0, &mut sector).unwrap();
+/// volume.fill_sector(0, &mut sector)?;
 ///
-/// let boot = BootSector::parse(&sector).unwrap();
+/// let boot = BootSector::parse(&sector)?;
 /// assert_eq!(boot.file_allocation_table_type(), FileAllocationTableType::Fat32);
 /// assert!(boot.clusters() >= MINIMUM_FAT32_CLUSTERS);
+/// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BootSector {

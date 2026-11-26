@@ -34,29 +34,32 @@ use crate::write_cursor::WriteError;
 ///
 /// struct Memory(Vec<u8>);
 /// impl SectorDevice for Memory {
-///     type Error = ();
+///     type Error = std::io::Error;
 ///     fn sector_size(&self) -> SectorSize { SectorSize::Bytes512 }
-///     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), ()> {
+///     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
 ///         let start = index as usize * 512;
-///         buffer.copy_from_slice(self.0.get(start..start + 512).ok_or(())?);
+///         let sector = self.0.get(start..start + 512).ok_or(std::io::ErrorKind::UnexpectedEof)?;
+///         buffer.copy_from_slice(sector);
 ///         Ok(())
 ///     }
 /// }
 /// impl WritableSectorDevice for Memory {
-///     fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), ()> {
+///     fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), Self::Error> {
 ///         let start = index as usize * 512;
-///         self.0.get_mut(start..start + 512).ok_or(())?.copy_from_slice(buffer);
+///         let sector = self.0.get_mut(start..start + 512).ok_or(std::io::ErrorKind::UnexpectedEof)?;
+///         sector.copy_from_slice(buffer);
 ///         Ok(())
 ///     }
 /// }
 ///
 /// let sectors = 16 * 1024;
-/// let format = FormatPlan::new(FormatOptions::new(SectorSize::Bytes512, sectors), &mut NoClock).unwrap();
+/// let format = FormatPlan::new(FormatOptions::new(SectorSize::Bytes512, sectors), &mut NoClock)?;
 /// let mut device = Memory(vec![0; sectors as usize * 512]);
-/// format.write_to(&mut device).unwrap();
+/// format.write_to(&mut device)?;
 /// // No time source here, so the caller says so.
-/// let mut volume = WritableVolume::open(device, NoClock).unwrap();
-/// volume.create_file(DirectoryCluster::ROOT, "HELLO.TXT").unwrap();
+/// let mut volume = WritableVolume::open(device, NoClock)?;
+/// volume.create_file(DirectoryCluster::ROOT, "HELLO.TXT")?;
+/// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug)]
 pub struct WritableVolume<D, C> {
@@ -123,6 +126,57 @@ impl<D: WritableSectorDevice, C: Clock> WritableVolume<D, C> {
     /// A name may not end in a dot or a space. Windows and Linux strip those, and this crate
     /// refuses with [`WriteError::NameRefused`] rather than create a name other than the one asked
     /// for.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use file_allocation_table::{
+    ///     DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
+    ///     WritableSectorDevice, WritableVolume, WriteError,
+    /// };
+    ///
+    /// # struct Memory(Vec<u8>);
+    /// # impl SectorDevice for Memory {
+    /// #     type Error = std::io::Error;
+    /// #     fn sector_size(&self) -> SectorSize { SectorSize::Bytes512 }
+    /// #     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    /// #         let start = index as usize * 512;
+    /// #         let sector = self.0.get(start..start + 512).ok_or(std::io::ErrorKind::UnexpectedEof)?;
+    /// #         buffer.copy_from_slice(sector);
+    /// #         Ok(())
+    /// #     }
+    /// # }
+    /// # impl WritableSectorDevice for Memory {
+    /// #     fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), Self::Error> {
+    /// #         let start = index as usize * 512;
+    /// #         let sector = self.0.get_mut(start..start + 512).ok_or(std::io::ErrorKind::UnexpectedEof)?;
+    /// #         sector.copy_from_slice(buffer);
+    /// #         Ok(())
+    /// #     }
+    /// # }
+    /// // `Memory` is an in-memory device, as in the example on `WritableVolume`.
+    /// let sectors = 16 * 1024;
+    /// let mut device = Memory(vec![0; sectors as usize * 512]);
+    /// FormatPlan::new(FormatOptions::new(SectorSize::Bytes512, sectors), &mut NoClock)?
+    ///     .write_to(&mut device)?;
+    /// let mut volume = WritableVolume::open(device, NoClock)?;
+    ///
+    /// let notes = volume.create_file(DirectoryCluster::ROOT, "Meeting notes.txt")?;
+    /// assert_eq!(notes.size_bytes(), 0);
+    /// let found = volume.as_volume_mut().lookup("MEETING NOTES.TXT")?;
+    /// assert_eq!(found.first_cluster(), notes.first_cluster());
+    ///
+    /// // The name is taken now, and a trailing dot is never stored.
+    /// assert!(matches!(
+    ///     volume.create_file(DirectoryCluster::ROOT, "meeting notes.txt"),
+    ///     Err(WriteError::AlreadyExists)
+    /// ));
+    /// assert!(matches!(
+    ///     volume.create_file(DirectoryCluster::ROOT, "draft."),
+    ///     Err(WriteError::NameRefused)
+    /// ));
+    /// # Ok::<(), Box<dyn core::error::Error>>(())
+    /// ```
     pub fn create_file(
         &mut self,
         directory: DirectoryCluster,

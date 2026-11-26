@@ -178,17 +178,17 @@ impl VolumeLayoutOptions {
 ///     .with_hidden_sectors(2048)
 ///     .with_volume_id(0x1234_5678)
 ///     .with_label("EFI SYSTEM")
-///     .and_then(|options| options.with_file("BOOTX64.EFI", 9_000_000))
-///     .expect("a legal label and name");
-/// let volume = VolumeLayout::new(options, &mut NoClock).expect("512 MiB is a FAT32 volume");
+///     .and_then(|options| options.with_file("BOOTX64.EFI", 9_000_000))?;
+/// let volume = VolumeLayout::new(options, &mut NoClock)?;
 ///
 /// let mut sector = [0u8; BYTES_PER_SECTOR];
 /// for index in 0..volume.metadata_sectors() {
-///     volume.fill_sector(index, &mut sector).expect("a metadata sector");
+///     volume.fill_sector(index, &mut sector)?;
 ///     // write `sector` at partition-relative LBA `index`
 /// }
 /// // then the file's own bytes, contiguous, at this LBA:
 /// assert_eq!(volume.file_first_sector(), volume.metadata_sectors());
+/// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VolumeLayout {

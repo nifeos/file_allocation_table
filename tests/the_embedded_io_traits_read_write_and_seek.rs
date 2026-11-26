@@ -54,37 +54,36 @@ impl WritableSectorDevice for Memory {
 // holds the README's copy to it.
 // README example start
 /// Any `embedded-io` writer, such as a file on this crate's volume.
-fn greet(out: &mut impl embedded_io::Write) -> Result<(), impl embedded_io::Error> {
+fn greet<W: embedded_io::Write>(out: &mut W) -> Result<(), W::Error> {
     out.write_all(b"hello, ")?;
     out.write_all(b"embedded-io")
 }
 
-fn readme_example() {
+fn readme_example() -> Result<(), Box<dyn core::error::Error>> {
     let sectors = 16 * 1024;
     let options = FormatOptions::new(SectorSize::Bytes512, sectors);
     let mut device = Memory(vec![0; sectors as usize * 512]);
-    let format = FormatPlan::new(options, &mut NoClock).unwrap();
-    format.write_to(&mut device).unwrap();
-    let mut volume = WritableVolume::open(device, NoClock).unwrap();
-    let file = volume
-        .create_file(DirectoryCluster::ROOT, "GREETING.TXT")
-        .unwrap();
+    let format = FormatPlan::new(options, &mut NoClock)?;
+    format.write_to(&mut device)?;
+    let mut volume = WritableVolume::open(device, NoClock)?;
+    let file = volume.create_file(DirectoryCluster::ROOT, "GREETING.TXT")?;
 
-    greet(&mut volume.open_file_writer(&file).unwrap()).unwrap();
+    greet(&mut volume.open_file_writer(&file)?)?;
 
     let volume = volume.as_volume_mut();
-    let entry = volume.lookup("GREETING.TXT").unwrap();
-    let mut reader = volume.open_file_reader(&entry).unwrap();
-    reader.seek(SeekFrom::End(-11)).unwrap();
+    let entry = volume.lookup("GREETING.TXT")?;
+    let mut reader = volume.open_file_reader(&entry)?;
+    reader.seek(SeekFrom::End(-11))?;
     let mut bytes = [0u8; 11];
-    reader.read_exact(&mut bytes).unwrap();
+    reader.read_exact(&mut bytes)?;
     assert_eq!(&bytes, b"embedded-io");
+    Ok(())
 }
 // README example end
 
 #[test]
 fn the_readme_example_runs() {
-    readme_example();
+    readme_example().unwrap();
 }
 
 #[test]
