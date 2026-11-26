@@ -9,8 +9,8 @@ Expected to fail: the harness's `assert!(u64::from(at) >= first && u64::from(at)
 diff --git a/src/table.rs b/src/table.rs
 --- a/src/table.rs
 +++ b/src/table.rs
-@@ -117,7 +117,7 @@ pub(crate) fn raw_position_in(boot: &BootSector, cluster: u32, table: u8) -> Opt
-     let first = boot.table_first_sector(table)?;
+@@ -104,7 +104,7 @@ pub(crate) fn raw_position_in(boot: &BootSector, cluster: u32, table: u8) -> Opt
+ pub(crate) fn offset_in_table(boot: &BootSector, cluster: u32) -> (u32, usize) {
      let cluster = u64::from(cluster);
      let offset = match boot.file_allocation_table_type() {
 -        FileAllocationTableType::Fat12 => cluster + cluster / 2,
