@@ -44,7 +44,6 @@ pub enum ChainError<E> {
 ///     Cluster, NoClock, SectorDevice, SectorSize, Volume, VolumeLayout, VolumeLayoutOptions,
 /// };
 ///
-/// // A volume this crate's writer lays out, held in memory.
 /// let options = VolumeLayoutOptions::new(70_000 * 8 + 2_000)
 ///     .with_volume_id(1)
 ///     .with_label("EFI SYSTEM")
@@ -113,7 +112,7 @@ impl<D: SectorDevice> Volume<D> {
     ///
     /// ```
     /// use file_allocation_table::{
-    ///     NoClock, ReadError, SectorDevice, SectorSize, Volume, VolumeLayout, VolumeLayoutOptions,
+    ///     NoClock, SectorDevice, SectorSize, Volume, VolumeLayout, VolumeLayoutOptions,
     /// };
     ///
     /// /// The sectors of an empty FAT32 volume, as the layout fills them; the rest read as zeros.
@@ -135,20 +134,6 @@ impl<D: SectorDevice> Volume<D> {
     /// let mut volume = Volume::open(Image(VolumeLayout::new(options, &mut NoClock)?))?;
     /// assert_eq!(volume.boot_sector().sector_size(), SectorSize::Bytes512);
     /// assert!(volume.root_named_entries().next().is_none());
-    ///
-    /// // A device of zeros holds no boot sector.
-    /// struct Blank;
-    /// impl SectorDevice for Blank {
-    ///     type Error = core::convert::Infallible;
-    ///     fn sector_size(&self) -> SectorSize {
-    ///         SectorSize::Bytes512
-    ///     }
-    ///     fn read_sector(&mut self, _: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
-    ///         buffer.fill(0);
-    ///         Ok(())
-    ///     }
-    /// }
-    /// assert!(matches!(Volume::open(Blank), Err(ReadError::Refused(_))));
     /// # Ok::<(), Box<dyn core::error::Error>>(())
     /// ```
     pub fn open(device: D) -> Result<Volume<D>, ReadError<D::Error>> {
@@ -183,49 +168,25 @@ impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// # Examples
     ///
     /// ```
-    /// use file_allocation_table::{
-    ///     NoClock, OpenOptions, ReadError, SectorDevice, SectorSize, Volume, VolumeLayout,
-    ///     VolumeLayoutOptions,
-    /// };
+    /// use file_allocation_table::{OpenOptions, ReadError, SectorDevice, SectorSize, Volume};
     ///
-    /// struct Image(VolumeLayout);
-    /// impl SectorDevice for Image {
+    /// /// A device of 4,096-byte sectors, every one of them zeros.
+    /// struct Large;
+    /// impl SectorDevice for Large {
     ///     type Error = core::convert::Infallible;
     ///     fn sector_size(&self) -> SectorSize {
-    ///         SectorSize::Bytes512
+    ///         SectorSize::Bytes4096
     ///     }
-    ///     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
-    ///         if self.0.fill_sector(index, buffer).is_err() {
-    ///             buffer.fill(0);
-    ///         }
+    ///     fn read_sector(&mut self, _: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    ///         buffer.fill(0);
     ///         Ok(())
     ///     }
     /// }
     ///
-    /// let layout = VolumeLayout::new(VolumeLayoutOptions::new(70_000 * 8 + 2_000), &mut NoClock)?;
-    /// let small = Volume::<_, 512>::open_with_buffer(Image(layout), OpenOptions::new())?;
-    /// assert_eq!(small.boot_sector().sector_size(), SectorSize::Bytes512);
-    /// // The buffer is the only part that shrinks: 3,584 bytes fewer than the default.
-    /// assert_eq!(size_of::<Volume<Image, 512>>() + 3_584, size_of::<Volume<Image>>());
-    /// # Ok::<(), Box<dyn core::error::Error>>(())
-    /// ```
-    ///
-    /// A buffer of any other length does not compile:
-    ///
-    /// ```compile_fail
-    /// # use file_allocation_table::{OpenOptions, SectorDevice, SectorSize, Volume};
-    /// # struct Blank;
-    /// # impl SectorDevice for Blank {
-    /// #     type Error = core::convert::Infallible;
-    /// #     fn sector_size(&self) -> SectorSize {
-    /// #         SectorSize::Bytes512
-    /// #     }
-    /// #     fn read_sector(&mut self, _: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
-    /// #         buffer.fill(0);
-    /// #         Ok(())
-    /// #     }
-    /// # }
-    /// let _ = Volume::<_, 600>::open_with_buffer(Blank, OpenOptions::new());
+    /// // The buffer is the only part that shrinks, and its sectors would not fit in it.
+    /// assert_eq!(size_of::<Volume<Large, 512>>() + 3_584, size_of::<Volume<Large>>());
+    /// let refused = Volume::<_, 512>::open_with_buffer(Large, OpenOptions::new());
+    /// assert!(matches!(refused, Err(ReadError::SectorLargerThanBuffer { .. })));
     /// ```
     pub fn open_with_buffer(
         mut device: D,

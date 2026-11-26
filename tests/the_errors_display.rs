@@ -156,6 +156,42 @@ fn every_device_level_error_has_its_own_message_and_its_source() {
     );
     assert!(ChainError::<DeviceGone>::TooLong.source().is_none());
 
+    messages(&[
+        MasterBootRecordReadError::Device(DeviceGone),
+        MasterBootRecordReadError::Parse(MasterBootRecordError::TooShort),
+    ]);
+    assert_eq!(
+        source_message(&MasterBootRecordReadError::Device(DeviceGone)).as_deref(),
+        Some("the device is gone")
+    );
+    assert_eq!(
+        source_message(&MasterBootRecordReadError::<DeviceGone>::Parse(
+            MasterBootRecordError::TooShort
+        )),
+        Some(MasterBootRecordError::TooShort.to_string())
+    );
+
+    let partitions = messages(&[
+        PartitionError::Device(DeviceGone),
+        PartitionError::OutsidePartition(12),
+    ]);
+    assert_eq!(
+        partitions[1],
+        "sector 12 is past the partition's last sector"
+    );
+    assert_eq!(
+        source_message(&PartitionError::Device(DeviceGone)).as_deref(),
+        Some("the device is gone")
+    );
+    assert!(
+        PartitionError::<DeviceGone>::OutsidePartition(12)
+            .source()
+            .is_none()
+    );
+}
+
+#[test]
+fn every_boot_sector_read_error_has_its_own_message_and_its_source() {
     let reads = messages(&[
         ReadError::Device(DeviceGone),
         ReadError::Refused(ParseError::NoJump),
@@ -194,39 +230,6 @@ fn every_device_level_error_has_its_own_message_and_its_source() {
         buffer_bytes: 512,
     };
     assert!(larger.source().is_none());
-
-    messages(&[
-        MasterBootRecordReadError::Device(DeviceGone),
-        MasterBootRecordReadError::Parse(MasterBootRecordError::TooShort),
-    ]);
-    assert_eq!(
-        source_message(&MasterBootRecordReadError::Device(DeviceGone)).as_deref(),
-        Some("the device is gone")
-    );
-    assert_eq!(
-        source_message(&MasterBootRecordReadError::<DeviceGone>::Parse(
-            MasterBootRecordError::TooShort
-        )),
-        Some(MasterBootRecordError::TooShort.to_string())
-    );
-
-    let partitions = messages(&[
-        PartitionError::Device(DeviceGone),
-        PartitionError::OutsidePartition(12),
-    ]);
-    assert_eq!(
-        partitions[1],
-        "sector 12 is past the partition's last sector"
-    );
-    assert_eq!(
-        source_message(&PartitionError::Device(DeviceGone)).as_deref(),
-        Some("the device is gone")
-    );
-    assert!(
-        PartitionError::<DeviceGone>::OutsidePartition(12)
-            .source()
-            .is_none()
-    );
 }
 
 #[test]

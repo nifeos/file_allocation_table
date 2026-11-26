@@ -41,6 +41,8 @@ from a disk.
 ## EXAMPLES
 
 ```rust
+//! **Format a volume in memory, write a file into a directory, and read it back by path.**
+
 use std::io::ErrorKind;
 
 use file_allocation_table::{
@@ -94,7 +96,9 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     // Open it, make a directory and a file with a long name, and write some bytes.
     let mut volume = WritableVolume::open(device, NoClock)?;
     let docs = volume.create_directory(DirectoryCluster::ROOT, "Documents")?;
-    let inside = docs.directory_cluster().ok_or("a directory names its cluster")?;
+    let inside = docs
+        .directory_cluster()
+        .ok_or("a directory names its cluster")?;
     let file = volume.create_file(inside, "A long file name.txt")?;
     volume.open_file_writer(&file)?.write(b"hello, volume")?;
     let stored = volume
@@ -103,7 +107,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     volume.set_attributes(&stored, Attributes::ARCHIVE | Attributes::HIDDEN)?;
     volume.mark_clean()?;
 
-    // Read it back by path, as another program would, through the volume the writer lends.
+    // Read it back by path, as another program would.
     let reader = volume.as_volume_mut();
     let entry = reader.lookup("documents/A LONG FILE NAME.TXT")?;
     let mut bytes = [0u8; 32];
@@ -255,9 +259,8 @@ of the call. A `Volume` or a `WritableVolume` is 4,216 bytes plus the device, mo
 buffer of 4,096 bytes, the largest sector size. A `Directory` or a `FileReader` borrows the volume
 and holds its own buffer, 4,152 bytes each. A `FileWriter` is 96 bytes, a `NamedEntry` 576 (it
 holds the long name), a `FormatPlan` 64 and a `VolumeLayout` 624. These are the sizes on a 64-bit
-host. A device of 512-byte sectors may open the volume with `Volume::open_with_buffer` and a
-buffer of 512 bytes, which takes 3,584 bytes off the volume, each `Directory` and each
-`FileReader`. The write paths put sector-sized arrays on the stack for each call. Measured on x86-64 in a
+host. `Volume::open_with_buffer` with a buffer of 512 bytes, enough for 512-byte sectors, takes
+3,584 bytes off the volume, each `Directory` and each `FileReader`. The write paths put sector-sized arrays on the stack for each call. Measured on x86-64 in a
 release build, a thread that formats a volume and then creates a directory and a file, writes
 10,000 bytes, renames, looks up and reads needed about 40 KiB of stack, the volume itself included.
 

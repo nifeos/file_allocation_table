@@ -10,15 +10,15 @@ use file_allocation_table::{
     SectorSize, Volume, WritableSectorDevice, WritableVolume,
 };
 
-/// A volume held in memory, in sectors of `size`.
+/// A volume held in memory, in sectors of `bytes_per_sector`.
 struct Memory {
     bytes: Vec<u8>,
-    size: SectorSize,
+    bytes_per_sector: SectorSize,
 }
 
 impl Memory {
     fn sector(&mut self, index: u64) -> Result<&mut [u8], u64> {
-        let length = self.size.bytes();
+        let length = self.bytes_per_sector.bytes();
         let start = usize::try_from(index).map_err(|_| index)? * length;
         self.bytes.get_mut(start..start + length).ok_or(index)
     }
@@ -28,7 +28,7 @@ impl SectorDevice for Memory {
     type Error = u64;
 
     fn sector_size(&self) -> SectorSize {
-        self.size
+        self.bytes_per_sector
     }
 
     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), u64> {
@@ -44,13 +44,14 @@ impl WritableSectorDevice for Memory {
     }
 }
 
-/// A formatted volume of `sectors` sectors of `size`.
-fn formatted(size: SectorSize, sectors: u64) -> Memory {
-    let plan = FormatPlan::new(FormatOptions::new(size, sectors), &mut NoClock).expect("a plan");
-    let length = usize::try_from(sectors).expect("fits") * size.bytes();
+/// A formatted volume of `sectors` sectors of `bytes_per_sector`.
+fn formatted(bytes_per_sector: SectorSize, sectors: u64) -> Memory {
+    let plan = FormatPlan::new(FormatOptions::new(bytes_per_sector, sectors), &mut NoClock)
+        .expect("a plan");
+    let length = usize::try_from(sectors).expect("fits") * bytes_per_sector.bytes();
     let mut device = Memory {
         bytes: vec![0; length],
-        size,
+        bytes_per_sector,
     };
     plan.write_to(&mut device).expect("the format writes");
     device

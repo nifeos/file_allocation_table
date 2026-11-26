@@ -46,7 +46,7 @@ fn stated() -> [(&'static str, usize, usize); 11] {
         ("a `FormatPlan` 64", 64, size_of::<FormatPlan>()),
         ("a `VolumeLayout` 624", 624, size_of::<VolumeLayout>()),
         (
-            "which takes 3,584 bytes off the volume",
+            "takes 3,584 bytes off the volume",
             3_584,
             size_of::<Volume<Device>>() - size_of::<Volume<Device, 512>>(),
         ),

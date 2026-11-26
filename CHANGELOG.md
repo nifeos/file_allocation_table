@@ -9,7 +9,7 @@ sentence beside it.
   the interface. `user_attributes` on both gives the `Attributes` set, which now has `|`, `&` and
   `!`.
 - Breaking: a cluster number is a `Cluster`, not a bare `u32`, so it cannot be passed where a
-  sector index or a count is wanted. A `DirectoryCluster` converts into one.
+  sector index or a count belongs. A `DirectoryCluster` converts into one.
 - Breaking: both image builders take and report sectors as `u64`, and a refused fill says why
   with `FillError`. A format too large for the widths it writes is `FormatError::TooLarge`.
 - Breaking: `WritableVolume` no longer dereferences to `Volume`; `as_volume` and

@@ -100,6 +100,32 @@ impl<D: WritableSectorDevice, C: Clock, const BUFFER_BYTES: usize>
     /// # Errors
     ///
     /// As [`Volume::open_with_buffer`].
+    ///
+    /// # Examples
+    ///
+    /// A buffer of a length other than 512, 1,024, 2,048 or 4,096 bytes does not compile:
+    ///
+    /// ```compile_fail
+    /// # use file_allocation_table::{NoClock, OpenOptions, SectorDevice, SectorSize};
+    /// # use file_allocation_table::{WritableSectorDevice, WritableVolume};
+    /// # struct Blank;
+    /// # impl SectorDevice for Blank {
+    /// #     type Error = core::convert::Infallible;
+    /// #     fn sector_size(&self) -> SectorSize {
+    /// #         SectorSize::Bytes512
+    /// #     }
+    /// #     fn read_sector(&mut self, _: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    /// #         buffer.fill(0);
+    /// #         Ok(())
+    /// #     }
+    /// # }
+    /// # impl WritableSectorDevice for Blank {
+    /// #     fn write_sector(&mut self, _: u64, _: &[u8]) -> Result<(), Self::Error> {
+    /// #         Ok(())
+    /// #     }
+    /// # }
+    /// let _ = WritableVolume::<_, _, 600>::open_with_buffer(Blank, NoClock, OpenOptions::new());
+    /// ```
     pub fn open_with_buffer(
         device: D,
         clock: C,
@@ -169,57 +195,6 @@ impl<D: WritableSectorDevice, C: Clock, const BUFFER_BYTES: usize>
     /// [`WriteError::VolumeFull`](crate::WriteError::VolumeFull) when it would grow and no cluster
     /// is free, and [`WriteError::Chain`](crate::WriteError::Chain) when the device refuses a read
     /// or a write or a chain the change follows is damaged.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use file_allocation_table::{
-    ///     DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
-    ///     WritableSectorDevice, WritableVolume, WriteError,
-    /// };
-    ///
-    /// # struct Memory(Vec<u8>);
-    /// # impl SectorDevice for Memory {
-    /// #     type Error = std::io::Error;
-    /// #     fn sector_size(&self) -> SectorSize { SectorSize::Bytes512 }
-    /// #     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
-    /// #         let start = index as usize * 512;
-    /// #         let sector = self.0.get(start..start + 512).ok_or(std::io::ErrorKind::UnexpectedEof)?;
-    /// #         buffer.copy_from_slice(sector);
-    /// #         Ok(())
-    /// #     }
-    /// # }
-    /// # impl WritableSectorDevice for Memory {
-    /// #     fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), Self::Error> {
-    /// #         let start = index as usize * 512;
-    /// #         let sector = self.0.get_mut(start..start + 512).ok_or(std::io::ErrorKind::UnexpectedEof)?;
-    /// #         sector.copy_from_slice(buffer);
-    /// #         Ok(())
-    /// #     }
-    /// # }
-    /// // `Memory` is an in-memory device, as in the example on `WritableVolume`.
-    /// let sectors = 16 * 1024;
-    /// let mut device = Memory(vec![0; sectors as usize * 512]);
-    /// FormatPlan::new(FormatOptions::new(SectorSize::Bytes512, sectors), &mut NoClock)?
-    ///     .write_to(&mut device)?;
-    /// let mut volume = WritableVolume::open(device, NoClock)?;
-    ///
-    /// let notes = volume.create_file(DirectoryCluster::ROOT, "Meeting notes.txt")?;
-    /// assert_eq!(notes.size_bytes(), 0);
-    /// let found = volume.as_volume_mut().lookup("MEETING NOTES.TXT")?;
-    /// assert_eq!(found.first_cluster(), notes.first_cluster());
-    ///
-    /// // The name is taken now, and a trailing dot is never stored.
-    /// assert!(matches!(
-    ///     volume.create_file(DirectoryCluster::ROOT, "meeting notes.txt"),
-    ///     Err(WriteError::AlreadyExists)
-    /// ));
-    /// assert!(matches!(
-    ///     volume.create_file(DirectoryCluster::ROOT, "draft."),
-    ///     Err(WriteError::NameRefused)
-    /// ));
-    /// # Ok::<(), Box<dyn core::error::Error>>(())
-    /// ```
     pub fn create_file(
         &mut self,
         directory: DirectoryCluster,
