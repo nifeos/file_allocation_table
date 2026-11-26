@@ -367,3 +367,19 @@ fn a_volume_with_one_sector_to_each_table_keeps_its_label_in_the_root() {
     assert!(format.fill_sector(root - 1, &mut second_table));
     assert_eq!(second_table[0], 0xF8);
 }
+
+#[test]
+fn the_hidden_sector_count_lands_in_the_boot_sector_and_defaults_to_zero() {
+    let read = |options: FormatOptions| {
+        let format = FormatPlan::new(options, &mut NoClock).unwrap();
+        let mut sector = [0u8; 512];
+        assert!(format.fill_sector(0, &mut sector));
+        u32::from_le_bytes(sector[28..32].try_into().unwrap())
+    };
+    assert_eq!(read(options(8_000)), 0);
+    assert_eq!(read(options(8_000).with_hidden_sectors(2048)), 2048);
+    assert_eq!(
+        read(options(2_000_000).with_hidden_sectors(u32::MAX)),
+        u32::MAX
+    );
+}

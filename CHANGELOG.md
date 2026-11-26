@@ -5,6 +5,7 @@ sentence beside it.
 
 ## Unreleased
 
+- Two match arms that could never run are gone. A new entry now carries its name as one value, either a plain short name or a long name, and the table write that links a new cluster computes each entry's place once for every copy of the table. New tests cover the full-volume and corrupt-entry refusals, names outside Latin-1, and the hidden-sector count of a format.
 - The README and the rustdoc now answer the nine gaps that the second stranger run found. They name
   the flag that runs the `embedded-io` tests, the dependency a caller adds, and the tests that pass
   without comparing when mtools is absent. They also cover `Partition::restrict_device` and the long name that a lower-case 8.3 name keeps.

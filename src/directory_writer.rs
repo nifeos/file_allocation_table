@@ -155,6 +155,15 @@ impl<const WORDS: usize> AliasWindow<WORDS> {
     }
 }
 
+/// **How a new entry is named**: a legal 8.3 name stored as its own short entry, or a long name
+/// that needs pieces and an alias. One value, so a name that is neither cannot be written.
+enum EntryName<'a> {
+    /// The 8.3 bytes of a name that needs no long pieces.
+    Plain([u8; 11]),
+    /// A name that takes long pieces and an alias.
+    Long(&'a LongName),
+}
+
 /// **The run a survey found**: its first slot, whether it reaches the end marker, and the
 /// joiner as it stood at its first slot, which joins the entry written there.
 #[derive(Clone, Copy)]
@@ -338,31 +347,34 @@ impl<D: WritableSectorDevice> Volume<D> {
         new: &NewEntry,
     ) -> Result<NamedEntry, WriteError<D::Error>> {
         let directory = self.directory_number(directory);
-        let short_name = short_name_bytes(new.name);
-        let long = match short_name {
-            Some(_) => None,
-            None => Some(LongName::new(new.name).ok_or(WriteError::NameRefused)?),
+        let stored;
+        let name = match short_name_bytes(new.name) {
+            Some(short) => EntryName::Plain(short),
+            None => {
+                stored = LongName::new(new.name).ok_or(WriteError::NameRefused)?;
+                EntryName::Long(&stored)
+            }
         };
-        let pieces = long.as_ref().map_or(0, LongName::entries) as u32;
+        let long = match name {
+            EntryName::Plain(_) => None,
+            EntryName::Long(long) => Some(long),
+        };
+        let pieces = long.map_or(0, LongName::entries) as u32;
         let mut window = AliasWindow::new(1);
-        let run = self.survey(
-            directory,
-            pieces + 1,
-            Some((new, long.as_ref())),
-            &mut window,
-        )?;
+        let run = self.survey(directory, pieces + 1, Some((new, long)), &mut window)?;
         // No other entry holds the plain basis: one that did would be called `new.name`, which
         // the survey refuses, so the basis needs no check of its own.
-        let short = match (&long, short_name, long.as_ref().and_then(LongName::basis)) {
-            (_, Some(short), _) => short,
-            (Some(_), None, Some(basis)) => basis,
-            (Some(long), None, None) => self.unused_alias(directory, long, new.except, window)?,
-            (None, None, _) => return Err(WriteError::NameRefused),
+        let short = match name {
+            EntryName::Plain(short) => short,
+            EntryName::Long(long) => match long.basis() {
+                Some(basis) => basis,
+                None => self.unused_alias(directory, long, new.except, window)?,
+            },
         };
         self.begin_change()?;
         let mut slots = [[0u8; SLOT_BYTES]; MOST_RUN_SLOTS];
         let sum = long_name::checksum(&short);
-        if let Some(long) = &long {
+        if let Some(long) = long {
             for (piece, slot) in slots.iter_mut().enumerate().take(pieces as usize) {
                 long.entry(piece, sum, slot);
             }
