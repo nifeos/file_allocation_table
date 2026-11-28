@@ -7,4 +7,4 @@ permissions:
   pull-requests: write
 jobs:
   label:
-    uses: partsfoundry/crate-workflows/.github/workflows/label.yml@d4cebb418a29be33a71ba0b4506ccf4ec0092d8e
+    uses: partsfoundry/crate-workflows/.github/workflows/label.yml@eef0a564a45656471bedcb93e4789f507387bc89
