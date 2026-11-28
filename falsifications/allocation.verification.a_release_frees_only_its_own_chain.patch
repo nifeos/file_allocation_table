@@ -7,15 +7,17 @@ Expected to fail: the harness's `assert!(matches!(before[at], TableEntry::Next(_
 diff --git a/src/allocation.rs b/src/allocation.rs
 --- a/src/allocation.rs
 +++ b/src/allocation.rs
-@@ -101,12 +101,12 @@ pub(crate) fn deallocate_chain<L: LinksMut>(
+@@ -102,6 +102,7 @@ pub(crate) fn deallocate_chain<L: LinksMut>(
      let mut freed = 0;
      loop {
          let entry = links.table_entry(cluster)?;
 +        links.set_table_entry(cluster, TableEntry::Free)?;
          let next = match entry {
              TableEntry::EndOfChain => None,
-             TableEntry::Next(next) if is_data(clusters, next) => Some(next),
-             entry => return Err(ChainError::Broken { cluster, entry }),
+             TableEntry::Next(next) if is_data(clusters, next.0) => Some(next),
+@@ -112,7 +113,6 @@ pub(crate) fn deallocate_chain<L: LinksMut>(
+                 });
+             }
          };
 -        links.set_table_entry(cluster, TableEntry::Free)?;
          freed += 1;
