@@ -8,4 +8,9 @@ permissions:
   contents: read
 jobs:
   mutation:
-    uses: partsfoundry/crate-workflows/.github/workflows/mutation.yml@d4cebb418a29be33a71ba0b4506ccf4ec0092d8e
+    # issues: write lets a red run file the crate's issue and a green one close it; without it the
+    # run still runs and the filing ends in a warning.
+    permissions:
+      contents: read
+      issues: write
+    uses: partsfoundry/crate-workflows/.github/workflows/mutation.yml@eef0a564a45656471bedcb93e4789f507387bc89
