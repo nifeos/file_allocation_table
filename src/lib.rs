@@ -43,6 +43,14 @@
 //! [`efi_system_partition`] holds that shape's constants, and a volume below
 //! [`efi_system_partition::MINIMUM_FAT32_CLUSTERS`] is refused.
 
+//! # Examples
+//!
+//! The README carries the same example, and `examples/memory.rs` runs it.
+//!
+//! ```
+#![doc = include_str!("../examples/memory.rs")]
+//! ```
+
 //! # Features
 //!
 //! - `embedded-io-07`, off by default: [`FileReader`] implements the `embedded-io` 0.7 traits
@@ -130,7 +138,7 @@ pub use directory::{Directory, DirectoryEntry, LongNameEntry, SLOT_BYTES, ShortE
 pub use file::{FileReadError, FileReader, OpenError};
 pub use file_system_information::{FileSystemInformation, FileSystemInformationError};
 pub use file_writer::FileWriter;
-pub use format::{FormatError, FormatOptions, FormatPlan};
+pub use format::{FillError, FormatError, FormatOptions, FormatPlan};
 pub use label::VolumeLabel;
 pub use long_name_assembly::{LongFileName, LongFileNameError};
 pub use lookup::LookupError;
@@ -139,7 +147,7 @@ pub use master_boot_record::{
     PartitionDevice, PartitionError,
 };
 pub use named_entry::{NamedEntries, NamedEntry};
-pub use reader::{Chain, ChainError, DirectoryCluster, Volume};
+pub use reader::{Chain, ChainError, Cluster, DirectoryCluster, Volume};
 pub use sector::{SectorDevice, SectorSize, WritableSectorDevice};
 pub use table::TableEntry;
 pub use time::{CivilDateTime, CivilDateTimeError, Clock, NoClock};

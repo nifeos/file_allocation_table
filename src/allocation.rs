@@ -17,7 +17,7 @@
 
 use crate::boot_sector::FileAllocationTableType;
 use crate::file_system_information::FileSystemInformation;
-use crate::reader::{ChainError, Links, Volume, Walk, is_data};
+use crate::reader::{ChainError, Cluster, Links, Volume, Walk, is_data};
 use crate::sector::WritableSectorDevice;
 use crate::table::{self, TableEntry};
 
@@ -96,7 +96,7 @@ pub(crate) fn deallocate_chain<L: LinksMut>(
 ) -> Result<u32, ChainError<L::Error>> {
     let clusters = links.clusters();
     if !is_data(clusters, first) {
-        return Err(ChainError::NotADataCluster(first));
+        return Err(ChainError::NotADataCluster(Cluster(first)));
     }
     let mut cluster = first;
     let mut freed = 0;
@@ -104,8 +104,13 @@ pub(crate) fn deallocate_chain<L: LinksMut>(
         let entry = links.table_entry(cluster)?;
         let next = match entry {
             TableEntry::EndOfChain => None,
-            TableEntry::Next(next) if is_data(clusters, next) => Some(next),
-            entry => return Err(ChainError::Broken { cluster, entry }),
+            TableEntry::Next(next) if is_data(clusters, next.0) => Some(next),
+            entry => {
+                return Err(ChainError::Broken {
+                    cluster: Cluster(cluster),
+                    entry,
+                });
+            }
         };
         links.set_table_entry(cluster, TableEntry::Free)?;
         freed += 1;
@@ -115,7 +120,7 @@ pub(crate) fn deallocate_chain<L: LinksMut>(
         if freed >= clusters {
             return Err(ChainError::TooLong);
         }
-        cluster = next;
+        cluster = next.0;
     }
 }
 
@@ -140,13 +145,13 @@ pub(crate) fn truncate_chain<L: LinksMut>(
     }
     match links.table_entry(last)? {
         TableEntry::EndOfChain => Ok(0),
-        TableEntry::Next(tail) if is_data(links.clusters(), tail) => {
+        TableEntry::Next(tail) if is_data(links.clusters(), tail.0) => {
             // The cut goes in before the tail is freed: a crash between the two leaks the tail.
             links.set_table_entry(last, TableEntry::EndOfChain)?;
-            deallocate_chain(links, tail)
+            deallocate_chain(links, tail.0)
         }
         entry => Err(ChainError::Broken {
-            cluster: last,
+            cluster: Cluster(last),
             entry,
         }),
     }
@@ -183,7 +188,7 @@ impl WriterState {
     }
 }
 
-impl<D: WritableSectorDevice> LinksMut for Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> LinksMut for Volume<D, BUFFER_BYTES> {
     fn set_table_entry(
         &mut self,
         cluster: u32,
@@ -198,14 +203,14 @@ impl<D: WritableSectorDevice> LinksMut for Volume<D> {
             Err(AllocationError::VolumeFull) => Ok(None),
             Err(AllocationError::Chain(error)) => Err(error),
             Err(AllocationError::NotTheEndOfAChain(cluster)) => Err(ChainError::Broken {
-                cluster,
+                cluster: Cluster(cluster),
                 entry: TableEntry::Reserved,
             }),
         }
     }
 }
 
-impl<D: WritableSectorDevice> Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// Read volume-relative `sector` into the volume's own buffer, which the cache no longer
     /// describes.
     fn read_into_buffer(&mut self, sector: u32) -> Result<(), ChainError<D::Error>> {
@@ -236,8 +241,8 @@ impl<D: WritableSectorDevice> Volume<D> {
         entry: TableEntry,
     ) -> Result<(), ChainError<D::Error>> {
         self.boot
-            .cluster_first_sector(cluster)
-            .ok_or(ChainError::NotADataCluster(cluster))?;
+            .first_sector_of(cluster)
+            .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
         let raw = entry.encode(self.boot.file_allocation_table_type());
         self.write_raw_entry(cluster, raw)
     }
@@ -251,7 +256,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         let size = boot.sector_size().bytes();
         for copy in self.live_tables() {
             let (sector, within) = table::raw_position_in(&boot, cluster, copy)
-                .ok_or(ChainError::NotADataCluster(cluster))?;
+                .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
             let here = wanted.min(size - within);
             let mut bytes = [0u8; 4];
             self.load(sector)?;
@@ -298,10 +303,10 @@ impl<D: WritableSectorDevice> Volume<D> {
         let whole = |within: usize| within + wanted <= size;
         if sector_new != sector_last || !whole(within_new) || !whole(within_last) {
             self.write_table_entry(new, TableEntry::EndOfChain)?;
-            return self.write_table_entry(last, TableEntry::Next(new));
+            return self.write_table_entry(last, TableEntry::Next(Cluster(new)));
         }
         let end = TableEntry::EndOfChain.encode(file_allocation_table_type);
-        let link = TableEntry::Next(new).encode(file_allocation_table_type);
+        let link = TableEntry::Next(Cluster(new)).encode(file_allocation_table_type);
         for copy in self.live_tables() {
             let sector = boot.table_start(copy) + sector_new;
             self.load(sector)?;
@@ -348,7 +353,7 @@ impl<D: WritableSectorDevice> Volume<D> {
                 FileSystemInformation::parse(&self.buffer[..size], self.boot.clusters())
             {
                 self.writer.free_clusters = info.free_cluster_count();
-                self.writer.next_free = info.next_free_cluster().unwrap_or(2);
+                self.writer.next_free = info.next_free_cluster().map_or(2, Cluster::get);
             }
         }
         Ok(())
@@ -369,7 +374,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         self.begin_change()?;
         self.load_hints()?;
         if let Some(last) = extending {
-            let entry = self.table_entry(last)?;
+            let entry = self.table_entry(Cluster(last))?;
             if entry != TableEntry::EndOfChain {
                 return Err(AllocationError::NotTheEndOfAChain(last));
             }
@@ -477,7 +482,7 @@ impl<D: WritableSectorDevice> Volume<D> {
     }
 }
 
-impl<D: crate::sector::SectorDevice> Volume<D> {
+impl<D: crate::sector::SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// The clean-shutdown bit of table entry 1, or `None` for FAT12, which has none.
     fn clean_bit(&self) -> Option<u32> {
         match self.boot.file_allocation_table_type() {
@@ -490,6 +495,10 @@ impl<D: crate::sector::SectorDevice> Volume<D> {
     /// **Whether the volume was shut down cleanly**, from the bit in table entry 1: `Ok(None)` on
     /// FAT12, which keeps no such bit. A volume this crate is changing reads as not clean until
     /// [`crate::WritableVolume::mark_clean`] sets the bit again.
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::Device`](crate::ChainError::Device) when the device refuses a read.
     pub fn is_clean(&mut self) -> Result<Option<bool>, ChainError<D::Error>> {
         let Some(bit) = self.clean_bit() else {
             return Ok(None);
@@ -499,11 +508,15 @@ impl<D: crate::sector::SectorDevice> Volume<D> {
 
     /// **Count the free clusters** by reading the whole table: exact where the file system
     /// information sector is a hint.
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::Device`](crate::ChainError::Device) when the device refuses a read.
     pub fn count_free_clusters(&mut self) -> Result<u32, ChainError<D::Error>> {
         let clusters = self.boot.clusters();
         let mut free = 0;
         for cluster in 2..clusters + 2 {
-            if self.table_entry(cluster)? == TableEntry::Free {
+            if self.table_entry(Cluster(cluster))? == TableEntry::Free {
                 free += 1;
             }
         }
@@ -512,6 +525,11 @@ impl<D: crate::sector::SectorDevice> Volume<D> {
 
     /// **The file system information hints the device holds**, or `Ok(None)` for a volume with no
     /// file system information sector or one whose signatures are wrong.
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::Device`](crate::ChainError::Device) when the device refuses a read. A sector
+    /// that is not a file system information sector is `Ok(None)`, not an error.
     pub fn file_system_information(
         &mut self,
     ) -> Result<Option<FileSystemInformation>, ChainError<D::Error>> {
@@ -519,7 +537,7 @@ impl<D: crate::sector::SectorDevice> Volume<D> {
             return Ok(None);
         };
         let size = self.boot.sector_size().bytes();
-        let mut buffer = [0u8; crate::sector::SectorSize::MAXIMUM_BYTES];
+        let mut buffer = [0u8; BUFFER_BYTES];
         self.device
             .read_sector(u64::from(sector), &mut buffer[..size])
             .map_err(ChainError::Device)?;

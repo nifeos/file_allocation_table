@@ -4,14 +4,23 @@
 //! public here.
 
 use crate::boot_sector::FileAllocationTableType;
+use crate::efi_system_partition as shape;
 use crate::efi_system_partition::{
-    BOOT_CLUSTER, BYTES_PER_CLUSTER, BYTES_PER_SECTOR, EFI_CLUSTER, FILE_CLUSTER, RESERVED_SECTORS,
-    ROOT_CLUSTER, SECTORS_PER_CLUSTER, TABLE_COUNT,
+    BYTES_PER_CLUSTER, BYTES_PER_SECTOR, RESERVED_SECTORS, SECTORS_PER_CLUSTER, TABLE_COUNT,
 };
-use crate::format::{Geometry, GeometryError, label_bytes, put16, put32, write_fs_info};
+use crate::format::{FillError, Geometry, GeometryError, label_bytes, put16, put32, write_fs_info};
 use crate::long_name::{self, LongName};
 use crate::sector::SectorSize;
 use crate::time::{Clock, Stamp};
+
+/// [`shape::ROOT_CLUSTER`]'s number, which the arithmetic and the table's patterns below use.
+const ROOT_CLUSTER: u32 = shape::ROOT_CLUSTER.get();
+/// [`shape::EFI_CLUSTER`]'s number.
+const EFI_CLUSTER: u32 = shape::EFI_CLUSTER.get();
+/// [`shape::BOOT_CLUSTER`]'s number.
+const BOOT_CLUSTER: u32 = shape::BOOT_CLUSTER.get();
+/// [`shape::FILE_CLUSTER`]'s number.
+const FILE_CLUSTER: u32 = shape::FILE_CLUSTER.get();
 
 /// The largest cluster number FAT32 addresses. The top four bits of a 32-bit entry are reserved.
 const MAXIMUM_CLUSTER: u32 = 0x0FFF_FFF5;
@@ -31,7 +40,7 @@ const DIRECTORY_ENTRY_BYTES: usize = 32;
 
 /// Why a volume could not be laid out. Every one of these is a refusal before any byte is written,
 /// which is the only kind of refusal worth making about a disk.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum LayoutError {
     /// **Not FAT32** (the 32-bit file allocation table, "FAT: General Overview of On-Disk Format"
@@ -64,7 +73,7 @@ pub enum LayoutError {
 const NO_NAME: [u8; 11] = *b"NO NAME    ";
 
 /// The one file a layout holds at `EFI\BOOT\<name>`, checked when it was named.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct LayoutFile {
     /// The 8.3 name, or the alias of `long_name`.
     name: [u8; 11],
@@ -80,7 +89,7 @@ struct LayoutFile {
 /// Without a label, the boot sector holds `NO NAME` and the root has no volume-label entry, which
 /// every reader takes as no label. Without a file, the layout is an empty FAT32 volume: a root
 /// directory and nothing else.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VolumeLayoutOptions {
     total_sectors: u64,
     hidden_sectors: u64,
@@ -123,6 +132,11 @@ impl VolumeLayoutOptions {
     /// The volume label, written to the boot sector's `BS_VolLab` and as the root directory's
     /// volume-label entry: up to eleven upper-case letters, digits, spaces and the punctuation a
     /// short name admits, as [`crate::FormatOptions::with_label`] takes.
+    ///
+    /// # Errors
+    ///
+    /// [`LayoutError::LabelRefused`](crate::LayoutError::LabelRefused) when `label` is empty, over
+    /// eleven bytes, or holds a byte a short name refuses.
     pub fn with_label(mut self, label: &str) -> Result<VolumeLayoutOptions, LayoutError> {
         self.label = Some(label_bytes(label).ok_or(LayoutError::LabelRefused)?);
         Ok(self)
@@ -131,6 +145,12 @@ impl VolumeLayoutOptions {
     /// The one file the volume holds, at `EFI\BOOT\<name>`, of `size_bytes` bytes. An 8.3 name
     /// is stored as a short entry; any other legal name gets a long-name run ahead of a short
     /// alias. Whether the file fits is checked by [`VolumeLayout::new`], against the volume.
+    ///
+    /// # Errors
+    ///
+    /// [`LayoutError::NameRefused`](crate::LayoutError::NameRefused) when `name` is neither an 8.3
+    /// short name nor a long name a VFAT entry may carry. The size is checked later, by
+    /// [`VolumeLayout::new`].
     pub fn with_file(
         mut self,
         name: &str,
@@ -178,19 +198,19 @@ impl VolumeLayoutOptions {
 ///     .with_hidden_sectors(2048)
 ///     .with_volume_id(0x1234_5678)
 ///     .with_label("EFI SYSTEM")
-///     .and_then(|options| options.with_file("BOOTX64.EFI", 9_000_000))
-///     .expect("a legal label and name");
-/// let volume = VolumeLayout::new(options, &mut NoClock).expect("512 MiB is a FAT32 volume");
+///     .and_then(|options| options.with_file("BOOTX64.EFI", 9_000_000))?;
+/// let volume = VolumeLayout::new(options, &mut NoClock)?;
 ///
 /// let mut sector = [0u8; BYTES_PER_SECTOR];
 /// for index in 0..volume.metadata_sectors() {
-///     assert!(volume.fill_sector(index, &mut sector));
+///     volume.fill_sector(index, &mut sector)?;
 ///     // write `sector` at partition-relative LBA `index`
 /// }
 /// // then the file's own bytes, contiguous, at this LBA:
 /// assert_eq!(volume.file_first_sector(), volume.metadata_sectors());
+/// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VolumeLayout {
     total_sectors: u32,
     hidden_sectors: u32,
@@ -219,6 +239,16 @@ impl VolumeLayout {
     /// Refuses a partition too small to be FAT32 or larger than it addresses, a time FAT cannot
     /// store, and a file over 4 GiB less one byte or larger than the volume holds after its three
     /// directories.
+    ///
+    /// # Errors
+    ///
+    /// [`LayoutError::TooLarge`](crate::LayoutError::TooLarge) for a partition or a hidden sector
+    /// count past what FAT32 addresses,
+    /// [`LayoutError::TimeOutOfRange`](crate::LayoutError::TimeOutOfRange) when the clock reports a
+    /// time FAT cannot store, [`LayoutError::NotFat32`](crate::LayoutError::NotFat32) for a
+    /// partition too small to hold FAT32's clusters, and
+    /// [`LayoutError::FileTooBig`](crate::LayoutError::FileTooBig) for a file over 4 GiB less one
+    /// byte or larger than the volume holds after its three directories.
     pub fn new(
         options: VolumeLayoutOptions,
         clock: &mut impl Clock,
@@ -300,7 +330,7 @@ impl VolumeLayout {
 
     /// The partition-relative sector where `cluster` begins.
     ///
-    /// `cluster` must be at least [`ROOT_CLUSTER`] (2); clusters 0 and 1 are the FAT's own
+    /// `cluster` must be at least [`shape::ROOT_CLUSTER`] (2); clusters 0 and 1 are the FAT's own
     /// reserved entries and have no sectors, and the subtraction below underflows on them (a panic
     /// in a debug build, a wrap in release). Every caller in this crate passes a constant from 2
     /// up. It is not made checked, because a `const fn` returning an `Option` would push a `?` into
@@ -336,16 +366,21 @@ impl VolumeLayout {
 
     /// **Fill `out` with partition-relative sector `index`.**
     ///
-    /// `false` when `index` is at or past [`VolumeLayout::metadata_sectors`] (the caller's own file
-    /// bytes begin there) or when `out` is not [`BYTES_PER_SECTOR`] bytes; in neither case is `out`
-    /// touched.
-    ///
     /// Every sector this answers for is written whole, zeros included, so that a volume laid over a
     /// disk that held something before does not inherit a single stale directory entry or table
     /// word.
-    pub fn fill_sector(&self, index: u64, out: &mut [u8]) -> bool {
-        if out.len() != BYTES_PER_SECTOR || index >= self.metadata_sectors() {
-            return false;
+    ///
+    /// # Errors
+    ///
+    /// With `out` untouched, [`FillError::WrongLength`] when `out` is not [`BYTES_PER_SECTOR`]
+    /// bytes, and [`FillError::PastMetadata`] when `index` is at or past
+    /// [`VolumeLayout::metadata_sectors`], where the caller's own file bytes begin.
+    pub fn fill_sector(&self, index: u64, out: &mut [u8]) -> Result<(), FillError> {
+        if out.len() != BYTES_PER_SECTOR {
+            return Err(FillError::WrongLength);
+        }
+        if index >= self.metadata_sectors() {
+            return Err(FillError::PastMetadata);
         }
         out.fill(0);
         let fat_start = RESERVED_SECTORS as u64;
@@ -375,7 +410,7 @@ impl VolumeLayout {
             // and `EFI`: zero, which is what `out.fill(0)` above already made them.
             _ => {}
         }
-        true
+        Ok(())
     }
 
     /// The `BPB` and the boot signature, written by the general format's builder.
@@ -598,7 +633,8 @@ mod tests {
 
     fn sector(v: &VolumeLayout, index: u64) -> [u8; BYTES_PER_SECTOR] {
         let mut out = [0u8; BYTES_PER_SECTOR];
-        assert!(v.fill_sector(index, &mut out), "sector {index} is metadata");
+        v.fill_sector(index, &mut out)
+            .expect("sector {index} is metadata");
         out
     }
 
@@ -707,7 +743,7 @@ mod tests {
     }
 
     /// The file's chain, read out of the table the way a driver would walk it: start at
-    /// [`FILE_CLUSTER`], follow each entry, and stop at the end-of-chain marker. What it proves is
+    /// [`shape::FILE_CLUSTER`], follow each entry, and stop at the end-of-chain marker. What it proves is
     /// that the chain is exactly as long as the file needs and that it is contiguous, which is what
     /// lets the caller write the file's bytes as one run.
     #[test]
@@ -818,12 +854,14 @@ mod tests {
         assert_eq!(v.file_first_sector(), v.metadata_sectors());
         assert_eq!(v.file_first_sector(), v.cluster_first_sector(FILE_CLUSTER));
         let mut out = [0u8; BYTES_PER_SECTOR];
-        assert!(
-            !v.fill_sector(v.file_first_sector(), &mut out),
+        assert_eq!(
+            v.fill_sector(v.file_first_sector(), &mut out),
+            Err(FillError::PastMetadata),
             "not metadata"
         );
-        assert!(
-            !v.fill_sector(0, &mut out[..100]),
+        assert_eq!(
+            v.fill_sector(0, &mut out[..100]),
+            Err(FillError::WrongLength),
             "a short buffer is refused"
         );
     }

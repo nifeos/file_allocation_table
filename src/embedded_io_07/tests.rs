@@ -5,7 +5,7 @@ use core::fmt;
 use embedded_io::Error as _;
 
 use super::*;
-use crate::TableEntry;
+use crate::{Cluster, TableEntry};
 
 /// A device error that is a `core::error::Error`, as the traits need.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,9 +69,9 @@ fn a_seek_from_the_current_position_counts_from_it() {
 fn a_chain_error_is_damaged_data_unless_the_device_failed() {
     let device = ChainError::Device(DeviceGone);
     let damaged: [ChainError<DeviceGone>; 3] = [
-        ChainError::NotADataCluster(1),
+        ChainError::NotADataCluster(Cluster::new(1)),
         ChainError::Broken {
-            cluster: 2,
+            cluster: Cluster::new(2),
             entry: TableEntry::Free,
         },
         ChainError::TooLong,

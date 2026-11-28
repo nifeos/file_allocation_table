@@ -10,7 +10,7 @@
 
 use crate::allocation::LinksMut;
 use crate::boot_sector::BootSector;
-use crate::reader::{ChainError, is_data};
+use crate::reader::{ChainError, Cluster, is_data};
 use crate::table::TableEntry;
 
 /// **Why a write, a create or a delete stopped.**
@@ -143,7 +143,7 @@ impl WriteState {
             Some((at, cluster)) if at < index => (at, cluster),
             _ if self.first_cluster != 0 => {
                 if !is_data(clusters, self.first_cluster) {
-                    return Err(ChainError::NotADataCluster(self.first_cluster).into());
+                    return Err(ChainError::NotADataCluster(Cluster(self.first_cluster)).into());
                 }
                 (0, self.first_cluster)
             }
@@ -166,7 +166,7 @@ impl WriteState {
                 return Err(ChainError::TooLong.into());
             }
             match medium.table_entry(cluster)? {
-                TableEntry::Next(next) if is_data(clusters, next) => cluster = next,
+                TableEntry::Next(next) if is_data(clusters, next.0) => cluster = next.0,
                 TableEntry::EndOfChain => {
                     // The chain may grow only past the clusters the size already needs.
                     if u64::from(self.size_bytes) > (u64::from(at) + 1) * per_cluster {
@@ -178,7 +178,13 @@ impl WriteState {
                     };
                     cluster = next;
                 }
-                entry => return Err(ChainError::Broken { cluster, entry }.into()),
+                entry => {
+                    return Err(ChainError::Broken {
+                        cluster: Cluster(cluster),
+                        entry,
+                    }
+                    .into());
+                }
             }
             at += 1;
         }
@@ -220,9 +226,9 @@ impl WriteState {
             };
             let within = self.position % per_cluster;
             let sector = boot
-                .cluster_first_sector(cluster)
+                .first_sector_of(cluster)
                 .and_then(|first| first.checked_add(within / sector_bytes as u32))
-                .ok_or(ChainError::NotADataCluster(cluster))?;
+                .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
             let offset = (within % sector_bytes as u32) as usize;
             let len = (sector_bytes - offset).min(want - done);
             if offset == 0 && len == sector_bytes {

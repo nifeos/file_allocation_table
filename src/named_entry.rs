@@ -9,14 +9,14 @@
 
 use crate::directory::{Directory, DirectoryEntry, ShortEntry, Slot};
 use crate::long_name_assembly::{LongFileName, LongFileNameError, LongNameAssembler};
-use crate::reader::ChainError;
 use crate::reader::DirectoryCluster;
+use crate::reader::{ChainError, Cluster};
 use crate::sector::SectorDevice;
 use crate::time::CivilDateTime;
 
 /// **A directory entry with its names**: the short entry, and the long name when the entry has one
 /// that passed its checks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NamedEntry {
     short: ShortEntry,
     long_name: Result<Option<LongFileName>, LongFileNameError>,
@@ -25,7 +25,7 @@ pub struct NamedEntry {
 
 /// **Where an entry sits**: its directory's first cluster (0 for the root), the index of the
 /// first slot of its long-name run, and the index of its short slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct EntryPlace {
     pub(crate) directory: u32,
     pub(crate) first_slot: u32,
@@ -82,15 +82,16 @@ impl NamedEntry {
         }
     }
 
-    /// `DIR_Attr`, every bit as stored. [`NamedEntry::user_attributes`] is the four bits a caller
-    /// may set, as a set.
-    pub const fn attributes(&self) -> u8 {
+    /// `DIR_Attr`, every bit as stored. Crate-private: [`NamedEntry::user_attributes`] is the four
+    /// bits a caller may set, as a set, and [`NamedEntry::is_directory`] and
+    /// [`NamedEntry::is_volume_label`] read the other two.
+    pub(crate) const fn attributes(&self) -> u8 {
         self.short.attributes()
     }
 
     /// The first cluster of the entry's chain, or 0 for an empty file. Not checked against the
     /// volume.
-    pub const fn first_cluster(&self) -> u32 {
+    pub const fn first_cluster(&self) -> Cluster {
         self.short.first_cluster()
     }
 
@@ -123,7 +124,7 @@ impl NamedEntry {
     /// whose parent is the root gives [`DirectoryCluster::ROOT`].
     pub const fn directory_cluster(&self) -> Option<DirectoryCluster> {
         if self.short.is_directory() && !self.short.is_volume_label() {
-            Some(DirectoryCluster(self.short.first_cluster()))
+            Some(DirectoryCluster(self.short.first_cluster().0))
         } else {
             None
         }
@@ -150,8 +151,8 @@ impl NamedEntry {
 /// [`Volume::root_named_entries`]: crate::Volume::root_named_entries
 /// [`Volume::named_entries`]: crate::Volume::named_entries
 #[derive(Debug)]
-pub struct NamedEntries<'v, D> {
-    directory: Directory<'v, D>,
+pub struct NamedEntries<'v, D, const BUFFER_BYTES: usize = { crate::SectorSize::MAXIMUM_BYTES }> {
+    directory: Directory<'v, D, BUFFER_BYTES>,
     joiner: Joiner,
 }
 
@@ -206,9 +207,11 @@ impl Joiner {
     }
 }
 
-impl<'v, D> NamedEntries<'v, D> {
+impl<'v, D, const BUFFER_BYTES: usize> NamedEntries<'v, D, BUFFER_BYTES> {
     /// Read `directory` as named entries.
-    pub(crate) const fn new(directory: Directory<'v, D>) -> NamedEntries<'v, D> {
+    pub(crate) const fn new(
+        directory: Directory<'v, D, BUFFER_BYTES>,
+    ) -> NamedEntries<'v, D, BUFFER_BYTES> {
         NamedEntries {
             directory,
             joiner: Joiner::new(),
@@ -225,7 +228,7 @@ impl<'v, D> NamedEntries<'v, D> {
 /// the read.
 pub(crate) type JoinedSlot<E> = Result<(u32, Slot, Option<NamedEntry>), ChainError<E>>;
 
-impl<D: SectorDevice> NamedEntries<'_, D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> NamedEntries<'_, D, BUFFER_BYTES> {
     /// **The next slot, free and end slots included**, with the named entry a short slot
     /// completes. It ends as [`Directory::advance_slot`] ends.
     pub(crate) fn advance_slot(&mut self) -> Option<JoinedSlot<D::Error>> {
@@ -243,7 +246,7 @@ impl<D: SectorDevice> NamedEntries<'_, D> {
     }
 }
 
-impl<D: SectorDevice> Iterator for NamedEntries<'_, D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Iterator for NamedEntries<'_, D, BUFFER_BYTES> {
     type Item = Result<NamedEntry, ChainError<D::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {

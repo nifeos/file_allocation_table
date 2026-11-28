@@ -8,9 +8,10 @@ use std::error::Error;
 use std::fmt;
 
 use file_allocation_table::{
-    ChainError, CivilDateTimeError, FileReadError, FileSystemInformationError, FormatError,
-    LayoutError, LongFileNameError, LookupError, MasterBootRecordError, MasterBootRecordReadError,
-    OpenError, ParseError, PartitionError, ReadError, SectorSize, TableEntry, WriteError,
+    ChainError, CivilDateTimeError, Cluster, FileReadError, FileSystemInformationError, FillError,
+    FormatError, LayoutError, LongFileNameError, LookupError, MasterBootRecordError,
+    MasterBootRecordReadError, OpenError, ParseError, PartitionError, ReadError, SectorSize,
+    TableEntry, WriteError,
 };
 
 /// A device error that is a `std::error::Error`.
@@ -78,7 +79,9 @@ fn every_parse_and_format_error_has_its_own_message() {
         FormatError::LabelRefused,
         FormatError::TimeOutOfRange,
         FormatError::ClusterSizeRefused,
+        FormatError::TooLarge,
     ]);
+    messages(&[FillError::PastMetadata, FillError::WrongLength]);
     messages(&[
         LayoutError::NotFat32,
         LayoutError::TooLarge,
@@ -119,25 +122,25 @@ fn every_device_level_error_has_its_own_message_and_its_source() {
     let device = ChainError::Device(DeviceGone);
     let chains = messages(&[
         device,
-        ChainError::NotADataCluster(7),
+        ChainError::NotADataCluster(Cluster::new(7)),
         ChainError::Broken {
-            cluster: 9,
+            cluster: Cluster::new(9),
             entry: TableEntry::Free,
         },
         ChainError::Broken {
-            cluster: 9,
+            cluster: Cluster::new(9),
             entry: TableEntry::Reserved,
         },
         ChainError::Broken {
-            cluster: 9,
-            entry: TableEntry::Next(400),
+            cluster: Cluster::new(9),
+            entry: TableEntry::Next(Cluster::new(400)),
         },
         ChainError::Broken {
-            cluster: 9,
+            cluster: Cluster::new(9),
             entry: TableEntry::Bad,
         },
         ChainError::Broken {
-            cluster: 9,
+            cluster: Cluster::new(9),
             entry: TableEntry::EndOfChain,
         },
         ChainError::TooLong,
@@ -152,32 +155,6 @@ fn every_device_level_error_has_its_own_message_and_its_source() {
         Some("the device is gone")
     );
     assert!(ChainError::<DeviceGone>::TooLong.source().is_none());
-
-    let reads = messages(&[
-        ReadError::Device(DeviceGone),
-        ReadError::Refused(ParseError::NoJump),
-        ReadError::SectorSizeMismatch {
-            device: SectorSize::Bytes512,
-            volume: SectorSize::Bytes4096,
-        },
-    ]);
-    assert_eq!(
-        reads[2],
-        "the device has 512-byte sectors and the volume 4096-byte sectors"
-    );
-    assert_eq!(
-        source_message(&ReadError::Device(DeviceGone)).as_deref(),
-        Some("the device is gone")
-    );
-    assert_eq!(
-        source_message(&ReadError::<DeviceGone>::Refused(ParseError::NoJump)),
-        Some(ParseError::NoJump.to_string())
-    );
-    let mismatch = ReadError::<DeviceGone>::SectorSizeMismatch {
-        device: SectorSize::Bytes512,
-        volume: SectorSize::Bytes512,
-    };
-    assert!(mismatch.source().is_none());
 
     messages(&[
         MasterBootRecordReadError::Device(DeviceGone),
@@ -211,6 +188,48 @@ fn every_device_level_error_has_its_own_message_and_its_source() {
             .source()
             .is_none()
     );
+}
+
+#[test]
+fn every_boot_sector_read_error_has_its_own_message_and_its_source() {
+    let reads = messages(&[
+        ReadError::Device(DeviceGone),
+        ReadError::Refused(ParseError::NoJump),
+        ReadError::SectorSizeMismatch {
+            device: SectorSize::Bytes512,
+            volume: SectorSize::Bytes4096,
+        },
+        ReadError::SectorLargerThanBuffer {
+            device: SectorSize::Bytes4096,
+            buffer_bytes: 512,
+        },
+    ]);
+    assert_eq!(
+        reads[2],
+        "the device has 512-byte sectors and the volume 4096-byte sectors"
+    );
+    assert_eq!(
+        reads[3],
+        "the device has 4096-byte sectors and the volume's buffer holds 512 bytes"
+    );
+    assert_eq!(
+        source_message(&ReadError::Device(DeviceGone)).as_deref(),
+        Some("the device is gone")
+    );
+    assert_eq!(
+        source_message(&ReadError::<DeviceGone>::Refused(ParseError::NoJump)),
+        Some(ParseError::NoJump.to_string())
+    );
+    let mismatch = ReadError::<DeviceGone>::SectorSizeMismatch {
+        device: SectorSize::Bytes512,
+        volume: SectorSize::Bytes512,
+    };
+    assert!(mismatch.source().is_none());
+    let larger = ReadError::<DeviceGone>::SectorLargerThanBuffer {
+        device: SectorSize::Bytes4096,
+        buffer_bytes: 512,
+    };
+    assert!(larger.source().is_none());
 }
 
 #[test]

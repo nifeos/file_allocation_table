@@ -168,7 +168,9 @@ fn a_first_cluster_that_is_not_a_data_cluster_is_an_error_unless_the_file_is_emp
         let mut buffer = [0u8; 8];
         assert_eq!(
             file.read(&mut buffer),
-            Err(FileReadError::Chain(ChainError::NotADataCluster(first)))
+            Err(FileReadError::Chain(ChainError::NotADataCluster(
+                Cluster::new(first)
+            )))
         );
         let mut empty = FileReader::new(&mut volume, first, 0);
         assert_eq!(empty.read(&mut buffer), Ok(0));

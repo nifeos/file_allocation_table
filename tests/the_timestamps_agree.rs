@@ -195,7 +195,10 @@ fn times_agree(label: &str, mebibytes: usize, fat_type: FatType) {
         .unwrap();
     // A later write: the write and access times move, the creation time stays.
     now.set(at(2027, 2, 3, 4, 5, 6));
-    let entry = volume.lookup("Stamped File With A Long Name.txt").unwrap();
+    let entry = volume
+        .get_mut()
+        .lookup("Stamped File With A Long Name.txt")
+        .unwrap();
     volume
         .open_file_writer(&entry)
         .unwrap()
@@ -316,7 +319,7 @@ fn no_clock_and_a_clock_with_no_time_write_the_zero_timestamp() {
     with_no_clock
         .create_file(DirectoryCluster::ROOT, "ZERO.TXT")
         .unwrap();
-    let entry = with_no_clock.lookup("ZERO.TXT").unwrap();
+    let entry = with_no_clock.get_mut().lookup("ZERO.TXT").unwrap();
     assert_eq!(
         (entry.created(), entry.modified(), entry.accessed()),
         (None, None, None),
@@ -367,10 +370,11 @@ fn the_formats_label_and_the_efi_volumes_directories_carry_the_clocks_time() {
         .unwrap();
     // The root directory's cluster, three clusters ahead of the file's first.
     let root = |layout: &VolumeLayout| {
-        layout.file_first_sector() - u64::from((FILE_CLUSTER - ROOT_CLUSTER) * SECTORS_PER_CLUSTER)
+        layout.file_first_sector()
+            - u64::from((FILE_CLUSTER.get() - ROOT_CLUSTER.get()) * SECTORS_PER_CLUSTER)
     };
     let mut sector = [0u8; 512];
-    assert!(efi.fill_sector(root(&efi), &mut sector));
+    efi.fill_sector(root(&efi), &mut sector).unwrap();
     for slot in 0..2 {
         let at = slot * 32;
         assert_eq!(
@@ -384,6 +388,6 @@ fn the_formats_label_and_the_efi_volumes_directories_carry_the_clocks_time() {
         .and_then(|o| o.with_file("BOOTX64.EFI", 4096))
         .and_then(|o| VolumeLayout::new(o, &mut NoClock))
         .unwrap();
-    assert!(zero.fill_sector(root(&zero), &mut sector));
+    zero.fill_sector(root(&zero), &mut sector).unwrap();
     assert_eq!(sector[22..26], [0, 0, 0, 0]);
 }

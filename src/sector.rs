@@ -100,6 +100,11 @@ pub trait SectorDevice {
     /// `buffer` is always exactly [`SectorDevice::sector_size`] bytes. An index past the end of
     /// the device is an error the implementation reports; the crate does not know the device's
     /// length, and a hostile boot sector can name any index.
+    ///
+    /// # Errors
+    ///
+    /// The implementation's own error, for an index past the end of the device or a read the device
+    /// cannot complete. The crate hands it back to the caller unchanged.
     fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), Self::Error>;
 }
 
@@ -127,6 +132,11 @@ pub trait WritableSectorDevice: SectorDevice {
     ///
     /// `buffer` is always exactly [`SectorDevice::sector_size`] bytes. A write the device cannot
     /// complete is an error the implementation reports; the crate hands it back unchanged.
+    ///
+    /// # Errors
+    ///
+    /// The implementation's own error, for a write the device cannot complete. The crate hands it
+    /// back to the caller unchanged.
     fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), Self::Error>;
 }
 

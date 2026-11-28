@@ -20,11 +20,11 @@ fn each_types_markers_decode_at_their_boundaries() {
         );
         assert_eq!(
             TableEntry::decode(file_allocation_table_type, 2),
-            TableEntry::Next(2)
+            TableEntry::Next(Cluster::new(2))
         );
         assert_eq!(
             TableEntry::decode(file_allocation_table_type, bad - 1),
-            TableEntry::Next(bad - 1)
+            TableEntry::Next(Cluster::new(bad - 1))
         );
         assert_eq!(
             TableEntry::decode(file_allocation_table_type, bad),
@@ -45,7 +45,7 @@ fn each_types_markers_decode_at_their_boundaries() {
 fn bits_above_the_width_are_ignored() {
     assert_eq!(
         TableEntry::decode(FileAllocationTableType::Fat32, 0xF000_0002),
-        TableEntry::Next(2)
+        TableEntry::Next(Cluster::new(2))
     );
     assert_eq!(
         TableEntry::decode(FileAllocationTableType::Fat32, 0x1FFF_FFF8),
@@ -57,7 +57,7 @@ fn bits_above_the_width_are_ignored() {
     );
     assert_eq!(
         TableEntry::decode(FileAllocationTableType::Fat16, 0x0001_0003),
-        TableEntry::Next(3)
+        TableEntry::Next(Cluster::new(3))
     );
     assert_eq!(
         TableEntry::decode(FileAllocationTableType::Fat12, 0xF001),
@@ -112,8 +112,8 @@ fn encode_is_decodes_inverse_for_every_kind_of_entry() {
         for entry in [
             TableEntry::Free,
             TableEntry::Reserved,
-            TableEntry::Next(2),
-            TableEntry::Next(0x123),
+            TableEntry::Next(Cluster::new(2)),
+            TableEntry::Next(Cluster::new(0x123)),
             TableEntry::Bad,
             TableEntry::EndOfChain,
         ] {

@@ -21,8 +21,8 @@ use crate::file_writer::{ARCHIVE, FREE, MOST_SLOTS, short_name_bytes};
 use crate::long_name::{self, LongName};
 use crate::lookup::LookupError;
 use crate::named_entry::{EntryPlace, Joiner, NamedEntry};
-use crate::reader::{ChainError, DirectoryCluster, Volume};
-use crate::sector::{SectorSize, WritableSectorDevice};
+use crate::reader::{ChainError, Cluster, DirectoryCluster, Volume};
+use crate::sector::WritableSectorDevice;
 use crate::write_cursor::{Medium, WriteError};
 
 /// `DIR_Attr`'s directory bit.
@@ -186,11 +186,11 @@ struct NewEntry<'a> {
     times: Option<[u8; SLOT_BYTES]>,
 }
 
-impl<D: WritableSectorDevice> Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// The root as 0 for the one place a FAT32 root may be named two ways.
     fn directory_number(&self, directory: u32) -> u32 {
         match self.boot.root_directory() {
-            crate::RootDirectory::Cluster(root) if root == directory => 0,
+            crate::RootDirectory::Cluster(root) if root.get() == directory => 0,
             _ => directory,
         }
     }
@@ -417,7 +417,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         reaches_end: bool,
     ) -> Result<(), WriteError<D::Error>> {
         let size = self.boot.sector_size().bytes();
-        let mut buffer = [0u8; SectorSize::MAXIMUM_BYTES];
+        let mut buffer = [0u8; BUFFER_BYTES];
         let mut open = None;
         for (index, slot) in (start..).zip(slots) {
             let Some((sector, offset)) = self.slot_location(directory, index)? else {
@@ -545,10 +545,10 @@ impl<D: WritableSectorDevice> Volume<D> {
     fn write_dot_entries(&mut self, cluster: u32, parent: u32) -> Result<(), WriteError<D::Error>> {
         let boot = self.boot;
         let first = boot
-            .cluster_first_sector(cluster)
-            .ok_or(ChainError::NotADataCluster(cluster))?;
+            .first_sector_of(cluster)
+            .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
         let size = boot.sector_size().bytes();
-        let mut sector = [0u8; SectorSize::MAXIMUM_BYTES];
+        let mut sector = [0u8; BUFFER_BYTES];
         for (at, (name, target)) in [(b".          ", cluster), (b"..         ", parent)]
             .iter()
             .enumerate()
@@ -563,7 +563,7 @@ impl<D: WritableSectorDevice> Volume<D> {
             self.stamp.write_new(slot);
         }
         Medium::write_data(self, first, &sector[..size])?;
-        let zeros = [0u8; SectorSize::MAXIMUM_BYTES];
+        let zeros = [0u8; BUFFER_BYTES];
         for later in 1..boot.sectors_per_cluster() {
             Medium::write_data(self, first + later, &zeros[..size])?;
         }
@@ -603,14 +603,14 @@ impl<D: WritableSectorDevice> Volume<D> {
             return Err(WriteError::NotADirectory);
         }
         self.verify(entry)?;
-        for inner in self.named_entries(DirectoryCluster(entry.first_cluster())) {
+        for inner in self.named_entries(DirectoryCluster(entry.first_cluster().0)) {
             if !inner?.is_dot_entry() {
                 return Err(WriteError::DirectoryNotEmpty);
             }
         }
         self.begin_change()?;
         self.free_slots(entry)?;
-        self.deallocate_chain(entry.first_cluster())
+        self.deallocate_chain(entry.first_cluster().0)
             .map_err(|_| WriteError::EntryChanged)?;
         Ok(())
     }
@@ -656,7 +656,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         }
         self.verify(entry)?;
         let target = self.directory_number(directory);
-        if entry.is_directory() && self.is_inside(entry.first_cluster(), target)? {
+        if entry.is_directory() && self.is_inside(entry.first_cluster().0, target)? {
             return Err(WriteError::MovedIntoItself);
         }
         let old_slot = self
@@ -667,7 +667,7 @@ impl<D: WritableSectorDevice> Volume<D> {
             &NewEntry {
                 name: new_name,
                 attributes: entry.attributes(),
-                first_cluster: entry.first_cluster(),
+                first_cluster: entry.first_cluster().0,
                 size_bytes: entry.size_bytes(),
                 except: Some(entry.place()),
                 times: Some(old_slot),
@@ -675,12 +675,14 @@ impl<D: WritableSectorDevice> Volume<D> {
         )?;
         if entry.is_directory() && entry.place().directory != target {
             let first = entry.first_cluster();
-            let mut dotdot = self.read_slot(first, 1)?.ok_or(WriteError::EntryChanged)?;
+            let mut dotdot = self
+                .read_slot(first.0, 1)?
+                .ok_or(WriteError::EntryChanged)?;
             if self.boot.file_allocation_table_type() == FileAllocationTableType::Fat32 {
                 dotdot[20..22].copy_from_slice(&((target >> 16) as u16).to_le_bytes());
             }
             dotdot[26..28].copy_from_slice(&(target as u16).to_le_bytes());
-            self.write_slot(first, 1, &dotdot)?;
+            self.write_slot(first.0, 1, &dotdot)?;
         }
         self.free_slots(entry)?;
         Ok(moved)

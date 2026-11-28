@@ -100,7 +100,7 @@ fn a_small_fat32_volume_opens_takes_files_and_passes_fsck() {
     ));
     let options = OpenOptions::new().with_small_fat32(true);
     let mut volume = WritableVolume::open_with(Memory(bytes), NoClock, options).unwrap();
-    let boot = *volume.boot_sector();
+    let boot = *volume.get_mut().boot_sector();
     assert_eq!(
         boot.file_allocation_table_type(),
         FileAllocationTableType::Fat32

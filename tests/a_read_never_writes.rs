@@ -6,8 +6,8 @@
 //! `Volume` and nothing else. After every kind of read the image is byte for byte what it was.
 
 use file_allocation_table::{
-    DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize, Volume,
-    WritableSectorDevice, WritableVolume,
+    Cluster, DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
+    Volume, WritableSectorDevice, WritableVolume,
 };
 
 /// A device that reads only: it has no write method at all.
@@ -74,7 +74,7 @@ impl WritableSectorDevice for Memory {
 
 /// A volume with directories, a long-named file, a label and some bytes, on each FAT type.
 fn populated(sectors: u32) -> Vec<u8> {
-    let options = FormatOptions::new(SectorSize::Bytes512, sectors)
+    let options = FormatOptions::new(SectorSize::Bytes512, u64::from(sectors))
         .with_label("READS")
         .unwrap();
     let format = FormatPlan::new(options, &mut NoClock).unwrap();
@@ -123,7 +123,7 @@ fn read_everything<D: SectorDevice>(device: D) {
     assert!(volume.count_free_clusters().ok().unwrap() > 0);
     let _ = volume.is_clean();
     let _ = volume.file_system_information();
-    for _ in volume.chain(2) {}
+    for _ in volume.chain(Cluster::new(2)) {}
 }
 
 #[test]

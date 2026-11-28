@@ -10,7 +10,7 @@
 
 use crate::boot_sector::BootSector;
 use crate::named_entry::NamedEntry;
-use crate::reader::{ChainError, Links, Volume, Walk};
+use crate::reader::{ChainError, Cluster, Links, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize};
 
 /// **Why an entry could not be opened as a file**, for reading
@@ -41,8 +41,8 @@ impl<E> From<ChainError<E>> for OpenError<E> {
 impl<E> OpenError<E> {
     /// Why `entry` cannot be opened as a file on `volume`, or `Ok` when it can: it is a file, and
     /// its slot still holds it.
-    pub(crate) fn check<D: SectorDevice<Error = E>>(
-        volume: &mut Volume<D>,
+    pub(crate) fn check<D: SectorDevice<Error = E>, const BUFFER_BYTES: usize>(
+        volume: &mut Volume<D, BUFFER_BYTES>,
         entry: &NamedEntry,
     ) -> Result<(), OpenError<E>> {
         if entry.is_directory() {
@@ -177,9 +177,9 @@ impl FileCursor {
         };
         let sector_bytes = boot.sector_size().bytes() as u32;
         let within = self.position % per_cluster;
-        let wrong_cluster = FileReadError::Chain(ChainError::NotADataCluster(cluster));
+        let wrong_cluster = FileReadError::Chain(ChainError::NotADataCluster(Cluster(cluster)));
         let sector = boot
-            .cluster_first_sector(cluster)
+            .first_sector_of(cluster)
             .and_then(|first| first.checked_add(within / sector_bytes))
             .ok_or(wrong_cluster)?;
         let offset = within % sector_bytes;
@@ -201,22 +201,22 @@ impl FileCursor {
 /// device read per sector it touches, plus the table reads the chain walk needs. A seek backwards
 /// walks the chain again from its start, bounded by the volume's cluster count.
 #[derive(Debug)]
-pub struct FileReader<'v, D> {
-    volume: &'v mut Volume<D>,
+pub struct FileReader<'v, D, const BUFFER_BYTES: usize = { SectorSize::MAXIMUM_BYTES }> {
+    volume: &'v mut Volume<D, BUFFER_BYTES>,
     cursor: FileCursor,
-    buffer: [u8; SectorSize::MAXIMUM_BYTES],
+    buffer: [u8; BUFFER_BYTES],
 }
 
-impl<'v, D: SectorDevice> FileReader<'v, D> {
+impl<'v, D: SectorDevice, const BUFFER_BYTES: usize> FileReader<'v, D, BUFFER_BYTES> {
     pub(crate) fn new(
-        volume: &'v mut Volume<D>,
+        volume: &'v mut Volume<D, BUFFER_BYTES>,
         first_cluster: u32,
         size: u32,
-    ) -> FileReader<'v, D> {
+    ) -> FileReader<'v, D, BUFFER_BYTES> {
         FileReader {
             volume,
             cursor: FileCursor::new(first_cluster, size),
-            buffer: [0; SectorSize::MAXIMUM_BYTES],
+            buffer: [0; BUFFER_BYTES],
         }
     }
 
@@ -246,6 +246,14 @@ impl<'v, D: SectorDevice> FileReader<'v, D> {
     /// and the error type is [`FileReadError`]. The `embedded-io-07` feature implements
     /// `embedded_io::Read` and `embedded_io::Seek` through this method and
     /// [`FileReader::set_position`].
+    ///
+    /// # Errors
+    ///
+    /// [`FileReadError::Chain`](crate::FileReadError::Chain) when the device refuses a read or the
+    /// file's chain is damaged,
+    /// [`FileReadError::ShorterThanItsSize`](crate::FileReadError::ShorterThanItsSize) when the
+    /// chain ends before the file's size, and
+    /// [`FileReadError::Failed`](crate::FileReadError::Failed) on every call after an error.
     pub fn read(&mut self, buffer: &mut [u8]) -> Result<usize, FileReadError<D::Error>> {
         let boot = *self.volume.boot_sector();
         let sector_bytes = boot.sector_size().bytes();
@@ -282,21 +290,29 @@ impl<'v, D: SectorDevice> FileReader<'v, D> {
     }
 }
 
-impl<D: SectorDevice> Volume<D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// **Open the file `entry` names for reading.**
     ///
     /// Refuses a directory, the volume label, and an entry its directory slot no longer holds
     /// ([`OpenError::EntryChanged`]), which it reads to check. The entry's first cluster and size
     /// came off the volume: a first cluster that is not a data cluster, and a size the chain cannot
     /// cover, surface as errors on the first read that needs them.
+    ///
+    /// # Errors
+    ///
+    /// [`OpenError::IsADirectory`](crate::OpenError::IsADirectory) for a directory,
+    /// [`OpenError::IsAVolumeLabel`](crate::OpenError::IsAVolumeLabel) for the volume label,
+    /// [`OpenError::EntryChanged`](crate::OpenError::EntryChanged) when the entry's slot no longer
+    /// holds `entry`, and [`OpenError::Chain`](crate::OpenError::Chain) when that slot cannot be
+    /// read.
     pub fn open_file_reader(
         &mut self,
         entry: &NamedEntry,
-    ) -> Result<FileReader<'_, D>, OpenError<D::Error>> {
+    ) -> Result<FileReader<'_, D, BUFFER_BYTES>, OpenError<D::Error>> {
         OpenError::check(self, entry)?;
         Ok(FileReader::new(
             self,
-            entry.first_cluster(),
+            entry.first_cluster().0,
             entry.size_bytes(),
         ))
     }

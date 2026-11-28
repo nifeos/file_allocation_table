@@ -8,6 +8,8 @@
 //! that of Microsoft's "FAT: General Overview of On-Disk Format", version 1.03, section 5, "FAT32
 //! `FSInfo` Sector Structure and Backup Boot Sector".
 
+use crate::reader::Cluster;
+
 /// `FSI_LeadSig`, "`RRaA`", at byte 0.
 const LEAD_SIGNATURE: u32 = 0x4161_5252;
 /// `FSI_StrucSig`, "rrAa", at byte 484.
@@ -67,6 +69,13 @@ impl FileSystemInformation {
     ///
     /// Checks the three signatures. A free count above `clusters`, or all ones, is `None`, and so
     /// is a next-free cluster that is not a data cluster. Never panics, whatever `sector` holds.
+    ///
+    /// # Errors
+    ///
+    /// [`FileSystemInformationError::TooShort`](crate::FileSystemInformationError::TooShort) for a
+    /// sector under 512 bytes, and
+    /// [`FileSystemInformationError::NoSignature`](crate::FileSystemInformationError::NoSignature)
+    /// when one of the three signatures is wrong.
     pub fn parse(
         sector: &[u8],
         clusters: u32,
@@ -86,8 +95,11 @@ impl FileSystemInformation {
     }
 
     /// The cluster the sector says to start looking for a free one at, when it is a data cluster.
-    pub const fn next_free_cluster(&self) -> Option<u32> {
-        self.next_free
+    pub const fn next_free_cluster(&self) -> Option<Cluster> {
+        match self.next_free {
+            Some(next) => Some(Cluster(next)),
+            None => None,
+        }
     }
 
     /// **Write the two hints into `sector`**, which already holds a valid file system information

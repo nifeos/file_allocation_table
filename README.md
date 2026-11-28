@@ -41,6 +41,10 @@ from a disk.
 ## EXAMPLES
 
 ```rust
+//! **Format a volume in memory, write a file into a directory, and read it back by path.**
+
+use std::io::ErrorKind;
+
 use file_allocation_table::{
     Attributes, DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorDevice, SectorSize,
     WritableSectorDevice, WritableVolume,
@@ -49,73 +53,67 @@ use file_allocation_table::{
 /// A volume held in memory. A real caller wraps a block device the same way.
 struct Memory(Vec<u8>);
 
+impl Memory {
+    /// Sector `index`'s bytes, or the error a read past the end gets.
+    fn sector(&mut self, index: u64) -> Result<&mut [u8], std::io::Error> {
+        let start = usize::try_from(index).map_err(|_| ErrorKind::InvalidInput)? * 512;
+        Ok(self
+            .0
+            .get_mut(start..start + 512)
+            .ok_or(ErrorKind::UnexpectedEof)?)
+    }
+}
+
 impl SectorDevice for Memory {
-    type Error = ();
+    type Error = std::io::Error;
 
     fn sector_size(&self) -> SectorSize {
         SectorSize::Bytes512
     }
 
-    fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), ()> {
-        let start = usize::try_from(index).map_err(|_| ())? * 512;
-        buffer.copy_from_slice(self.0.get(start..start + 512).ok_or(())?);
+    fn read_sector(&mut self, index: u64, buffer: &mut [u8]) -> Result<(), Self::Error> {
+        buffer.copy_from_slice(self.sector(index)?);
         Ok(())
     }
 }
 
 impl WritableSectorDevice for Memory {
-    fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), ()> {
-        let start = usize::try_from(index).map_err(|_| ())? * 512;
-        self.0
-            .get_mut(start..start + 512)
-            .ok_or(())?
-            .copy_from_slice(buffer);
+    fn write_sector(&mut self, index: u64, buffer: &[u8]) -> Result<(), Self::Error> {
+        self.sector(index)?.copy_from_slice(buffer);
         Ok(())
     }
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn core::error::Error>> {
     // Format 8 MiB. The size makes it FAT16 with 1 KiB clusters; about 4 MiB or less makes FAT12,
     // and 512 MiB or more makes FAT32.
     let sectors = 16 * 1024;
-    let options = FormatOptions::new(SectorSize::Bytes512, sectors)
-        .with_label("EXAMPLE")
-        .unwrap();
-    let format = FormatPlan::new(options, &mut NoClock).expect("a legal size");
+    let options = FormatOptions::new(SectorSize::Bytes512, sectors).with_label("EXAMPLE")?;
+    let format = FormatPlan::new(options, &mut NoClock)?;
     let mut device = Memory(vec![0; sectors as usize * 512]);
-    format.write_to(&mut device).unwrap();
+    format.write_to(&mut device)?;
 
     // Open it, make a directory and a file with a long name, and write some bytes.
-    let mut volume = WritableVolume::open(device, NoClock).unwrap();
-    let docs = volume
-        .create_directory(DirectoryCluster::ROOT, "Documents")
-        .unwrap();
-    let file = volume
-        .create_file(docs.directory_cluster().unwrap(), "A long file name.txt")
-        .unwrap();
-    volume
-        .open_file_writer(&file)
-        .unwrap()
-        .write(b"hello, volume")
-        .unwrap();
-    let stored = volume.lookup("Documents/A long file name.txt").unwrap();
-    let hidden = Attributes::ARCHIVE.union(Attributes::HIDDEN);
-    volume.set_attributes(&stored, hidden).unwrap();
-    volume.mark_clean().unwrap();
+    let mut volume = WritableVolume::open(device, NoClock)?;
+    let docs = volume.create_directory(DirectoryCluster::ROOT, "Documents")?;
+    let inside = docs
+        .directory_cluster()
+        .ok_or("a directory names its cluster")?;
+    let file = volume.create_file(inside, "A long file name.txt")?;
+    volume.open_file_writer(&file)?.write(b"hello, volume")?;
+    let stored = volume.get_mut().lookup("Documents/A long file name.txt")?;
+    volume.set_attributes(&stored, Attributes::ARCHIVE | Attributes::HIDDEN)?;
+    volume.mark_clean()?;
 
     // Read it back by path, as another program would.
-    let entry = volume.lookup("documents/A LONG FILE NAME.TXT").unwrap();
+    let reader = volume.get_mut();
+    let entry = reader.lookup("documents/A LONG FILE NAME.TXT")?;
     let mut bytes = [0u8; 32];
-    let read = volume
-        .open_file_reader(&entry)
-        .unwrap()
-        .read(&mut bytes)
-        .unwrap();
+    let read = reader.open_file_reader(&entry)?.read(&mut bytes)?;
     assert_eq!(&bytes[..read], b"hello, volume");
-    assert_eq!(
-        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
-        b"EXAMPLE"
-    );
+    let label = reader.volume_label()?.ok_or("the volume has a label")?;
+    assert_eq!(label.trim_ascii_end(), b"EXAMPLE");
+    Ok(())
 }
 ```
 
@@ -214,33 +212,33 @@ use file_allocation_table::{
     DirectoryCluster, FormatOptions, FormatPlan, NoClock, SectorSize, WritableVolume,
 };
 
-// `Memory` is the device of the first example, with an error type that implements
-// `core::error::Error`, which `embedded_io::Error` requires.
+// `Memory` is the device of the first example. Its error implements `core::error::Error`,
+// which `embedded_io::Error` requires.
 /// Any `embedded-io` writer, such as a file on this crate's volume.
-fn greet(out: &mut impl embedded_io::Write) -> Result<(), impl embedded_io::Error> {
+fn greet<W: embedded_io::Write>(out: &mut W) -> Result<(), W::Error> {
     out.write_all(b"hello, ")?;
     out.write_all(b"embedded-io")
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn core::error::Error>> {
     let sectors = 16 * 1024;
     let options = FormatOptions::new(SectorSize::Bytes512, sectors);
     let mut device = Memory(vec![0; sectors as usize * 512]);
-    let format = FormatPlan::new(options, &mut NoClock).unwrap();
-    format.write_to(&mut device).unwrap();
-    let mut volume = WritableVolume::open(device, NoClock).unwrap();
-    let file = volume
-        .create_file(DirectoryCluster::ROOT, "GREETING.TXT")
-        .unwrap();
+    let format = FormatPlan::new(options, &mut NoClock)?;
+    format.write_to(&mut device)?;
+    let mut volume = WritableVolume::open(device, NoClock)?;
+    let file = volume.create_file(DirectoryCluster::ROOT, "GREETING.TXT")?;
 
-    greet(&mut volume.open_file_writer(&file).unwrap()).unwrap();
+    greet(&mut volume.open_file_writer(&file)?)?;
 
-    let entry = volume.lookup("GREETING.TXT").unwrap();
-    let mut reader = volume.open_file_reader(&entry).unwrap();
-    reader.seek(SeekFrom::End(-11)).unwrap();
+    let volume = volume.get_mut();
+    let entry = volume.lookup("GREETING.TXT")?;
+    let mut reader = volume.open_file_reader(&entry)?;
+    reader.seek(SeekFrom::End(-11))?;
     let mut bytes = [0u8; 11];
-    reader.read_exact(&mut bytes).unwrap();
+    reader.read_exact(&mut bytes)?;
     assert_eq!(&bytes, b"embedded-io");
+    Ok(())
 }
 ```
 
@@ -255,11 +253,12 @@ nearest its meaning: a full volume is `WriteZero`, as `embedded_io::Write` asks,
 ## Footprint
 
 The crate allocates nothing; every byte below lives where the caller puts the value or on the stack
-of the call. A `Volume` or a `WritableVolume` is 4,192 bytes plus the device, most of it one sector
+of the call. A `Volume` or a `WritableVolume` is 4,216 bytes plus the device, most of it one sector
 buffer of 4,096 bytes, the largest sector size. A `Directory` or a `FileReader` borrows the volume
-and holds its own buffer, 4,152 bytes each. A `FileWriter` is 88 bytes, a `NamedEntry` 576 (it
+and holds its own buffer, 4,152 bytes each. A `FileWriter` is 96 bytes, a `NamedEntry` 576 (it
 holds the long name), a `FormatPlan` 64 and a `VolumeLayout` 624. These are the sizes on a 64-bit
-host. The write paths put sector-sized arrays on the stack for each call. Measured on x86-64 in a
+host. `Volume::open_with_buffer` with a buffer of 512 bytes, enough for 512-byte sectors, takes
+3,584 bytes off the volume, each `Directory` and each `FileReader`. The write paths put sector-sized arrays on the stack for each call. Measured on x86-64 in a
 release build, a thread that formats a volume and then creates a directory and a file, writes
 10,000 bytes, renames, looks up and reads needed about 40 KiB of stack, the volume itself included.
 

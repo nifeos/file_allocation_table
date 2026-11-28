@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::efi_system_partition::BYTES_PER_SECTOR;
-use crate::{NoClock, VolumeLayout, VolumeLayoutOptions};
+use crate::{Cluster, NoClock, VolumeLayout, VolumeLayoutOptions};
 
 const FAT12_FLOPPY: &[u8; 512] = include_bytes!("../../tests/fixtures/fat12-floppy.boot");
 const FAT16_32M: &[u8; 512] = include_bytes!("../../tests/fixtures/fat16-32m.boot");
@@ -152,7 +152,10 @@ fn a_64_mebibyte_volume_mkfs_fat_formatted_is_fat32_with_its_reserved_pointers()
     );
     assert_eq!(boot.clusters(), 129_022);
     assert_eq!(boot.reserved_sectors(), 32);
-    assert_eq!(boot.root_directory(), RootDirectory::Cluster(2));
+    assert_eq!(
+        boot.root_directory(),
+        RootDirectory::Cluster(Cluster::new(2))
+    );
     assert_eq!(boot.first_data_sector(), 32 + 2 * 1009);
     assert_eq!(boot.file_system_information_sector(), Some(1));
     assert_eq!(boot.backup_boot_sector(), Some(6));
@@ -208,7 +211,10 @@ fn the_small_fat32_reading_takes_a_fat32_layout_under_the_floor_as_fat32() {
         FileAllocationTableType::Fat32
     );
     assert!(boot.clusters() < FAT32_MINIMUM_CLUSTERS);
-    assert_eq!(boot.root_directory(), RootDirectory::Cluster(2));
+    assert_eq!(
+        boot.root_directory(),
+        RootDirectory::Cluster(Cluster::new(2))
+    );
     // Two 512-sector tables after 32 reserved sectors: one cluster under the floor, and a single
     // cluster, both FAT32.
     for clusters in [65_524, 1] {
@@ -264,7 +270,7 @@ fn what_this_crates_mkfs_writes_parses_to_the_same_geometry() {
         .unwrap();
     let mut sector = [0u8; BYTES_PER_SECTOR];
     for index in [0, 6] {
-        assert!(volume.fill_sector(index, &mut sector));
+        volume.fill_sector(index, &mut sector).unwrap();
         let boot = parse(&sector).unwrap();
         assert_eq!(
             boot.file_allocation_table_type(),
@@ -277,7 +283,7 @@ fn what_this_crates_mkfs_writes_parses_to_the_same_geometry() {
             volume.first_data_sector()
         );
         assert_eq!(
-            u64::from(boot.cluster_first_sector(5).unwrap()),
+            u64::from(boot.cluster_first_sector(Cluster::new(5)).unwrap()),
             volume.cluster_first_sector(5)
         );
         assert_eq!(boot.hidden_sectors(), 2048);
@@ -505,7 +511,7 @@ fn fat32s_own_fields_are_checked() {
         parse(&with(&base, 44, &70_001u32.to_le_bytes()))
             .unwrap()
             .root_directory(),
-        RootDirectory::Cluster(70_001)
+        RootDirectory::Cluster(Cluster::new(70_001))
     );
     // Mirroring on: the low bits mean nothing.
     assert_eq!(
@@ -561,14 +567,14 @@ fn the_volume_id_is_read_only_under_the_extended_signature() {
 fn every_data_cluster_has_a_sector_and_no_other_number_does() {
     let boot = parse(FAT16_32M).unwrap();
     let last = boot.clusters() + 1;
-    assert_eq!(boot.cluster_first_sector(0), None);
-    assert_eq!(boot.cluster_first_sector(1), None);
-    assert_eq!(boot.cluster_first_sector(2), Some(164));
-    assert_eq!(boot.cluster_first_sector(3), Some(168));
-    let sector = boot.cluster_first_sector(last).unwrap();
+    assert_eq!(boot.cluster_first_sector(Cluster::new(0)), None);
+    assert_eq!(boot.cluster_first_sector(Cluster::new(1)), None);
+    assert_eq!(boot.cluster_first_sector(Cluster::new(2)), Some(164));
+    assert_eq!(boot.cluster_first_sector(Cluster::new(3)), Some(168));
+    let sector = boot.cluster_first_sector(Cluster::new(last)).unwrap();
     assert_eq!(sector + boot.sectors_per_cluster(), boot.total_sectors());
-    assert_eq!(boot.cluster_first_sector(last + 1), None);
-    assert_eq!(boot.cluster_first_sector(u32::MAX), None);
+    assert_eq!(boot.cluster_first_sector(Cluster::new(last + 1)), None);
+    assert_eq!(boot.cluster_first_sector(Cluster::new(u32::MAX)), None);
 }
 
 /// A device over a byte slice, with a sector size of its own and a count of reads.

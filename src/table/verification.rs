@@ -60,7 +60,7 @@ fn an_entry_decodes_by_its_markers() {
     } else if value == 1 {
         TableEntry::Reserved
     } else if value < bad {
-        TableEntry::Next(value)
+        TableEntry::Next(Cluster(value))
     } else if value == bad {
         TableEntry::Bad
     } else {
@@ -127,7 +127,7 @@ fn encoding_inverts_decoding() {
     let entry = match kani::any::<u8>() % 5 {
         0 => TableEntry::Free,
         1 => TableEntry::Reserved,
-        2 => TableEntry::Next(next),
+        2 => TableEntry::Next(Cluster(next)),
         3 => TableEntry::Bad,
         _ => TableEntry::EndOfChain,
     };
@@ -136,7 +136,7 @@ fn encoding_inverts_decoding() {
     match entry {
         TableEntry::Free => assert_eq!(raw, 0),
         TableEntry::Reserved => assert_eq!(raw, 1),
-        TableEntry::Next(n) => assert_eq!(raw, n),
+        TableEntry::Next(Cluster(n)) => assert_eq!(raw, n),
         TableEntry::Bad => assert_eq!(raw, bad),
         TableEntry::EndOfChain => assert_eq!(raw, mask),
     }

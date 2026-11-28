@@ -12,7 +12,7 @@ use crate::directory::{DirectoryEntry, SLOT_BYTES, ShortEntry, Slot};
 use crate::file::OpenError;
 use crate::long_name::is_short_byte;
 use crate::named_entry::{EntryPlace, NamedEntry};
-use crate::reader::{ChainError, SlotCursor, Volume, Walk};
+use crate::reader::{ChainError, Cluster, SlotCursor, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize, WritableSectorDevice};
 use crate::table::TableEntry;
 use crate::time::{Clock, Stamp};
@@ -25,7 +25,7 @@ pub(crate) const MOST_SLOTS: u32 = 65_536;
 /// The first name byte of a free slot.
 pub(crate) const FREE: u8 = 0xE5;
 
-impl<D: WritableSectorDevice> Medium for Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Medium for Volume<D, BUFFER_BYTES> {
     fn read_data(&mut self, sector: u32, out: &mut [u8]) -> Result<(), ChainError<D::Error>> {
         self.read_sector(sector, out)
     }
@@ -63,7 +63,7 @@ pub(crate) fn short_name_bytes(name: &str) -> Option<[u8; 11]> {
     legal.then_some(bytes)
 }
 
-impl<D: SectorDevice> Volume<D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// The volume-relative sector and byte offset of slot `index` of directory `directory` (0 for
     /// the root), or `None` when the directory has no such slot.
     pub(crate) fn slot_location(
@@ -92,7 +92,7 @@ impl<D: SectorDevice> Volume<D> {
                     (byte % sector_bytes) as usize,
                 )));
             }
-            (0, RootDirectory::Cluster(root)) => root,
+            (0, RootDirectory::Cluster(root)) => root.get(),
             (other, _) => other,
         };
         let wanted = byte / u64::from(boot.bytes_per_cluster());
@@ -119,8 +119,8 @@ impl<D: SectorDevice> Volume<D> {
         });
         let within = byte % u64::from(boot.bytes_per_cluster());
         let sector = boot
-            .cluster_first_sector(cluster)
-            .ok_or(ChainError::NotADataCluster(cluster))?
+            .first_sector_of(cluster)
+            .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?
             + (within / sector_bytes) as u32;
         Ok(Some((sector, (within % sector_bytes) as usize)))
     }
@@ -135,7 +135,7 @@ impl<D: SectorDevice> Volume<D> {
             return Ok(None);
         };
         let size = self.boot.sector_size().bytes();
-        let mut buffer = [0u8; SectorSize::MAXIMUM_BYTES];
+        let mut buffer = [0u8; BUFFER_BYTES];
         self.read_sector(sector, &mut buffer[..size])?;
         let mut slot = [0u8; SLOT_BYTES];
         slot.copy_from_slice(&buffer[offset..offset + SLOT_BYTES]);
@@ -168,7 +168,7 @@ impl<D: SectorDevice> Volume<D> {
     }
 }
 
-impl<D: WritableSectorDevice> Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// Replace slot `index` of `directory` with `slot`, leaving the rest of its sector. Returns
     /// `false` when the directory has no such slot.
     pub(crate) fn write_slot(
@@ -182,7 +182,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         };
         self.begin_change()?;
         let size = self.boot.sector_size().bytes();
-        let mut buffer = [0u8; SectorSize::MAXIMUM_BYTES];
+        let mut buffer = [0u8; BUFFER_BYTES];
         self.read_sector(sector, &mut buffer[..size])?;
         buffer[offset..offset + SLOT_BYTES].copy_from_slice(slot);
         self.write_data(sector, &buffer[..size])?;
@@ -193,19 +193,20 @@ impl<D: WritableSectorDevice> Volume<D> {
     pub(crate) fn grow_directory(&mut self, directory: u32) -> Result<bool, WriteError<D::Error>> {
         let first = match (directory, self.boot.root_directory()) {
             (0, RootDirectory::Region { .. }) => return Ok(false),
-            (0, RootDirectory::Cluster(root)) => root,
+            (0, RootDirectory::Cluster(root)) => root.get(),
             (other, _) => other,
         };
+        // A directory holds at most `MOST_SLOTS` entries, so it never needs more clusters than
+        // this, and the walk stops there whatever the table holds.
+        let slots_per_cluster = u64::from(self.boot.bytes_per_cluster()) / SLOT_BYTES as u64;
         let mut last = first;
         let mut clusters = 0u64;
-        for cluster in self.chain(first) {
-            last = cluster?;
+        for cluster in self.chain(Cluster(first)) {
+            last = cluster?.0;
             clusters += 1;
-        }
-        // A directory holds at most `MOST_SLOTS` entries, so it never needs more than this.
-        let slots_per_cluster = u64::from(self.boot.bytes_per_cluster()) / SLOT_BYTES as u64;
-        if clusters * slots_per_cluster >= u64::from(MOST_SLOTS) {
-            return Ok(false);
+            if clusters * slots_per_cluster >= u64::from(MOST_SLOTS) {
+                return Ok(false);
+            }
         }
         self.begin_change()?;
         // The cluster is taken as a chain of its own, zeroed, and only then linked: a reader
@@ -222,7 +223,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         }
         // A failed link is not undone: one table copy may already link to the cluster, and
         // freeing it then would leave that copy's chain pointing at a free cluster.
-        self.write_table_entry(last, TableEntry::Next(new))?;
+        self.write_table_entry(last, TableEntry::Next(Cluster(new)))?;
         Ok(true)
     }
 
@@ -230,9 +231,9 @@ impl<D: WritableSectorDevice> Volume<D> {
     fn zero_cluster(&mut self, cluster: u32) -> Result<(), WriteError<D::Error>> {
         let boot = self.boot;
         let start = boot
-            .cluster_first_sector(cluster)
-            .ok_or(ChainError::NotADataCluster(cluster))?;
-        let zeros = [0u8; SectorSize::MAXIMUM_BYTES];
+            .first_sector_of(cluster)
+            .ok_or(ChainError::NotADataCluster(Cluster(cluster)))?;
+        let zeros = [0u8; BUFFER_BYTES];
         for sector in 0..boot.sectors_per_cluster() {
             self.write_data(start + sector, &zeros[..boot.sector_size().bytes()])?;
         }
@@ -292,8 +293,8 @@ impl<D: WritableSectorDevice> Volume<D> {
             slot[0] = FREE;
             self.write_slot(place.directory, index, &slot)?;
         }
-        if entry.first_cluster() != 0 {
-            self.deallocate_chain(entry.first_cluster())
+        if entry.first_cluster() != Cluster(0) {
+            self.deallocate_chain(entry.first_cluster().0)
                 .map_err(|error| match error {
                     AllocationError::Chain(error) => WriteError::Chain(error),
                     AllocationError::VolumeFull | AllocationError::NotTheEndOfAChain(_) => {
@@ -311,8 +312,8 @@ impl<D: WritableSectorDevice> Volume<D> {
 /// that changes the size or the first cluster it rewrites the directory entry, so the entry is
 /// true between calls; [`crate::WritableVolume::mark_clean`] writes the volume's own hints and clears the dirty bit.
 #[derive(Debug)]
-pub struct FileWriter<'v, D, C> {
-    volume: &'v mut Volume<D>,
+pub struct FileWriter<'v, D, C, const BUFFER_BYTES: usize = { SectorSize::MAXIMUM_BYTES }> {
+    volume: &'v mut Volume<D, BUFFER_BYTES>,
     clock: &'v mut C,
     place: EntryPlace,
     /// The short entry the writer was opened from, which its slot held at the open. From then on
@@ -323,14 +324,16 @@ pub struct FileWriter<'v, D, C> {
     failed: bool,
 }
 
-impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
+impl<'v, D: WritableSectorDevice, C: Clock, const BUFFER_BYTES: usize>
+    FileWriter<'v, D, C, BUFFER_BYTES>
+{
     /// Open `entry` for writing at its start, stamping with `clock`. Refuses a directory, the
     /// volume label and an entry its slot no longer holds.
     pub(crate) fn new(
-        volume: &'v mut Volume<D>,
+        volume: &'v mut Volume<D, BUFFER_BYTES>,
         clock: &'v mut C,
         entry: &NamedEntry,
-    ) -> Result<FileWriter<'v, D, C>, OpenError<D::Error>> {
+    ) -> Result<FileWriter<'v, D, C, BUFFER_BYTES>, OpenError<D::Error>> {
         OpenError::check(volume, entry)?;
         Ok(FileWriter {
             volume,
@@ -340,7 +343,7 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
             read_only: entry
                 .user_attributes()
                 .contains(crate::Attributes::READ_ONLY),
-            state: WriteState::new(entry.first_cluster(), entry.size_bytes()),
+            state: WriteState::new(entry.first_cluster().0, entry.size_bytes()),
             failed: false,
         })
     }
@@ -403,12 +406,27 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
     /// trait, and the error type is [`WriteError`]. The `embedded-io-07` feature implements
     /// `embedded_io::Write` and `embedded_io::Seek` through this method and
     /// [`FileWriter::set_position`].
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::ReadOnly`](crate::WriteError::ReadOnly) for a read-only file,
+    /// [`WriteError::Failed`](crate::WriteError::Failed) on every call after an error,
+    /// [`WriteError::TimeOutOfRange`](crate::WriteError::TimeOutOfRange) when the clock reports a
+    /// time FAT cannot store, before anything is written,
+    /// [`WriteError::VolumeFull`](crate::WriteError::VolumeFull) when no cluster is free and
+    /// nothing could be written, [`WriteError::FileTooLarge`](crate::WriteError::FileTooLarge) when
+    /// the file would pass 4 GiB less one byte,
+    /// [`WriteError::ShorterThanItsSize`](crate::WriteError::ShorterThanItsSize) when the chain
+    /// ends before the file's size, [`WriteError::EntryChanged`](crate::WriteError::EntryChanged)
+    /// when the entry's slot no longer holds `entry`; look it up again, and
+    /// [`WriteError::Chain`](crate::WriteError::Chain) when the device refuses a read or a write or
+    /// a chain the change follows is damaged.
     pub fn write(&mut self, data: &[u8]) -> Result<usize, WriteError<D::Error>> {
         self.check()?;
         self.tick()?;
         let before = (self.state.first_cluster, self.state.size_bytes);
         let boot = self.volume.boot;
-        let mut scratch = [0u8; SectorSize::MAXIMUM_BYTES];
+        let mut scratch = [0u8; BUFFER_BYTES];
         self.volume.begin_change()?;
         let written = self
             .state
@@ -424,6 +442,19 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
     /// **Set the file's length**, as `std::fs::File::set_len` does. A longer length reads as zeros between the old end and the new;
     /// a shorter one frees the clusters past it. The position moves to the new end if it was
     /// past it.
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError::ReadOnly`](crate::WriteError::ReadOnly) for a read-only file,
+    /// [`WriteError::Failed`](crate::WriteError::Failed) on every call after an error,
+    /// [`WriteError::TimeOutOfRange`](crate::WriteError::TimeOutOfRange) when the clock reports a
+    /// time FAT cannot store, before anything is written,
+    /// [`WriteError::VolumeFull`](crate::WriteError::VolumeFull) when the volume fills before the
+    /// new length, [`WriteError::ShorterThanItsSize`](crate::WriteError::ShorterThanItsSize) when
+    /// the chain ends before the file's size,
+    /// [`WriteError::EntryChanged`](crate::WriteError::EntryChanged) when the entry's slot no
+    /// longer holds `entry`; look it up again, and [`WriteError::Chain`](crate::WriteError::Chain)
+    /// when the device refuses a read or a write or a chain the change follows is damaged.
     pub fn set_len(&mut self, size_bytes: u32) -> Result<(), WriteError<D::Error>> {
         self.check()?;
         self.tick()?;
@@ -439,8 +470,8 @@ impl<'v, D: WritableSectorDevice, C: Clock> FileWriter<'v, D, C> {
         let resume = self.state.position;
         if length > self.state.size_bytes {
             let boot = self.volume.boot;
-            let zeros = [0u8; SectorSize::MAXIMUM_BYTES];
-            let mut scratch = [0u8; SectorSize::MAXIMUM_BYTES];
+            let zeros = [0u8; BUFFER_BYTES];
+            let mut scratch = [0u8; BUFFER_BYTES];
             self.volume.begin_change()?;
             self.state.seek(u32::MAX);
             let passes = (length - self.state.size_bytes) as usize / zeros.len() + 2;

@@ -79,7 +79,7 @@ pub enum RootDirectory {
         entries: u16,
     },
     /// FAT32: an ordinary cluster chain starting at this cluster.
-    Cluster(u32),
+    Cluster(crate::Cluster),
 }
 
 /// **Why a sector is not a boot sector this crate will read.** Each names the field it failed on.
@@ -143,6 +143,14 @@ pub enum ReadError<E> {
         /// What the volume's `BPB` states.
         volume: SectorSize,
     },
+    /// The device's sectors are larger than the buffer the volume was opened with (see
+    /// [`crate::Volume::open_with_buffer`]), so no sector would fit in it. Nothing was read.
+    SectorLargerThanBuffer {
+        /// What the device reports.
+        device: SectorSize,
+        /// The buffer's length in bytes.
+        buffer_bytes: usize,
+    },
 }
 
 /// **A parsed boot sector**: the volume's geometry, checked to be self-consistent.
@@ -163,15 +171,15 @@ pub enum ReadError<E> {
 /// let options = VolumeLayoutOptions::new(1024 * 1024)
 ///     .with_volume_id(1)
 ///     .with_label("EFI SYSTEM")
-///     .and_then(|options| options.with_file("BOOTX64.EFI", 4096))
-///     .unwrap();
-/// let volume = VolumeLayout::new(options, &mut NoClock).unwrap();
+///     .and_then(|options| options.with_file("BOOTX64.EFI", 4096))?;
+/// let volume = VolumeLayout::new(options, &mut NoClock)?;
 /// let mut sector = [0u8; BYTES_PER_SECTOR];
-/// volume.fill_sector(0, &mut sector);
+/// volume.fill_sector(0, &mut sector)?;
 ///
-/// let boot = BootSector::parse(&sector).unwrap();
+/// let boot = BootSector::parse(&sector)?;
 /// assert_eq!(boot.file_allocation_table_type(), FileAllocationTableType::Fat32);
 /// assert!(boot.clusters() >= MINIMUM_FAT32_CLUSTERS);
+/// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BootSector {
@@ -285,12 +293,25 @@ impl BootSector {
     ///
     /// Returns the volume's geometry, or the first field that makes it unreadable. Never panics
     /// and never reads past byte 511, whatever `sector` holds.
+    ///
+    /// # Errors
+    ///
+    /// The [`ParseError`](crate::ParseError) variant that names the first field the sector fails
+    /// on, from [`ParseError::TooShort`](crate::ParseError::TooShort) for a buffer under 512 bytes
+    /// to [`ParseError::ActiveTable`](crate::ParseError::ActiveTable); each variant names its
+    /// field.
     pub fn parse(sector: &[u8]) -> Result<BootSector, ParseError> {
         BootSector::parse_with(sector, OpenOptions::new())
     }
 
     /// **Parse a boot sector from `sector` as `options` say**; [`BootSector::parse`] with
     /// [`OpenOptions::new`] is the strict reading.
+    ///
+    /// # Errors
+    ///
+    /// As [`BootSector::parse`]; with [`OpenOptions::with_small_fat32`] a small FAT32 layout is
+    /// read rather than refused with
+    /// [`ParseError::LayoutContradictsClusterCount`].
     pub fn parse_with(sector: &[u8], options: OpenOptions) -> Result<BootSector, ParseError> {
         let sector = sector.get(..PARSED).ok_or(ParseError::TooShort)?;
         if sector[510] != 0x55 || sector[511] != 0xAA {
@@ -398,10 +419,10 @@ impl BootSector {
             return Err(ParseError::Version);
         }
         let root = get32(sector, 44);
-        if self.cluster_first_sector(root).is_none() {
+        if self.first_sector_of(root).is_none() {
             return Err(ParseError::RootCluster);
         }
-        self.root = RootDirectory::Cluster(root);
+        self.root = RootDirectory::Cluster(crate::Cluster::new(root));
         // Bit 7 clear means every table is a mirror and a writer updates them all; set, bits 0 to
         // 3 name the one table that is live.
         let flags = get16(sector, 40);
@@ -423,6 +444,14 @@ impl BootSector {
     ///
     /// Refuses a volume whose `BPB_BytsPerSec` is not the device's sector size, since every later
     /// read would land at the wrong offset.
+    ///
+    /// # Errors
+    ///
+    /// [`ReadError::Device`](crate::ReadError::Device) when the device refuses the read,
+    /// [`ReadError::Refused`](crate::ReadError::Refused) with the [`ParseError`](crate::ParseError)
+    /// when sector 0 is not a boot sector this crate reads, and
+    /// [`ReadError::SectorSizeMismatch`](crate::ReadError::SectorSizeMismatch) when the volume's
+    /// sector size is not the device's.
     pub fn read<D: SectorDevice>(device: &mut D) -> Result<BootSector, ReadError<D::Error>> {
         BootSector::read_with(device, OpenOptions::new())
     }
@@ -556,7 +585,12 @@ impl BootSector {
     /// **The volume-relative sector `cluster` begins at**, or `None` when `cluster` is not one of
     /// this volume's data clusters (2 to `clusters() + 1`). The cluster's
     /// [`BootSector::sectors_per_cluster`] sectors all lie inside the volume.
-    pub const fn cluster_first_sector(&self, cluster: u32) -> Option<u32> {
+    pub const fn cluster_first_sector(&self, cluster: crate::Cluster) -> Option<u32> {
+        self.first_sector_of(cluster.get())
+    }
+
+    /// [`BootSector::cluster_first_sector`] for a cluster number the crate holds as it was read.
+    pub(crate) const fn first_sector_of(&self, cluster: u32) -> Option<u32> {
         if cluster < 2 || cluster - 2 >= self.clusters {
             return None;
         }

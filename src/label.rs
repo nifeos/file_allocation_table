@@ -9,7 +9,7 @@
 use crate::boot_sector::FileAllocationTableType;
 use crate::format::label_bytes;
 use crate::reader::{ChainError, Volume};
-use crate::sector::{SectorDevice, SectorSize, WritableSectorDevice};
+use crate::sector::{SectorDevice, WritableSectorDevice};
 use crate::write_cursor::{Medium, WriteError};
 
 /// `ATTR_VOLUME_ID`.
@@ -34,7 +34,7 @@ impl VolumeLabel {
     }
 }
 
-impl<D: SectorDevice> Volume<D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// Where the boot sector keeps its label, and the signature byte that says it is there.
     const fn boot_label_at(kind: FileAllocationTableType) -> (usize, usize) {
         match kind {
@@ -45,6 +45,13 @@ impl<D: SectorDevice> Volume<D> {
 
     /// **The volume's label**, or `None` when it has none: the root's label entry if there is one,
     /// else the boot sector's if it is set and is not `NO NAME`.
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::Device`](crate::ChainError::Device) when the device refuses a read, and
+    /// [`ChainError::Broken`](crate::ChainError::Broken) or
+    /// [`ChainError::TooLong`](crate::ChainError::TooLong) when the root directory's chain is
+    /// damaged.
     pub fn volume_label(&mut self) -> Result<Option<VolumeLabel>, ChainError<D::Error>> {
         for entry in self.root_named_entries() {
             let entry = entry?;
@@ -53,7 +60,7 @@ impl<D: SectorDevice> Volume<D> {
             }
         }
         let size = self.boot.sector_size().bytes();
-        let mut sector = [0u8; SectorSize::MAXIMUM_BYTES];
+        let mut sector = [0u8; BUFFER_BYTES];
         self.read_sector(0, &mut sector[..size])?;
         let (signature, label) = Self::boot_label_at(self.boot.file_allocation_table_type());
         if sector[signature] != 0x29 {
@@ -65,7 +72,7 @@ impl<D: SectorDevice> Volume<D> {
     }
 }
 
-impl<D: WritableSectorDevice> Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// **Set the label** to `label`: up to eleven upper-case letters, digits, spaces and the
     /// punctuation a short name admits. The root's label entry changes, or is made in the first free
     /// slot, and then the boot sector's copy (and FAT32's backup boot sector) follows.
@@ -96,7 +103,7 @@ impl<D: WritableSectorDevice> Volume<D> {
         let size = self.boot.sector_size().bytes();
         let (signature, at) = Self::boot_label_at(self.boot.file_allocation_table_type());
         for sector_index in copies.into_iter().flatten() {
-            let mut sector = [0u8; SectorSize::MAXIMUM_BYTES];
+            let mut sector = [0u8; BUFFER_BYTES];
             self.read_sector(sector_index, &mut sector[..size])?;
             // A boot sector with no extended signature has no label field to fill.
             if sector[signature] == 0x29 {

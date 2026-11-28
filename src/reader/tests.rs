@@ -155,8 +155,8 @@ fn walk<const N: usize>(image: Image, first: u32) -> (Steps<N>, usize) {
     let mut volume = Volume::open(image).unwrap();
     let mut out = [None; N];
     let mut count = 0;
-    for (slot, result) in out.iter_mut().zip(volume.chain(first)) {
-        *slot = Some(result);
+    for (slot, result) in out.iter_mut().zip(volume.chain(Cluster::new(first))) {
+        *slot = Some(result.map(Cluster::get));
         count += 1;
     }
     (out, count)
@@ -188,8 +188,8 @@ fn a_one_cluster_chain_ends_at_its_marker_and_stays_ended() {
     let mut image = Image::fat12();
     image.set(9, 0xFF8);
     let mut volume = Volume::open(image).unwrap();
-    let mut chain = volume.chain(9);
-    assert_eq!(chain.next(), Some(Ok(9)));
+    let mut chain = volume.chain(Cluster::new(9));
+    assert_eq!(chain.next(), Some(Ok(Cluster::new(9))));
     assert_eq!(chain.next(), None);
     assert_eq!(chain.next(), None);
 }
@@ -203,18 +203,27 @@ fn entries_decode_by_their_markers() {
     image.set(5, 0xFFF);
     image.set(6, 0x123);
     let mut volume = Volume::open(image).unwrap();
-    assert_eq!(volume.table_entry(2), Ok(TableEntry::Free));
-    assert_eq!(volume.table_entry(3), Ok(TableEntry::Reserved));
-    assert_eq!(volume.table_entry(4), Ok(TableEntry::Bad));
-    assert_eq!(volume.table_entry(5), Ok(TableEntry::EndOfChain));
-    assert_eq!(volume.table_entry(6), Ok(TableEntry::Next(0x123)));
+    assert_eq!(volume.table_entry(Cluster::new(2)), Ok(TableEntry::Free));
+    assert_eq!(
+        volume.table_entry(Cluster::new(3)),
+        Ok(TableEntry::Reserved)
+    );
+    assert_eq!(volume.table_entry(Cluster::new(4)), Ok(TableEntry::Bad));
+    assert_eq!(
+        volume.table_entry(Cluster::new(5)),
+        Ok(TableEntry::EndOfChain)
+    );
+    assert_eq!(
+        volume.table_entry(Cluster::new(6)),
+        Ok(TableEntry::Next(Cluster::new(0x123)))
+    );
     for cluster in [0, 1, CLUSTERS + 2, u32::MAX] {
         assert_eq!(
-            volume.table_entry(cluster),
-            Err(ChainError::NotADataCluster(cluster))
+            volume.table_entry(Cluster::new(cluster)),
+            Err(ChainError::NotADataCluster(Cluster::new(cluster)))
         );
     }
-    assert!(volume.table_entry(CLUSTERS + 1).is_ok());
+    assert!(volume.table_entry(Cluster::new(CLUSTERS + 1)).is_ok());
 }
 
 #[test]
@@ -222,7 +231,10 @@ fn a_start_that_is_not_a_data_cluster_is_refused_once() {
     for first in [0, 1, CLUSTERS + 2, u32::MAX] {
         let (out, count) = walk::<4>(Image::fat12(), first);
         assert_eq!(count, 1);
-        assert_eq!(out[0], Some(Err(ChainError::NotADataCluster(first))));
+        assert_eq!(
+            out[0],
+            Some(Err(ChainError::NotADataCluster(Cluster::new(first))))
+        );
     }
 }
 
@@ -232,8 +244,11 @@ fn every_entry_that_cannot_continue_a_chain_breaks_it_there() {
         (0, TableEntry::Free),
         (1, TableEntry::Reserved),
         (0xFF7, TableEntry::Bad),
-        (CLUSTERS as u16 + 2, TableEntry::Next(CLUSTERS + 2)),
-        (0xFF6, TableEntry::Next(0xFF6)),
+        (
+            CLUSTERS as u16 + 2,
+            TableEntry::Next(Cluster::new(CLUSTERS + 2)),
+        ),
+        (0xFF6, TableEntry::Next(Cluster::new(0xFF6))),
     ] {
         let mut image = Image::fat12();
         image.set(20, 21);
@@ -245,7 +260,10 @@ fn every_entry_that_cannot_continue_a_chain_breaks_it_there() {
             [
                 Some(Ok(20)),
                 Some(Ok(21)),
-                Some(Err(ChainError::Broken { cluster: 21, entry }))
+                Some(Err(ChainError::Broken {
+                    cluster: Cluster::new(21),
+                    entry
+                }))
             ]
         );
     }
@@ -257,9 +275,9 @@ fn a_loop_ends_after_as_many_clusters_as_the_volume_holds() {
     image.set(2, 3);
     image.set(3, 2);
     let mut volume = Volume::open(image).unwrap();
-    let mut chain = volume.chain(2);
+    let mut chain = volume.chain(Cluster::new(2));
     for step in 0..CLUSTERS {
-        assert_eq!(chain.next(), Some(Ok(2 + step % 2)));
+        assert_eq!(chain.next(), Some(Ok(Cluster::new(2 + step % 2))));
     }
     assert_eq!(chain.next(), Some(Err(ChainError::TooLong)));
     assert_eq!(chain.next(), None);
@@ -272,8 +290,8 @@ fn a_chain_through_every_cluster_is_not_too_long() {
     image.link(&all);
     let mut volume = Volume::open(image).unwrap();
     let mut count = 0;
-    for (expected, result) in (2..).zip(volume.chain(2)) {
-        assert_eq!(result, Ok(expected));
+    for (expected, result) in (2..).zip(volume.chain(Cluster::new(2))) {
+        assert_eq!(result, Ok(Cluster::new(expected)));
         count += 1;
     }
     assert_eq!(count, CLUSTERS);
@@ -297,7 +315,10 @@ fn an_entry_inside_one_sector_reads_only_that_sector() {
     image.set(2, 0xFFF);
     image.refuse = Some(2);
     let mut volume = Volume::open(image).unwrap();
-    assert_eq!(volume.table_entry(2), Ok(TableEntry::EndOfChain));
+    assert_eq!(
+        volume.table_entry(Cluster::new(2)),
+        Ok(TableEntry::EndOfChain)
+    );
 }
 
 #[test]

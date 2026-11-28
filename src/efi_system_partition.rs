@@ -9,6 +9,8 @@
 //! root at [`ROOT_CLUSTER`] and each directory and the file's data at the three clusters after it,
 //! in this order.
 
+use crate::Cluster;
+
 /// A sector of this shape, and the unit [`crate::VolumeLayout`] measures every output in.
 ///
 /// FAT32 permits 512, 1024, 2048 and 4096; this writer writes 512, which is what nearly every disk
@@ -33,7 +35,7 @@ pub const TABLE_COUNT: u32 = 2;
 
 /// The first cluster of the root directory. FAT32 fixes nothing here, but 2 is the first data
 /// cluster and every tool uses it.
-pub const ROOT_CLUSTER: u32 = 2;
+pub const ROOT_CLUSTER: Cluster = Cluster::new(2);
 
 /// **The count of data clusters below which a volume is not FAT32 at all**, and so the smallest
 /// volume [`crate::VolumeLayout::new`] lays out.
@@ -47,10 +49,10 @@ pub const MINIMUM_FAT32_CLUSTERS: u32 = 65_525;
 /// **The `EFI` directory's cluster** (`\EFI`, the directory UEFI 2.10 section 13.3.1.3, Directory
 /// Structure, roots every boot path at).
 #[doc(alias = "extensible firmware interface directory")]
-pub const EFI_CLUSTER: u32 = 3;
+pub const EFI_CLUSTER: Cluster = Cluster::new(3);
 
 /// The cluster holding the `EFI\BOOT` directory.
-pub const BOOT_CLUSTER: u32 = 4;
+pub const BOOT_CLUSTER: Cluster = Cluster::new(4);
 
 /// The first cluster of the boot file's data.
-pub const FILE_CLUSTER: u32 = 5;
+pub const FILE_CLUSTER: Cluster = Cluster::new(5);

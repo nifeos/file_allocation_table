@@ -15,8 +15,8 @@ fn pattern(offset: usize) -> u8 {
 
 /// Read the whole file `name` from the root of `volume`.
 fn read_back(volume: &mut WritableVolume<Image, NoClock>, name: &str, out: &mut [u8]) -> usize {
-    let entry = volume.lookup(name).expect("the file is listed");
-    let mut reader = volume.open_file_reader(&entry).unwrap();
+    let entry = volume.get_mut().lookup(name).expect("the file is listed");
+    let mut reader = volume.get_mut().open_file_reader(&entry).unwrap();
     let mut total = 0;
     loop {
         let got = reader.read(&mut out[total..]).expect("the file reads");
@@ -47,9 +47,9 @@ fn a_file_written_in_odd_chunks_reads_back_and_its_entry_is_true() {
             "chunk {chunk}"
         );
         assert_eq!(out[..1500], bytes);
-        let entry = volume.lookup("DATA.BIN").unwrap();
+        let entry = volume.get_mut().lookup("DATA.BIN").unwrap();
         assert_eq!(entry.size_bytes(), 1500);
-        assert_eq!(volume.chain(entry.first_cluster()).count(), 3);
+        assert_eq!(volume.get_mut().chain(entry.first_cluster()).count(), 3);
         assert_eq!(entry.attributes() & 0x20, 0x20);
     }
 }
@@ -97,26 +97,32 @@ fn set_len_grows_with_zeros_and_shrinks_by_freeing_clusters() {
     assert_eq!(read_back(&mut volume, "L.BIN", &mut out), 1200);
     assert!(out[..600].iter().all(|b| *b == 9));
     assert!(out[600..1200].iter().all(|b| *b == 0));
-    let free = volume.count_free_clusters().unwrap();
-    let entry = volume.lookup("L.BIN").unwrap();
+    let free = volume.get_mut().count_free_clusters().unwrap();
+    let entry = volume.get_mut().lookup("L.BIN").unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.set_position(1200);
     writer.set_len(513).unwrap();
     assert_eq!((writer.size_bytes(), writer.position()), (513, 513));
     writer.set_len(0).unwrap();
-    assert_eq!(volume.count_free_clusters().unwrap(), free + 3);
-    let entry = volume.lookup("L.BIN").unwrap();
-    assert_eq!((entry.first_cluster(), entry.size_bytes()), (0, 0));
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), free + 3);
+    let entry = volume.get_mut().lookup("L.BIN").unwrap();
+    assert_eq!(
+        (entry.first_cluster(), entry.size_bytes()),
+        (Cluster::new(0), 0)
+    );
     // The emptied file takes a new chain.
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.write(b"again").unwrap();
-    assert_ne!(volume.lookup("L.BIN").unwrap().first_cluster(), 0);
+    assert_ne!(
+        volume.get_mut().lookup("L.BIN").unwrap().first_cluster(),
+        Cluster::new(0)
+    );
 }
 
 #[test]
 fn a_removed_file_frees_its_slots_and_clusters_and_a_new_file_takes_the_slot() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let free = volume.count_free_clusters().unwrap();
+    let free = volume.get_mut().count_free_clusters().unwrap();
     let entry = volume
         .create_file(DirectoryCluster::ROOT, "GONE.BIN")
         .unwrap();
@@ -125,10 +131,10 @@ fn a_removed_file_frees_its_slots_and_clusters_and_a_new_file_takes_the_slot() {
         .unwrap()
         .write(&[1; 1000])
         .unwrap();
-    let entry = volume.lookup("GONE.BIN").unwrap();
+    let entry = volume.get_mut().lookup("GONE.BIN").unwrap();
     volume.remove_file(&entry).unwrap();
-    assert_eq!(volume.count_free_clusters().unwrap(), free);
-    assert!(volume.lookup("GONE.BIN").is_err());
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), free);
+    assert!(volume.get_mut().lookup("GONE.BIN").is_err());
     let again = volume
         .create_file(DirectoryCluster::ROOT, "NEW.BIN")
         .unwrap();
@@ -233,7 +239,7 @@ fn claimed(
     image.bytes[5 * 512 + 26..5 * 512 + 28].copy_from_slice(&first_cluster.to_le_bytes());
     image.bytes[5 * 512 + 28..5 * 512 + 32].copy_from_slice(&size_bytes.to_le_bytes());
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let entry = volume.lookup(name).unwrap();
+    let entry = volume.get_mut().lookup(name).unwrap();
     (volume, entry)
 }
 
@@ -254,8 +260,8 @@ fn a_damaged_chain_is_reported_not_extended() {
 fn the_dirty_bit_is_set_by_the_first_change_and_the_sync_restores_it() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
     // FAT12 keeps no bit.
-    assert_eq!(volume.is_clean(), Ok(None));
-    volume.allocate_cluster(None).unwrap();
+    assert_eq!(volume.get_mut().is_clean(), Ok(None));
+    volume.get_mut().allocate_cluster(None).unwrap();
     assert_eq!(volume.mark_clean(), Ok(()));
 }
 
@@ -292,7 +298,7 @@ fn a_write_after_seeking_back_and_forth_lands_where_it_says() {
     }
     assert_eq!(out.iter().filter(|b| **b != 0).count(), 6);
     // A second writer starts with no cursor and follows the chain from its head.
-    let entry = volume.lookup("SEEK.BIN").unwrap();
+    let entry = volume.get_mut().lookup("SEEK.BIN").unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.set_position(1300);
     writer.write(&[9]).unwrap();
@@ -314,8 +320,8 @@ fn a_chain_that_loops_or_leaves_the_volume_is_an_error_not_a_hang() {
         (
             20,
             ChainError::Broken {
-                cluster: 20,
-                entry: crate::TableEntry::Next(400),
+                cluster: Cluster::new(20),
+                entry: crate::TableEntry::Next(Cluster::new(400)),
             },
         ),
     ] {
@@ -329,15 +335,18 @@ fn a_chain_that_loops_or_leaves_the_volume_is_an_error_not_a_hang() {
 #[test]
 fn a_write_at_the_four_gibibyte_limit_is_refused_and_nothing_is_written() {
     let mut volume = WritableVolume::open(Image::fat12(), NoClock).unwrap();
-    let boot = *volume.boot_sector();
+    let boot = *volume.get_mut().boot_sector();
     let mut state = WriteState::new(5, u32::MAX);
     state.seek(u32::MAX);
     let mut scratch = [0u8; 512];
     assert_eq!(
-        state.write(&mut *volume, &boot, b"x", &mut scratch),
+        state.write(volume.get_mut(), &boot, b"x", &mut scratch),
         Err(WriteError::FileTooLarge)
     );
-    assert_eq!(state.write(&mut *volume, &boot, b"", &mut scratch), Ok(0));
+    assert_eq!(
+        state.write(volume.get_mut(), &boot, b"", &mut scratch),
+        Ok(0)
+    );
 }
 
 #[test]
@@ -364,7 +373,11 @@ fn the_longest_and_shortest_short_names_are_legal_and_the_next_longer_is_not() {
         *b"ABCDEF~1   "
     );
     assert_eq!(
-        volume.lookup("ABCDEFGH.XYZ").unwrap().short_name(),
+        volume
+            .get_mut()
+            .lookup("ABCDEFGH.XYZ")
+            .unwrap()
+            .short_name(),
         *b"ABCDEFGHXYZ"
     );
 }
@@ -377,12 +390,12 @@ fn setting_the_length_it_already_has_changes_nothing() {
         .unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.write(&[3; 700]).unwrap();
-    let free = volume.count_free_clusters().unwrap();
-    let same = volume.lookup("SAME.BIN").unwrap();
+    let free = volume.get_mut().count_free_clusters().unwrap();
+    let same = volume.get_mut().lookup("SAME.BIN").unwrap();
     let mut writer = volume.open_file_writer(&same).unwrap();
     writer.set_len(700).unwrap();
     assert_eq!((writer.size_bytes(), writer.position()), (700, 0));
-    assert_eq!(volume.count_free_clusters().unwrap(), free);
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), free);
 }
 
 #[test]
@@ -391,12 +404,13 @@ fn setting_the_length_it_already_has_keeps_a_chain_longer_than_the_size() {
     let mut image = Image::fat12();
     image.link(&[5, 6]);
     let (mut volume, long) = claimed(image, "LONG.BIN", 5, 512);
-    let free = volume.count_free_clusters().unwrap();
+    let free = volume.get_mut().count_free_clusters().unwrap();
     let mut writer = volume.open_file_writer(&long).unwrap();
     writer.set_len(512).unwrap();
     assert_eq!(writer.size_bytes(), 512);
-    assert_eq!(volume.count_free_clusters().unwrap(), free);
-    assert_eq!(volume.chain(5).count(), 2);
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), free);
+    // One step more than the chain holds, so a walk that never ends fails here instead of spinning.
+    assert_eq!(volume.get_mut().chain(Cluster::new(5)).take(3).count(), 2);
 }
 
 #[test]
@@ -409,7 +423,7 @@ fn a_whole_sector_overwrite_never_reads_the_sector() {
     let mut image = volume.into_device();
     image.refuse = Some(9);
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let whole = volume.lookup("WHOLE.BIN").unwrap();
+    let whole = volume.get_mut().lookup("WHOLE.BIN").unwrap();
     let mut writer = volume.open_file_writer(&whole).unwrap();
     assert_eq!(writer.write(&[9; 512]), Ok(512));
     assert_eq!(writer.size_bytes(), 512);
@@ -433,12 +447,12 @@ fn an_entry_that_no_longer_matches_its_slot_is_stale_for_every_operation() {
         Some(OpenError::EntryChanged)
     );
     assert_eq!(
-        volume.open_file_reader(&entry).err(),
+        volume.get_mut().open_file_reader(&entry).err(),
         Some(OpenError::EntryChanged)
     );
     assert_eq!(volume.remove_file(&entry), Err(WriteError::EntryChanged));
     // The live entry was not touched.
-    assert_eq!(volume.lookup("NEW.BIN").unwrap().size_bytes(), 0);
+    assert_eq!(volume.get_mut().lookup("NEW.BIN").unwrap().size_bytes(), 0);
 }
 
 #[test]
@@ -458,9 +472,9 @@ fn a_shrink_to_a_cluster_boundary_forgets_the_cluster_a_cursor_had_reached() {
     assert_eq!(read_back(&mut volume, "CUT.BIN", &mut out), 1025);
     assert_eq!(out[1024], 2);
     assert_eq!(out[..1024], [1; 1024]);
-    let entry = volume.lookup("CUT.BIN").unwrap();
-    assert_eq!(volume.chain(entry.first_cluster()).count(), 3);
-    assert_eq!(volume.count_free_clusters().unwrap(), 350 - 3);
+    let entry = volume.get_mut().lookup("CUT.BIN").unwrap();
+    assert_eq!(volume.get_mut().chain(entry.first_cluster()).count(), 3);
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), 350 - 3);
 }
 
 #[test]
@@ -514,7 +528,7 @@ fn a_slot_that_became_a_long_name_piece_is_stale_for_a_write_and_a_remove() {
         Some(OpenError::EntryChanged)
     );
     assert_eq!(
-        volume.open_file_reader(&entry).err(),
+        volume.get_mut().open_file_reader(&entry).err(),
         Some(OpenError::EntryChanged)
     );
     assert_eq!(volume.remove_file(&entry), Err(WriteError::EntryChanged));
@@ -551,7 +565,7 @@ fn a_reused_free_slot_does_not_end_the_directory_and_stale_bytes_after_the_end_a
     let reused = volume.create_file(DirectoryCluster::ROOT, "D.TXT").unwrap();
     assert_eq!(reused.place().short_slot, 0);
     for name in ["D.TXT", "B.TXT", "C.TXT"] {
-        assert!(volume.lookup(name).is_ok(), "{name}");
+        assert!(volume.get_mut().lookup(name).is_ok(), "{name}");
     }
     // A stale entry sits in the slot after the end marker of an empty directory.
     let mut image = Image::fat12();
@@ -561,8 +575,8 @@ fn a_reused_free_slot_does_not_end_the_directory_and_stale_bytes_after_the_end_a
         .create_file(DirectoryCluster::ROOT, "REAL.TXT")
         .unwrap();
     assert_eq!(made.place().short_slot, 0);
-    assert!(volume.lookup("REAL.TXT").is_ok());
-    assert!(volume.lookup("GHOST.TXT").is_err());
+    assert!(volume.get_mut().lookup("REAL.TXT").is_ok());
+    assert!(volume.get_mut().lookup("GHOST.TXT").is_err());
     let image = volume.into_device();
     assert_eq!(image.bytes[5 * 512 + 32], 0);
     assert_eq!(image.bytes[5 * 512 + 33..5 * 512 + 43], *b"HOST   TXT");
@@ -579,13 +593,13 @@ fn an_overwrite_in_a_later_sector_zeroes_stale_bytes_past_the_end_of_the_file() 
         .unwrap()
         .write(&[1; 600])
         .unwrap();
-    let first = volume.lookup("TAIL.BIN").unwrap().first_cluster();
-    let second = volume.chain(first).nth(1).unwrap().unwrap();
+    let first = volume.get_mut().lookup("TAIL.BIN").unwrap().first_cluster();
+    let second = volume.get_mut().chain(first).nth(1).unwrap().unwrap().get();
     let mut image = volume.into_device();
     // Cluster `second`'s sector holds file bytes 512 to 599; byte 200 of it is past the end.
     image.bytes[(6 + second as usize - 2) * 512 + 200] = 0xEE;
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
-    let entry = volume.lookup("TAIL.BIN").unwrap();
+    let entry = volume.get_mut().lookup("TAIL.BIN").unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     writer.set_position(520);
     writer.write(&[9]).unwrap();
@@ -607,14 +621,14 @@ fn growing_by_several_buffers_from_empty_and_by_exactly_two_works() {
     let mut out = [1u8; 9000];
     assert_eq!(read_back(&mut volume, "GROW.BIN", &mut out), 8192);
     assert!(out[..8192].iter().all(|b| *b == 0));
-    let entry = volume.lookup("GROW.BIN").unwrap();
+    let entry = volume.get_mut().lookup("GROW.BIN").unwrap();
     volume
         .open_file_writer(&entry)
         .unwrap()
         .set_len(8192 + 4096 + 1)
         .unwrap();
     assert_eq!(
-        volume.lookup("GROW.BIN").unwrap().size_bytes(),
+        volume.get_mut().lookup("GROW.BIN").unwrap().size_bytes(),
         8192 + 4096 + 1
     );
 }
@@ -630,7 +644,7 @@ fn a_second_writer_from_the_entry_create_file_returned_is_refused_and_leaks_noth
         .unwrap()
         .write(b"first")
         .unwrap();
-    let free = volume.count_free_clusters().unwrap();
+    let free = volume.get_mut().count_free_clusters().unwrap();
     // `created` still says no cluster and size 0; the slot now says one cluster and 5 bytes.
     // The open refuses it for writing and for reading alike, before touching the volume.
     assert_eq!(
@@ -638,21 +652,21 @@ fn a_second_writer_from_the_entry_create_file_returned_is_refused_and_leaks_noth
         Some(OpenError::EntryChanged)
     );
     assert_eq!(
-        volume.open_file_reader(&created).err(),
+        volume.get_mut().open_file_reader(&created).err(),
         Some(OpenError::EntryChanged)
     );
-    assert_eq!(volume.count_free_clusters().unwrap(), free);
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), free);
     let mut out = [0u8; 16];
     assert_eq!(read_back(&mut volume, "TWICE.BIN", &mut out), 5);
     assert_eq!(out[..5], *b"first");
     // A fresh lookup writes.
-    let fresh = volume.lookup("TWICE.BIN").unwrap();
+    let fresh = volume.get_mut().lookup("TWICE.BIN").unwrap();
     let mut writer = volume.open_file_writer(&fresh).unwrap();
     assert_eq!(writer.write(b"second"), Ok(6));
     assert_eq!(writer.write(b"!"), Ok(1));
     assert_eq!(read_back(&mut volume, "TWICE.BIN", &mut out), 7);
     assert_eq!(out[..7], *b"second!");
-    assert_eq!(volume.count_free_clusters().unwrap(), free);
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), free);
 }
 
 #[test]
@@ -666,7 +680,7 @@ fn an_entry_read_before_a_write_is_stale_for_a_remove_a_rename_and_an_attribute_
         .unwrap()
         .write(&[9; 600])
         .unwrap();
-    let free = volume.count_free_clusters().unwrap();
+    let free = volume.get_mut().count_free_clusters().unwrap();
     assert_eq!(volume.remove_file(&created), Err(WriteError::EntryChanged));
     assert_eq!(
         volume.rename(&created, DirectoryCluster::ROOT, "NEW.BIN"),
@@ -676,11 +690,11 @@ fn an_entry_read_before_a_write_is_stale_for_a_remove_a_rename_and_an_attribute_
         volume.set_attributes(&created, crate::Attributes::READ_ONLY),
         Err(WriteError::EntryChanged)
     );
-    assert_eq!(volume.count_free_clusters().unwrap(), free);
-    let fresh = volume.lookup("OLD.BIN").unwrap();
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), free);
+    let fresh = volume.get_mut().lookup("OLD.BIN").unwrap();
     assert_eq!((fresh.size_bytes(), fresh.attributes()), (600, 0x20));
     volume.remove_file(&fresh).unwrap();
-    assert_eq!(volume.count_free_clusters().unwrap(), 350);
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), 350);
 }
 
 /// A file of 10 bytes in the root's first slot, the entry read for it, and the volume.
@@ -694,7 +708,7 @@ fn one_written_file() -> (WritableVolume<Image, NoClock>, NamedEntry) {
         .unwrap()
         .write(&[1; 10])
         .unwrap();
-    let entry = volume.lookup("ONE.BIN").unwrap();
+    let entry = volume.get_mut().lookup("ONE.BIN").unwrap();
     (volume, entry)
 }
 
@@ -713,7 +727,7 @@ fn a_slot_that_differs_from_the_entry_in_one_field_is_stale() {
             "byte {at}"
         );
         assert_eq!(
-            volume.open_file_reader(&entry).err(),
+            volume.get_mut().open_file_reader(&entry).err(),
             Some(OpenError::EntryChanged),
             "byte {at}"
         );
@@ -739,20 +753,22 @@ fn a_file_whose_stored_name_starts_with_0x05_is_written_and_keeps_its_name() {
     image.bytes[5 * 512] = 0x05;
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     let entry = volume
+        .get_mut()
         .named_entries(DirectoryCluster::ROOT)
         .next()
         .expect("one entry")
         .expect("it parses");
     assert_eq!(entry.short_name()[0], FREE);
-    let free = volume.count_free_clusters().unwrap();
+    let free = volume.get_mut().count_free_clusters().unwrap();
     let mut writer = volume.open_file_writer(&entry).unwrap();
     assert_eq!(writer.write(b"x"), Ok(1));
-    assert_eq!(volume.count_free_clusters().unwrap(), free);
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), free);
     let mut image = volume.into_device();
     assert_eq!(image.bytes[5 * 512], 0x05);
     // The write landed in the entry, and the slot is still in use.
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     let entry = volume
+        .get_mut()
         .named_entries(DirectoryCluster::ROOT)
         .next()
         .unwrap()
@@ -830,7 +846,7 @@ fn a_table_write_forgets_the_place_a_lookup_reached() {
         .write_table_entry(30, crate::table::TableEntry::EndOfChain)
         .unwrap();
     volume
-        .write_table_entry(11, crate::table::TableEntry::Next(30))
+        .write_table_entry(11, crate::table::TableEntry::Next(Cluster::new(30)))
         .unwrap();
     assert_eq!(volume.slot_location(10, 40), Ok(Some((sector_of(30), 256))));
 }
@@ -882,7 +898,7 @@ fn a_power_cut_while_a_directory_grows_never_exposes_stale_bytes() {
         refuse_write: None,
     })
     .unwrap();
-    assert_eq!(volume.chain(sub.0).count(), 1);
+    assert_eq!(volume.chain(Cluster::new(sub.0)).count(), 1);
     assert_eq!(count_and_stale(&mut volume, sub), (16, false));
 
     let mut writes = 0;
@@ -900,7 +916,7 @@ fn a_power_cut_while_a_directory_grows_never_exposes_stale_bytes() {
         match made {
             Ok(_) => {
                 assert_eq!(count, 17);
-                assert_eq!(volume.chain(sub.0).count(), 2);
+                assert_eq!(volume.chain(Cluster::new(sub.0)).count(), 2);
                 break;
             }
             Err(error) => {
@@ -926,7 +942,7 @@ fn a_grow_whose_zeroing_fails_frees_the_cluster_it_took() {
     for i in 0..14 {
         volume.create_file(sub, &format_name(i)).unwrap();
     }
-    let free = volume.count_free_clusters().unwrap();
+    let free = volume.get_mut().count_free_clusters().unwrap();
     let mut image = volume.into_device();
     // The directory took cluster 2, so the grow takes cluster 3, at sector 7.
     image.refuse_write = Some(FIRST_DATA as u64 + 1);
@@ -935,8 +951,8 @@ fn a_grow_whose_zeroing_fails_frees_the_cluster_it_took() {
         volume.create_file(sub, "LAST.BIN"),
         Err(WriteError::Chain(ChainError::Device(FIRST_DATA as u64 + 1)))
     );
-    assert_eq!(volume.count_free_clusters().unwrap(), free);
-    assert_eq!(volume.chain(sub.0).count(), 1);
+    assert_eq!(volume.get_mut().count_free_clusters().unwrap(), free);
+    assert_eq!(volume.get_mut().chain(Cluster::new(sub.0)).count(), 1);
 }
 
 #[test]
@@ -954,15 +970,15 @@ fn names_outside_latin_1_are_created_found_without_regard_to_case_and_refuse_a_t
     for name in ["日本語.txt", "Привет.txt", "straße.txt"] {
         let entry = volume.create_file(DirectoryCluster::ROOT, name).unwrap();
         assert_eq!(
-            volume.lookup(name).unwrap().first_cluster(),
+            volume.get_mut().lookup(name).unwrap().first_cluster(),
             entry.first_cluster()
         );
     }
     // Case folds for a letter that has one upper-case letter; the sharp s has none.
-    assert!(volume.lookup("ПРИВЕТ.TXT").is_ok());
-    assert!(volume.lookup("привет.txt").is_ok());
-    assert!(volume.lookup("日本語.TXT").is_ok());
-    assert!(volume.lookup("STRASSE.TXT").is_err());
+    assert!(volume.get_mut().lookup("ПРИВЕТ.TXT").is_ok());
+    assert!(volume.get_mut().lookup("привет.txt").is_ok());
+    assert!(volume.get_mut().lookup("日本語.TXT").is_ok());
+    assert!(volume.get_mut().lookup("STRASSE.TXT").is_err());
     assert_eq!(
         volume.create_file(DirectoryCluster::ROOT, "ПРИВЕТ.TXT"),
         Err(WriteError::AlreadyExists)
@@ -974,8 +990,8 @@ fn names_outside_latin_1_are_created_found_without_regard_to_case_and_refuse_a_t
     volume
         .create_file(DirectoryCluster::ROOT, "日本語の庭.txt")
         .unwrap();
-    assert!(volume.lookup("日本語の本.txt").is_ok());
-    assert!(volume.lookup("日本語の庭.txt").is_ok());
+    assert!(volume.get_mut().lookup("日本語の本.txt").is_ok());
+    assert!(volume.get_mut().lookup("日本語の庭.txt").is_ok());
     // A character past the Basic Multilingual Plane is refused, since the format stores UCS-2.
     assert_eq!(
         volume.create_file(DirectoryCluster::ROOT, "\u{1F600}.txt"),
@@ -1001,7 +1017,7 @@ fn a_full_volume_refuses_the_first_byte_of_an_empty_file_and_a_growth() {
     let mut writer = volume.open_file_writer(&entry).unwrap();
     assert_eq!(writer.set_len(10), Err(WriteError::VolumeFull));
     assert_eq!(
-        volume.allocate_cluster(None),
+        volume.get_mut().allocate_cluster(None),
         Err(crate::allocation::AllocationError::VolumeFull)
     );
 }
@@ -1013,7 +1029,9 @@ fn an_entry_whose_first_cluster_is_off_the_volume_or_missing_is_refused_on_write
     let mut writer = volume.open_file_writer(&entry).unwrap();
     assert_eq!(
         writer.write(b"x"),
-        Err(WriteError::Chain(ChainError::NotADataCluster(400)))
+        Err(WriteError::Chain(ChainError::NotADataCluster(
+            Cluster::new(400)
+        )))
     );
     // A size with no chain behind it.
     let (mut volume, entry) = claimed(Image::fat12(), "N.BIN", 0, 10);

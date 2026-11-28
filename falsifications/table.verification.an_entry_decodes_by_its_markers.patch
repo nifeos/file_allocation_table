@@ -8,12 +8,12 @@ Expected to fail: the harness's `assert_eq!(TableEntry::decode(file_allocation_t
 diff --git a/src/table.rs b/src/table.rs
 --- a/src/table.rs
 +++ b/src/table.rs
-@@ -66,7 +66,7 @@ impl TableEntry {
+@@ -48,7 +48,7 @@ impl TableEntry {
              TableEntry::Free
          } else if value == 1 {
              TableEntry::Reserved
 -        } else if value < bad {
 +        } else if value <= bad {
-             TableEntry::Next(value)
+             TableEntry::Next(Cluster(value))
          } else if value == bad {
              TableEntry::Bad

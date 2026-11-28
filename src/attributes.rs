@@ -25,6 +25,15 @@ const USER_BITS: u8 = 0x27;
 /// assert!(hidden_log.contains(Attributes::HIDDEN));
 /// assert!(!hidden_log.contains(Attributes::READ_ONLY));
 /// assert_eq!(hidden_log.difference(Attributes::HIDDEN), Attributes::ARCHIVE);
+///
+/// // The operators do the same.
+/// assert_eq!(Attributes::HIDDEN | Attributes::ARCHIVE, hidden_log);
+/// assert_eq!(hidden_log & Attributes::HIDDEN, Attributes::HIDDEN);
+/// assert_eq!(hidden_log & !Attributes::HIDDEN, Attributes::ARCHIVE);
+/// assert_eq!(
+///     !Attributes::EMPTY,
+///     Attributes::READ_ONLY | Attributes::HIDDEN | Attributes::SYSTEM | Attributes::ARCHIVE
+/// );
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Attributes(u8);
@@ -73,6 +82,34 @@ impl Attributes {
     }
 }
 
+impl core::ops::BitOr for Attributes {
+    type Output = Attributes;
+
+    /// The set with every bit of either side: [`Attributes::union`].
+    fn bitor(self, other: Attributes) -> Attributes {
+        self.union(other)
+    }
+}
+
+impl core::ops::BitAnd for Attributes {
+    type Output = Attributes;
+
+    /// The set with the bits both sides hold.
+    fn bitand(self, other: Attributes) -> Attributes {
+        Attributes(self.0 & other.0)
+    }
+}
+
+impl core::ops::Not for Attributes {
+    type Output = Attributes;
+
+    /// The user bits the set does not hold. Only the four user bits can be set, so the
+    /// complement of [`Attributes::EMPTY`] is all four and never a directory or label bit.
+    fn not(self) -> Attributes {
+        Attributes(!self.0 & USER_BITS)
+    }
+}
+
 /// **`DIR_Attr` after the user bits become `new`**: the directory and label bits and the two bits
 /// the specification reserves keep their value.
 pub(crate) const fn apply(stored: u8, new: Attributes) -> u8 {
@@ -86,7 +123,7 @@ impl NamedEntry {
     }
 }
 
-impl<D: WritableSectorDevice> Volume<D> {
+impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// **Set `entry`'s read-only, hidden, system and archive bits to exactly `attributes`**, and
     /// return the entry as stored. The directory bit and every other bit stay. Refuses the volume
     /// label, `.` and `..`.

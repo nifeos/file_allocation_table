@@ -40,6 +40,20 @@ pub enum FormatError {
     TimeOutOfRange,
     /// The cluster size is not a power of two from 1 to 128 sectors.
     ClusterSizeRefused,
+    /// The total or the hidden sector count is past what the boot sector's 32-bit fields hold.
+    TooLarge,
+}
+
+/// **Why a builder did not fill a sector**, from [`FormatPlan::fill_sector`] and
+/// [`crate::VolumeLayout::fill_sector`]. In either case the buffer is untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum FillError {
+    /// The index is at or past the builder's metadata sectors; the sectors from there on are the
+    /// data area, which the builder leaves to the caller.
+    PastMetadata,
+    /// The buffer is not one sector long.
+    WrongLength,
 }
 
 /// **What to format**: the device's size and sector size, and optionally the type, the cluster
@@ -68,22 +82,24 @@ pub enum FormatError {
 /// type follows from the count. A named cluster size,
 /// [`FormatOptions::with_sectors_per_cluster`], replaces the table, and the type then follows from
 /// the count: one sector to the cluster is the explicit choice of the smallest table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FormatOptions {
     bytes_per_sector: SectorSize,
-    total_sectors: u32,
+    total_sectors: u64,
     file_allocation_table_type: Option<FileAllocationTableType>,
     cluster_sectors: Option<u32>,
     volume_id: u32,
     label: [u8; 11],
     has_label: bool,
-    hidden_sectors: u32,
+    hidden_sectors: u64,
 }
 
 impl FormatOptions {
     /// Options for a device of `total_sectors` sectors of `sector_size`, with every choice left to
-    /// the format: serial number 0, the label `NO NAME`, no hidden sectors.
-    pub const fn new(sector_size: SectorSize, total_sectors: u32) -> FormatOptions {
+    /// the format: serial number 0, the label `NO NAME`, no hidden sectors. A count past
+    /// `u32::MAX`, which the boot sector cannot record, is refused by [`FormatPlan::new`] with
+    /// [`FormatError::TooLarge`].
+    pub const fn new(sector_size: SectorSize, total_sectors: u64) -> FormatOptions {
         FormatOptions {
             bytes_per_sector: sector_size,
             total_sectors,
@@ -121,15 +137,21 @@ impl FormatOptions {
         self
     }
 
-    /// The sectors ahead of the volume on its disk, which only `BPB_HiddSec` records.
+    /// The sectors ahead of the volume on its disk, which only `BPB_HiddSec` records. A count past
+    /// `u32::MAX` is refused by [`FormatPlan::new`] with [`FormatError::TooLarge`].
     #[must_use]
-    pub const fn with_hidden_sectors(mut self, hidden_sectors: u32) -> FormatOptions {
+    pub const fn with_hidden_sectors(mut self, hidden_sectors: u64) -> FormatOptions {
         self.hidden_sectors = hidden_sectors;
         self
     }
 
     /// The volume label: up to eleven upper-case letters, digits, spaces and the punctuation a
     /// short name admits. A label also becomes the volume-label entry of the root directory.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::LabelRefused`](crate::FormatError::LabelRefused) when `label` is empty, over
+    /// eleven bytes, or holds a byte a short name refuses.
     pub fn with_label(mut self, label: &str) -> Result<FormatOptions, FormatError> {
         self.label = label_bytes(label).ok_or(FormatError::LabelRefused)?;
         self.has_label = true;
@@ -154,7 +176,7 @@ pub(crate) fn label_from_bytes(bytes: &[u8]) -> Option<[u8; 11]> {
 }
 
 /// **A volume's measurements**, from its size alone. Every field is derived by [`Geometry::new`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Geometry {
     pub(crate) kind: FileAllocationTableType,
     pub(crate) bytes_per_sector: SectorSize,
@@ -400,18 +422,29 @@ pub(crate) fn by_volume_size(
 ///
 /// ```
 /// use file_allocation_table::{
-///     FileAllocationTableType, FormatPlan, FormatOptions, SectorSize, NoClock, Volume,
+///     BootSector, FileAllocationTableType, FillError, FormatOptions, FormatPlan, NoClock,
+///     SectorSize,
 /// };
 ///
+/// # fn main() -> Result<(), Box<dyn core::error::Error>> {
 /// // 8 MiB of 512-byte sectors: too many clusters for FAT12, so FAT16.
-/// let format = FormatPlan::new(FormatOptions::new(SectorSize::Bytes512, 16 * 1024), &mut NoClock).unwrap();
+/// let options = FormatOptions::new(SectorSize::Bytes512, 16 * 1024);
+/// let format = FormatPlan::new(options, &mut NoClock)?;
 /// assert_eq!(format.file_allocation_table_type(), FileAllocationTableType::Fat16);
+///
+/// // The plan fills each metadata sector; the data area past them is the caller's.
 /// let mut boot = [0u8; 512];
-/// assert!(format.fill_sector(0, &mut boot));
-/// let parsed = file_allocation_table::BootSector::parse(&boot).unwrap();
+/// format.fill_sector(0, &mut boot)?;
+/// let parsed = BootSector::parse(&boot)?;
 /// assert_eq!(parsed.file_allocation_table_type(), format.file_allocation_table_type());
+/// assert_eq!(
+///     format.fill_sector(format.metadata_sectors(), &mut boot),
+///     Err(FillError::PastMetadata)
+/// );
+/// # Ok(())
+/// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FormatPlan {
     geometry: Geometry,
     volume_id: u32,
@@ -425,6 +458,18 @@ impl FormatPlan {
     /// **Lay out the volume `options` describe**, or say why none exists. The label entry, when
     /// there is one, carries the time `clock` reports now (read once); `NoClock` gives the zero
     /// timestamp and a byte-for-byte reproducible image.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::ClusterSizeRefused`](crate::FormatError::ClusterSizeRefused) for a cluster
+    /// size that is not a power of two from 1 to 128 sectors,
+    /// [`FormatError::TooLarge`](crate::FormatError::TooLarge) for a total or hidden sector count
+    /// past 32 bits, [`FormatError::TimeOutOfRange`](crate::FormatError::TimeOutOfRange) when the
+    /// clock reports a time FAT cannot store,
+    /// [`FormatError::TooSmall`](crate::FormatError::TooSmall) when the device cannot hold the
+    /// reserved sectors, a table and one cluster, and
+    /// [`FormatError::NoSuchGeometry`](crate::FormatError::NoSuchGeometry) when no cluster size
+    /// gives the type a legal cluster count.
     pub fn new(options: FormatOptions, clock: &mut impl Clock) -> Result<FormatPlan, FormatError> {
         const KINDS: [FileAllocationTableType; 3] = [
             FileAllocationTableType::Fat12,
@@ -437,6 +482,12 @@ impl FormatPlan {
         {
             return Err(FormatError::ClusterSizeRefused);
         }
+        let (Ok(total_sectors), Ok(hidden_sectors)) = (
+            u32::try_from(options.total_sectors),
+            u32::try_from(options.hidden_sectors),
+        ) else {
+            return Err(FormatError::TooLarge);
+        };
         let stamp = Stamp::pack(clock.now()).map_err(|_| FormatError::TimeOutOfRange)?;
         // The smallest cluster of `only_sectors` (any when `None`) that gives a type of
         // `only_kind` (any when `None`) a legal count, and whether some size was too small.
@@ -450,12 +501,7 @@ impl FormatPlan {
                     if only_kind.is_some_and(|only| only != kind) {
                         continue;
                     }
-                    match Geometry::new(
-                        kind,
-                        options.bytes_per_sector,
-                        sectors,
-                        options.total_sectors,
-                    ) {
+                    match Geometry::new(kind, options.bytes_per_sector, sectors, total_sectors) {
                         Ok(geometry) => return (Some(geometry), seen_small),
                         Err(GeometryError::TooSmall) => seen_small = true,
                         Err(GeometryError::WrongType(_)) => {}
@@ -468,7 +514,7 @@ impl FormatPlan {
         if options.cluster_sectors.is_none() {
             let (kind, sectors) = by_volume_size(
                 options.bytes_per_sector,
-                options.total_sectors,
+                total_sectors,
                 options.file_allocation_table_type,
             );
             found = search(Some(kind), sectors).0;
@@ -490,7 +536,7 @@ impl FormatPlan {
             volume_id: options.volume_id,
             label: options.label,
             has_label: options.has_label,
-            hidden_sectors: options.hidden_sectors,
+            hidden_sectors,
             stamp,
         })
     }
@@ -511,13 +557,18 @@ impl FormatPlan {
     }
 
     /// Sectors in one copy of the table.
-    pub const fn table_sectors(&self) -> u32 {
-        self.geometry.table_sectors
+    pub const fn table_sectors(&self) -> u64 {
+        self.geometry.table_sectors as u64
     }
 
     /// How many leading sectors [`FormatPlan::fill_sector`] answers for: the reserved sectors, both
     /// tables, the fixed root of FAT12 and FAT16, and FAT32's root cluster.
-    pub const fn metadata_sectors(&self) -> u32 {
+    pub const fn metadata_sectors(&self) -> u64 {
+        self.metadata_sector_count() as u64
+    }
+
+    /// [`FormatPlan::metadata_sectors`] in the 32-bit width the geometry keeps.
+    const fn metadata_sector_count(&self) -> u32 {
         let first = self.geometry.first_data_sector();
         match self.geometry.kind {
             FileAllocationTableType::Fat32 => first + self.geometry.cluster_sectors,
@@ -525,17 +576,25 @@ impl FormatPlan {
         }
     }
 
-    /// **Fill `out` with volume-relative sector `index`.** `false`, with `out` untouched, when
-    /// `index` is at or past [`FormatPlan::metadata_sectors`] or `out` is not one sector long.
+    /// **Fill `out` with volume-relative sector `index`.**
     ///
     /// Every sector this answers for is written whole, zeros included, so a volume laid over a
     /// disk that held something before inherits no stale table word or directory entry. The data
     /// clusters beyond are not touched.
-    pub fn fill_sector(&self, index: u32, out: &mut [u8]) -> bool {
+    ///
+    /// # Errors
+    ///
+    /// With `out` untouched, [`FillError::WrongLength`] when `out` is not one sector long, and
+    /// [`FillError::PastMetadata`] when `index` is at or past [`FormatPlan::metadata_sectors`].
+    pub fn fill_sector(&self, index: u64, out: &mut [u8]) -> Result<(), FillError> {
         let g = &self.geometry;
-        if out.len() != g.bytes_per_sector.bytes() || index >= self.metadata_sectors() {
-            return false;
+        if out.len() != g.bytes_per_sector.bytes() {
+            return Err(FillError::WrongLength);
         }
+        let index = match u32::try_from(index) {
+            Ok(index) if index < self.metadata_sector_count() => index,
+            _ => return Err(FillError::PastMetadata),
+        };
         out.fill(0);
         let fat32 = g.kind == FileAllocationTableType::Fat32;
         let tables = g.reserved_sectors..g.reserved_sectors + 2 * g.table_sectors;
@@ -553,7 +612,7 @@ impl FormatPlan {
             out[11] = ATTR_VOLUME_ID;
             self.stamp.write_new(&mut out[..32]);
         }
-        true
+        Ok(())
     }
 
     /// The first sector of a table: the media byte, the end-of-chain marker of entry 1 (which also
@@ -572,12 +631,17 @@ impl FormatPlan {
 
     /// **Write the whole format to `device`**, sector by sector, and return the device's first
     /// error. The device must have the sector size the options named.
+    ///
+    /// # Errors
+    ///
+    /// The device's own error, unchanged, from the first write it refuses. The sectors before it
+    /// are written and the ones after it are not.
     pub fn write_to<D: WritableSectorDevice>(&self, device: &mut D) -> Result<(), D::Error> {
         let mut sector = [0u8; SectorSize::MAXIMUM_BYTES];
         let size = self.geometry.bytes_per_sector.bytes();
         for index in 0..self.metadata_sectors() {
-            if self.fill_sector(index, &mut sector[..size]) {
-                device.write_sector(u64::from(index), &sector[..size])?;
+            if self.fill_sector(index, &mut sector[..size]).is_ok() {
+                device.write_sector(index, &sector[..size])?;
             }
         }
         Ok(())

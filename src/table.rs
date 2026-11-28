@@ -8,6 +8,7 @@
 //! This module computes and decodes; [`crate::Volume`] does the reading.
 
 use crate::boot_sector::{BootSector, FileAllocationTableType};
+use crate::reader::Cluster;
 
 /// **What one table entry says about the cluster after this one.**
 ///
@@ -21,7 +22,7 @@ pub enum TableEntry {
     /// Entry value 1, which the specification reserves and no chain may hold.
     Reserved,
     /// The chain continues at this cluster number, at least 2 and below the bad-cluster marker.
-    Next(u32),
+    Next(Cluster),
     /// The cluster is marked bad: `0xFF7`, `0xFFF7` or `0x0FFF_FFF7` by the FAT type.
     Bad,
     /// The chain ends with this cluster: any value from the bad marker plus one to the type's
@@ -48,7 +49,7 @@ impl TableEntry {
         } else if value == 1 {
             TableEntry::Reserved
         } else if value < bad {
-            TableEntry::Next(value)
+            TableEntry::Next(Cluster(value))
         } else if value == bad {
             TableEntry::Bad
         } else {
@@ -70,7 +71,7 @@ impl TableEntry {
         match self {
             TableEntry::Free => 0,
             TableEntry::Reserved => 1,
-            TableEntry::Next(next) => next & mask,
+            TableEntry::Next(Cluster(next)) => next & mask,
             TableEntry::Bad => bad,
             TableEntry::EndOfChain => mask,
         }
@@ -85,7 +86,7 @@ impl TableEntry {
 /// table: `BootSector::parse` refuses a table too short to hold an entry for every cluster.
 #[cfg(any(kani, test))]
 pub(crate) fn entry_position(boot: &BootSector, cluster: u32) -> Option<(u32, usize)> {
-    boot.cluster_first_sector(cluster)?;
+    boot.first_sector_of(cluster)?;
     raw_position_in(boot, cluster, boot.active_table().unwrap_or_default())
 }
 

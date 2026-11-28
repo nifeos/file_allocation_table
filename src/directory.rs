@@ -6,8 +6,9 @@
 //! pieces and checks their checksum against the short entry that follows. The layouts are those of
 //! Microsoft's "FAT: General Overview of On-Disk Format", version 1.03, sections 6 and 7.
 
+use crate::attributes::Attributes;
 use crate::boot_sector::{BootSector, FileAllocationTableType, RootDirectory};
-use crate::reader::{ChainError, Links, Volume, Walk};
+use crate::reader::{ChainError, Cluster, Links, Volume, Walk};
 use crate::sector::{SectorDevice, SectorSize};
 use crate::time::{CivilDateTime, Stamp};
 
@@ -172,9 +173,16 @@ impl ShortEntry {
         name
     }
 
-    /// `DIR_Attr`, every bit as stored.
-    pub const fn attributes(&self) -> u8 {
+    /// `DIR_Attr`, every bit as stored. Crate-private: a caller reads the bits through
+    /// [`ShortEntry::user_attributes`], [`ShortEntry::is_directory`] and
+    /// [`ShortEntry::is_volume_label`], so no bit's position is part of the interface.
+    pub(crate) const fn attributes(&self) -> u8 {
         self.attributes
+    }
+
+    /// The user-settable attribute bits of the entry: read-only, hidden, system and archive.
+    pub const fn user_attributes(&self) -> Attributes {
+        Attributes::of_stored(self.attributes)
     }
 
     /// Whether the entry is a directory.
@@ -189,8 +197,8 @@ impl ShortEntry {
 
     /// The first cluster of the entry's chain, or 0 for an empty file and for a `..` whose parent
     /// is the root. Not checked against the volume.
-    pub const fn first_cluster(&self) -> u32 {
-        self.first_cluster
+    pub const fn first_cluster(&self) -> Cluster {
+        Cluster(self.first_cluster)
     }
 
     /// The file's length in bytes; 0 for a directory.
@@ -285,7 +293,7 @@ impl Source {
                 next: first_sector,
                 end: first_sector + sectors,
             },
-            RootDirectory::Cluster(first) => Source::chain(first),
+            RootDirectory::Cluster(first) => Source::chain(first.get()),
         }
     }
 
@@ -325,7 +333,7 @@ impl Source {
                         Err(error) => return Some(Err(error)),
                     };
                     // The walk yields only data clusters, which always have sectors.
-                    *next = boot.cluster_first_sector(cluster)?;
+                    *next = boot.first_sector_of(cluster)?;
                     *remaining = boot.sectors_per_cluster();
                 }
                 *remaining -= 1;
@@ -343,10 +351,10 @@ impl Source {
 /// of the region or chain. A chain is walked with [`Volume::chain`]'s bound, so the read ends
 /// whatever the table holds. After an error it yields nothing more.
 #[derive(Debug)]
-pub struct Directory<'v, D> {
-    volume: &'v mut Volume<D>,
+pub struct Directory<'v, D, const BUFFER_BYTES: usize = { SectorSize::MAXIMUM_BYTES }> {
+    volume: &'v mut Volume<D, BUFFER_BYTES>,
     source: Source,
-    buffer: [u8; SectorSize::MAXIMUM_BYTES],
+    buffer: [u8; BUFFER_BYTES],
     /// The byte offset of the next slot in `buffer`; one sector or more means a sector is due.
     at: usize,
     done: bool,
@@ -356,23 +364,30 @@ pub struct Directory<'v, D> {
     index: u32,
 }
 
-impl<'v, D: SectorDevice> Directory<'v, D> {
+impl<'v, D: SectorDevice, const BUFFER_BYTES: usize> Directory<'v, D, BUFFER_BYTES> {
     /// The root directory of `volume`.
-    pub(crate) fn root(volume: &'v mut Volume<D>) -> Directory<'v, D> {
+    pub(crate) fn root(volume: &'v mut Volume<D, BUFFER_BYTES>) -> Directory<'v, D, BUFFER_BYTES> {
         let source = Source::root(volume.boot_sector());
         Directory::new(volume, source, 0)
     }
 
     /// The directory whose chain starts at `first`.
-    pub(crate) fn chain(volume: &'v mut Volume<D>, first: u32) -> Directory<'v, D> {
+    pub(crate) fn chain(
+        volume: &'v mut Volume<D, BUFFER_BYTES>,
+        first: u32,
+    ) -> Directory<'v, D, BUFFER_BYTES> {
         Directory::new(volume, Source::chain(first), first)
     }
 
-    fn new(volume: &'v mut Volume<D>, source: Source, first: u32) -> Directory<'v, D> {
+    fn new(
+        volume: &'v mut Volume<D, BUFFER_BYTES>,
+        source: Source,
+        first: u32,
+    ) -> Directory<'v, D, BUFFER_BYTES> {
         Directory {
             volume,
             source,
-            buffer: [0; SectorSize::MAXIMUM_BYTES],
+            buffer: [0; BUFFER_BYTES],
             at: SectorSize::MAXIMUM_BYTES,
             done: false,
             first,
@@ -444,7 +459,7 @@ impl<'v, D: SectorDevice> Directory<'v, D> {
     }
 }
 
-impl<D: SectorDevice> Iterator for Directory<'_, D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Iterator for Directory<'_, D, BUFFER_BYTES> {
     type Item = Result<DirectoryEntry, ChainError<D::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {

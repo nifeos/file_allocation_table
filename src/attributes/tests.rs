@@ -22,6 +22,38 @@ fn a_set_is_a_union_a_difference_and_a_containment() {
     assert_eq!(Attributes::READ_ONLY.bits(), 0x01);
 }
 
+/// Each of the sixteen sets of user bits.
+fn every_set() -> impl Iterator<Item = Attributes> {
+    (0u8..16).map(|pick| {
+        [
+            Attributes::READ_ONLY,
+            Attributes::HIDDEN,
+            Attributes::SYSTEM,
+            Attributes::ARCHIVE,
+        ]
+        .into_iter()
+        .enumerate()
+        .filter(|(bit, _)| pick & (1 << bit) != 0)
+        .fold(Attributes::EMPTY, |set, (_, one)| set.union(one))
+    })
+}
+
+#[test]
+fn the_operators_agree_with_the_methods_and_stay_in_the_user_bits() {
+    for left in every_set() {
+        assert_eq!((!left).bits() & !USER_BITS, 0);
+        assert_eq!(!!left, left);
+        assert_eq!(left & !left, Attributes::EMPTY);
+        assert_eq!((left | !left).bits(), USER_BITS);
+        for right in every_set() {
+            assert_eq!(left | right, left.union(right));
+            assert_eq!(left & !right, left.difference(right));
+            assert_eq!((left & right).bits(), left.bits() & right.bits());
+            assert_eq!(left.contains(right), left & right == right);
+        }
+    }
+}
+
 #[test]
 fn setting_changes_the_user_bits_and_keeps_the_directory_bit() {
     assert_eq!(apply(0x20, Attributes::READ_ONLY), 0x01);
@@ -49,7 +81,12 @@ fn a_file_and_a_directory_take_attributes_and_the_entry_reads_them_back() {
     assert!(directory.is_directory());
     assert_eq!(directory.attributes(), 0x12);
     assert_eq!(
-        volume.lookup("F.TXT").unwrap().user_attributes().bits(),
+        volume
+            .get_mut()
+            .lookup("F.TXT")
+            .unwrap()
+            .user_attributes()
+            .bits(),
         0x06
     );
 }
@@ -65,7 +102,7 @@ fn a_read_only_file_refuses_a_write_a_resize_and_a_remove_until_the_bit_clears()
         .unwrap()
         .write(b"keep")
         .unwrap();
-    let file = volume.lookup("RO.TXT").unwrap();
+    let file = volume.get_mut().lookup("RO.TXT").unwrap();
     let locked = volume.set_attributes(&file, Attributes::READ_ONLY).unwrap();
     let mut writer = volume.open_file_writer(&locked).unwrap();
     assert_eq!(writer.write(b"x"), Err(WriteError::ReadOnly));
@@ -73,7 +110,7 @@ fn a_read_only_file_refuses_a_write_a_resize_and_a_remove_until_the_bit_clears()
     assert_eq!(volume.remove_file(&locked), Err(WriteError::ReadOnly));
     let open = volume.set_attributes(&locked, Attributes::ARCHIVE).unwrap();
     volume.open_file_writer(&open).unwrap().write(b"!").unwrap();
-    let current = volume.lookup("RO.TXT").unwrap();
+    let current = volume.get_mut().lookup("RO.TXT").unwrap();
     volume.remove_file(&current).unwrap();
 }
 
@@ -84,6 +121,7 @@ fn the_label_dots_and_a_stale_entry_are_refused() {
         .create_directory(DirectoryCluster::ROOT, "D")
         .unwrap();
     let dot = volume
+        .get_mut()
         .named_entries(directory.directory_cluster().unwrap())
         .map(|e| e.unwrap())
         .find(NamedEntry::is_dot_entry)

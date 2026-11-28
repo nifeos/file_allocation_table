@@ -179,7 +179,7 @@ fn attributes_agree(label: &str, mebibytes: usize, fat_type: FatType) {
         volume = WritableVolume::open(image, NoClock).unwrap();
     }
     // A read-only file refuses until the bit clears.
-    let current = volume.lookup("Attribute Test File.txt").unwrap();
+    let current = volume.get_mut().lookup("Attribute Test File.txt").unwrap();
     let locked = volume
         .set_attributes(&current, Attributes::READ_ONLY)
         .unwrap();
@@ -216,13 +216,18 @@ fn attributes_agree_on_fat32() {
 fn labels_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     let mut volume = WritableVolume::open(formatted(mebibytes, fat_type, 512), NoClock).unwrap();
     assert_eq!(
-        volume.volume_label().unwrap(),
+        volume.get_mut().volume_label().unwrap(),
         None,
         "{label}: rust-fatfs formats with no label entry"
     );
     volume.set_volume_label("LAMFAT LBL").unwrap();
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
+        volume
+            .get_mut()
+            .volume_label()
+            .unwrap()
+            .unwrap()
+            .trim_ascii_end(),
         b"LAMFAT LBL"
     );
     volume.mark_clean().unwrap();
@@ -233,6 +238,7 @@ fn labels_agree(label: &str, mebibytes: usize, fat_type: FatType) {
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     volume.set_volume_label("RENAMED").unwrap();
     let labels = volume
+        .get_mut()
         .root_named_entries()
         .map(|e| e.unwrap())
         .filter(|e| e.is_volume_label())
@@ -251,7 +257,7 @@ fn labels_agree(label: &str, mebibytes: usize, fat_type: FatType) {
         NoClock,
     )
     .unwrap();
-    let boot = *volume.boot_sector();
+    let boot = *volume.get_mut().boot_sector();
     let at = if fat_type == FatType::Fat32 { 71 } else { 43 };
     assert_eq!(&image.bytes[at..at + 11], b"RENAMED    ", "{label}");
     if let Some(backup) = boot.backup_boot_sector() {
@@ -286,7 +292,7 @@ fn labels_agree_on_fat32() {
 #[test]
 fn a_label_the_format_wrote_reads_back_and_changes() {
     for sectors in [8 * 1024u32, 64 * 1024, 200 * 1024] {
-        let options = FormatOptions::new(SectorSize::Bytes512, sectors)
+        let options = FormatOptions::new(SectorSize::Bytes512, u64::from(sectors))
             .with_label("FORMATTED")
             .unwrap();
         let format = FormatPlan::new(options, &mut NoClock).unwrap();
@@ -298,7 +304,12 @@ fn a_label_the_format_wrote_reads_back_and_changes() {
         assert_eq!(lamfat_label(&image.bytes), "FORMATTED");
         let mut volume = WritableVolume::open(image, NoClock).unwrap();
         assert_eq!(
-            volume.volume_label().unwrap().unwrap().trim_ascii_end(),
+            volume
+                .get_mut()
+                .volume_label()
+                .unwrap()
+                .unwrap()
+                .trim_ascii_end(),
             b"FORMATTED"
         );
         volume.set_volume_label("CHANGED").unwrap();
@@ -341,7 +352,12 @@ fn a_label_mkfs_fat_wrote_reads_back_and_changes() {
     )
     .unwrap();
     assert_eq!(
-        volume.volume_label().unwrap().unwrap().trim_ascii_end(),
+        volume
+            .get_mut()
+            .volume_label()
+            .unwrap()
+            .unwrap()
+            .trim_ascii_end(),
         b"MKFSLABEL"
     );
     volume.set_volume_label("AFTER").unwrap();

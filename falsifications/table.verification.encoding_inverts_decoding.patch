@@ -7,10 +7,10 @@ Expected to fail: the harness's `assert_eq!(TableEntry::decode(file_allocation_t
 diff --git a/src/table.rs b/src/table.rs
 --- a/src/table.rs
 +++ b/src/table.rs
-@@ -92,7 +92,7 @@ impl TableEntry {
+@@ -72,7 +72,7 @@ impl TableEntry {
              TableEntry::Free => 0,
              TableEntry::Reserved => 1,
-             TableEntry::Next(next) => next & mask,
+             TableEntry::Next(Cluster(next)) => next & mask,
 -            TableEntry::Bad => bad,
 +            TableEntry::Bad => bad + 1,
              TableEntry::EndOfChain => mask,

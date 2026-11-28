@@ -31,12 +31,13 @@
 /// ```
 /// use file_allocation_table::{CivilDateTime, CivilDateTimeError};
 ///
-/// let noon = CivilDateTime::new(2026, 11, 10, 12, 0, 0).unwrap();
+/// let noon = CivilDateTime::new(2026, 11, 10, 12, 0, 0)?;
 /// assert_eq!((noon.year(), noon.month(), noon.day()), (2026, 11, 10));
 /// assert_eq!(
 ///     CivilDateTime::new(2026, 2, 29, 0, 0, 0),
 ///     Err(CivilDateTimeError::Day)
 /// );
+/// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CivilDateTime {
@@ -81,6 +82,15 @@ impl CivilDateTime {
     /// **A date and time of day**, or the field that makes it one no calendar holds: a month
     /// outside 1 to 12, a day of 0 or past the end of its month, an hour past 23, a minute or a
     /// second past 59. Any year is accepted; a writer refuses one FAT cannot store.
+    ///
+    /// # Errors
+    ///
+    /// [`CivilDateTimeError::Month`](crate::CivilDateTimeError::Month),
+    /// [`CivilDateTimeError::Day`](crate::CivilDateTimeError::Day),
+    /// [`CivilDateTimeError::Hour`](crate::CivilDateTimeError::Hour),
+    /// [`CivilDateTimeError::Minute`](crate::CivilDateTimeError::Minute) or
+    /// [`CivilDateTimeError::Second`](crate::CivilDateTimeError::Second), for the first field out
+    /// of its range, in that order.
     pub const fn new(
         year: u16,
         month: u8,

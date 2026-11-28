@@ -85,7 +85,7 @@ fn seek_target(from: SeekFrom, position: u32, size_bytes: u32) -> Option<u32> {
 }
 
 #[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
-impl<D: SectorDevice> ErrorType for FileReader<'_, D>
+impl<D: SectorDevice, const BUFFER_BYTES: usize> ErrorType for FileReader<'_, D, BUFFER_BYTES>
 where
     D::Error: core::error::Error + 'static,
 {
@@ -93,7 +93,7 @@ where
 }
 
 #[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
-impl<D: SectorDevice> Read for FileReader<'_, D>
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Read for FileReader<'_, D, BUFFER_BYTES>
 where
     D::Error: core::error::Error + 'static,
 {
@@ -103,7 +103,7 @@ where
 }
 
 #[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
-impl<D: SectorDevice> Seek for FileReader<'_, D>
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Seek for FileReader<'_, D, BUFFER_BYTES>
 where
     D::Error: core::error::Error + 'static,
 {
@@ -116,7 +116,8 @@ where
 }
 
 #[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
-impl<D: WritableSectorDevice, C: Clock> ErrorType for FileWriter<'_, D, C>
+impl<D: WritableSectorDevice, C: Clock, const BUFFER_BYTES: usize> ErrorType
+    for FileWriter<'_, D, C, BUFFER_BYTES>
 where
     D::Error: core::error::Error + 'static,
 {
@@ -124,7 +125,8 @@ where
 }
 
 #[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
-impl<D: WritableSectorDevice, C: Clock> Write for FileWriter<'_, D, C>
+impl<D: WritableSectorDevice, C: Clock, const BUFFER_BYTES: usize> Write
+    for FileWriter<'_, D, C, BUFFER_BYTES>
 where
     D::Error: core::error::Error + 'static,
 {
@@ -138,7 +140,8 @@ where
 }
 
 #[cfg_attr(docsrs, doc(cfg(feature = "embedded-io-07")))]
-impl<D: WritableSectorDevice, C: Clock> Seek for FileWriter<'_, D, C>
+impl<D: WritableSectorDevice, C: Clock, const BUFFER_BYTES: usize> Seek
+    for FileWriter<'_, D, C, BUFFER_BYTES>
 where
     D::Error: core::error::Error + 'static,
 {

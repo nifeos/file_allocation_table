@@ -35,14 +35,15 @@ fn efi(sectors: u64, file: &str) -> u64 {
     let mut sector = [0u8; 512];
     let mut hash = START;
     for index in 0..volume.metadata_sectors() {
-        assert!(volume.fill_sector(index, &mut sector));
+        volume.fill_sector(index, &mut sector).unwrap();
         hash = fnv(hash, &sector);
     }
     hash
 }
 
 fn formatted(sectors: u32, cluster: Option<u32>, label: Option<&str>) -> u64 {
-    let mut options = FormatOptions::new(SectorSize::Bytes512, sectors).with_volume_id(0xC0FF_EE11);
+    let mut options =
+        FormatOptions::new(SectorSize::Bytes512, u64::from(sectors)).with_volume_id(0xC0FF_EE11);
     if let Some(cluster) = cluster {
         options = options.with_sectors_per_cluster(cluster);
     }
@@ -53,7 +54,7 @@ fn formatted(sectors: u32, cluster: Option<u32>, label: Option<&str>) -> u64 {
     let mut sector = [0u8; 512];
     let mut hash = START;
     for index in 0..format.metadata_sectors() {
-        assert!(format.fill_sector(index, &mut sector));
+        format.fill_sector(index, &mut sector).unwrap();
         hash = fnv(hash, &sector);
     }
     hash

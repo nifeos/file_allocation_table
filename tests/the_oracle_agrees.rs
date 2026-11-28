@@ -22,8 +22,8 @@ use std::process::Command;
 
 use file_allocation_table::efi_system_partition::BYTES_PER_SECTOR;
 use file_allocation_table::{
-    DirectoryCluster, LookupError, MasterBootRecord, NamedEntry, NoClock, SectorDevice, SectorSize,
-    ShortEntry, TableEntry, Volume, VolumeLayout, VolumeLayoutOptions,
+    Cluster, DirectoryCluster, LookupError, MasterBootRecord, NamedEntry, NoClock, SectorDevice,
+    SectorSize, ShortEntry, TableEntry, Volume, VolumeLayout, VolumeLayoutOptions,
 };
 use lamfat::{Read, Write};
 
@@ -197,14 +197,14 @@ fn read_file(volume: &mut Volume<Memory<'_>>, image: &[u8], first: u32, size: u6
         return Vec::new();
     }
     let clusters: Vec<u32> = volume
-        .chain(first)
-        .map(|c| c.expect("the chain reads"))
+        .chain(Cluster::new(first))
+        .map(|c| c.expect("the chain reads").get())
         .collect();
     assert_eq!(clusters.len() as u64, size.div_ceil(cluster_bytes));
     let sector = boot.sector_size().bytes();
     let mut out = Vec::new();
     for cluster in clusters {
-        let at = boot.cluster_first_sector(cluster).unwrap() as usize * sector;
+        let at = boot.cluster_first_sector(Cluster::new(cluster)).unwrap() as usize * sector;
         out.extend_from_slice(&image[at..at + cluster_bytes as usize]);
     }
     out.truncate(size as usize);
@@ -252,7 +252,12 @@ fn our_records(
                 entry.directory_cluster().expect("a directory"),
             );
         } else {
-            let raw = read_file(volume, image, short.first_cluster(), record.size_bytes);
+            let raw = read_file(
+                volume,
+                image,
+                short.first_cluster().get(),
+                record.size_bytes,
+            );
             let mut file = volume.open_file_reader(&entry).expect("a file opens");
             let mut bytes = vec![0u8; record.size_bytes as usize];
             assert_eq!(file.read(&mut bytes).expect("the file reads"), bytes.len());
@@ -385,7 +390,7 @@ fn agree(label: &str, mebibytes: usize, fat_type: lamfat::FatType, sector: u16) 
 
     let clusters = volume.boot_sector().clusters();
     let our_free = (2..clusters + 2)
-        .filter(|&c| volume.table_entry(c).unwrap() == TableEntry::Free)
+        .filter(|&c| volume.table_entry(Cluster::new(c)).unwrap() == TableEntry::Free)
         .count();
     assert_eq!(our_free as u32, free, "{label}: the free counts differ");
 
@@ -478,7 +483,9 @@ fn rust_fatfs_reads_what_this_crate_wrote() {
     let mut image = vec![0u8; total as usize * BYTES_PER_SECTOR];
     for index in 0..layout.metadata_sectors() {
         let at = index as usize * BYTES_PER_SECTOR;
-        assert!(layout.fill_sector(index, &mut image[at..at + BYTES_PER_SECTOR]));
+        layout
+            .fill_sector(index, &mut image[at..at + BYTES_PER_SECTOR])
+            .unwrap();
     }
     let body: Vec<u8> = (0..FILE_LENGTH_BYTES).map(|i| (i % 251) as u8).collect();
     let at = layout.file_first_sector() as usize * BYTES_PER_SECTOR;
@@ -530,7 +537,7 @@ fn rust_fatfs_reads_what_this_crate_wrote() {
     assert_eq!(by_alias, entry);
     let clusters = volume.boot_sector().clusters();
     let our_free = (2..clusters + 2)
-        .filter(|&c| volume.table_entry(c).unwrap() == TableEntry::Free)
+        .filter(|&c| volume.table_entry(Cluster::new(c)).unwrap() == TableEntry::Free)
         .count();
     assert_eq!(our_free as u32, free);
 }
@@ -548,7 +555,9 @@ fn a_layout_without_a_label_or_a_file_is_an_empty_volume_both_readers_accept() {
         let mut image = vec![0u8; total as usize * BYTES_PER_SECTOR];
         for index in 0..layout.metadata_sectors() {
             let at = index as usize * BYTES_PER_SECTOR;
-            assert!(layout.fill_sector(index, &mut image[at..at + BYTES_PER_SECTOR]));
+            layout
+                .fill_sector(index, &mut image[at..at + BYTES_PER_SECTOR])
+                .unwrap();
         }
         check_with_fsck(&image, &format!("layout-{label}"));
         let fs = lamfat::FileSystem::new(

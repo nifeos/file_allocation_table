@@ -71,7 +71,7 @@ fn a_short_entry_reads_its_fields() {
     assert_eq!(&entry.name(), b"HELLO   TXT");
     assert_eq!(entry.attributes(), 0x21);
     assert!(!entry.is_directory() && !entry.is_volume_label());
-    assert_eq!(entry.first_cluster(), 5);
+    assert_eq!(entry.first_cluster(), Cluster::new(5));
     assert_eq!(entry.size_bytes(), 1234);
 
     let directory = short_of(Slot::parse(
@@ -100,15 +100,15 @@ fn only_fat32_takes_the_high_cluster_word() {
     let slot = short(b"BIG     BIN", 0x20, 0x0001, 0x0002, 1);
     assert_eq!(
         short_of(Slot::parse(&slot, FileAllocationTableType::Fat32)).first_cluster(),
-        0x0001_0002
+        Cluster::new(0x0001_0002)
     );
     assert_eq!(
         short_of(Slot::parse(&slot, FileAllocationTableType::Fat16)).first_cluster(),
-        2
+        Cluster::new(2)
     );
     assert_eq!(
         short_of(Slot::parse(&slot, FileAllocationTableType::Fat12)).first_cluster(),
-        2
+        Cluster::new(2)
     );
 }
 
@@ -183,7 +183,7 @@ fn the_root_region_yields_used_slots_and_stops_at_the_end_slot() {
     let Some(Ok(DirectoryEntry::Short(sub))) = root.next() else {
         panic!()
     };
-    assert_eq!(sub.first_cluster(), 20);
+    assert_eq!(sub.first_cluster(), Cluster::new(20));
     assert!(root.next().is_none());
     assert!(root.next().is_none());
     assert_eq!(
@@ -277,7 +277,7 @@ fn a_broken_directory_chain_and_a_failing_device_end_the_read() {
     assert_eq!(
         read.next(),
         Some(Err(ChainError::Broken {
-            cluster: 20,
+            cluster: Cluster::new(20),
             entry: TableEntry::Free
         }))
     );
@@ -293,7 +293,7 @@ fn a_broken_directory_chain_and_a_failing_device_end_the_read() {
     let mut volume = Volume::open(Image::fat12()).unwrap();
     assert_eq!(
         volume.directory(DirectoryCluster(1)).next(),
-        Some(Err(ChainError::NotADataCluster(1)))
+        Some(Err(ChainError::NotADataCluster(Cluster::new(1))))
     );
 }
 

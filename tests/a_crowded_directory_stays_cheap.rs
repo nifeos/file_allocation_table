@@ -137,7 +137,7 @@ fn check_with_fsck(image: &[u8], label: &str) {
 fn volume() -> (WritableVolume<Counting, NoClock>, Counts) {
     let plan = FormatPlan::new(
         // The FAT32 volume at one sector to the cluster that the README's figures count.
-        FormatOptions::new(SectorSize::Bytes512, SECTORS)
+        FormatOptions::new(SectorSize::Bytes512, u64::from(SECTORS))
             .with_file_allocation_table_type(FileAllocationTableType::Fat32)
             .with_sectors_per_cluster(1),
         &mut NoClock,
@@ -181,6 +181,7 @@ fn five_hundred_colliding_long_names_stay_under_their_read_ceiling() {
     );
     // The aliases count up from 1, so the last of the five hundred carries ~500.
     let last = volume
+        .get_mut()
         .lookup(&format!("many/file number {}.txt", NAMES - 1))
         .unwrap();
     assert_eq!(last.short_name(), *b"FILE~500TXT");

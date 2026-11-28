@@ -89,8 +89,16 @@ impl NamedEntry {
     }
 }
 
-impl<D: SectorDevice> Volume<D> {
+impl<D: SectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES> {
     /// **The entry called `name` in `directory`**, or `Ok(None)`.
+    ///
+    /// # Errors
+    ///
+    /// [`ChainError::Device`](crate::ChainError::Device) when the device refuses a read, and
+    /// [`ChainError::NotADataCluster`](crate::ChainError::NotADataCluster),
+    /// [`ChainError::Broken`](crate::ChainError::Broken) or
+    /// [`ChainError::TooLong`](crate::ChainError::TooLong) when the directory's chain is damaged. A
+    /// name the directory does not hold is `Ok(None)`, not an error.
     pub fn find_in_directory(
         &mut self,
         directory: DirectoryCluster,
@@ -114,6 +122,15 @@ impl<D: SectorDevice> Volume<D> {
     /// no entry and is [`LookupError::RootHasNoEntry`]. Each component reads one directory to its end or
     /// its match, bounded by the volume's cluster count, and the number of directories read is
     /// the number of components.
+    ///
+    /// # Errors
+    ///
+    /// [`LookupError::NotFound`](crate::LookupError::NotFound) when a component names nothing,
+    /// [`LookupError::NotADirectory`](crate::LookupError::NotADirectory) when a component other
+    /// than the last names a file,
+    /// [`LookupError::RootHasNoEntry`](crate::LookupError::RootHasNoEntry) for a path with no
+    /// component, and [`LookupError::Chain`](crate::LookupError::Chain) when a directory cannot be
+    /// read or its chain is damaged.
     pub fn lookup(&mut self, path: &str) -> Result<NamedEntry, LookupError<D::Error>> {
         let mut directory = DirectoryCluster::ROOT;
         let mut components = path.split(['/', '\\']).filter(|part| !part.is_empty());

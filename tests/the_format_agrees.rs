@@ -106,7 +106,7 @@ fn formatted_by_this_crate(
     sectors: u32,
     build: impl Fn(FormatOptions) -> FormatOptions,
 ) -> (FormatPlan, Memory) {
-    let options = build(FormatOptions::new(size, sectors));
+    let options = build(FormatOptions::new(size, u64::from(sectors)));
     let format = FormatPlan::new(options, &mut NoClock).expect("a legal format");
     let mut image = Memory {
         bytes: vec![0xEEu8; sectors as usize * size.bytes()],
@@ -141,7 +141,7 @@ fn check(label: &str, format: &FormatPlan, image: Memory) {
     check_with_fsck(&image.bytes, &format!("{label}-empty"));
     let mut volume = WritableVolume::open(image, NoClock).unwrap();
     assert_eq!(
-        volume.count_free_clusters().unwrap(),
+        volume.get_mut().count_free_clusters().unwrap(),
         format.clusters()
             - u32::from(format.file_allocation_table_type() == FileAllocationTableType::Fat32)
     );
@@ -322,7 +322,7 @@ fn volumes_mkfs_fat_made_take_this_crates_writer() {
         // Their geometry is a valid one for the type; ours for the same size is another valid one.
         let boot = BootSector::parse(&bytes[..512]).unwrap();
         let ours = FormatPlan::new(
-            FormatOptions::new(SectorSize::Bytes512, (mebibytes << 11) as u32)
+            FormatOptions::new(SectorSize::Bytes512, mebibytes << 11)
                 .with_file_allocation_table_type(boot.file_allocation_table_type())
                 .with_sectors_per_cluster(boot.sectors_per_cluster()),
             &mut NoClock,

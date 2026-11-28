@@ -10,9 +10,10 @@ use core::error::Error;
 use core::fmt;
 
 use crate::{
-    ChainError, CivilDateTimeError, FileReadError, FileSystemInformationError, FormatError,
-    LayoutError, LongFileNameError, LookupError, MasterBootRecordError, MasterBootRecordReadError,
-    OpenError, ParseError, PartitionError, ReadError, TableEntry, WriteError,
+    ChainError, CivilDateTimeError, FileReadError, FileSystemInformationError, FillError,
+    FormatError, LayoutError, LongFileNameError, LookupError, MasterBootRecordError,
+    MasterBootRecordReadError, OpenError, ParseError, PartitionError, ReadError, TableEntry,
+    WriteError,
 };
 
 impl fmt::Display for ParseError {
@@ -59,6 +60,15 @@ impl<E> fmt::Display for ReadError<E> {
                 device.bytes(),
                 volume.bytes()
             ),
+            ReadError::SectorLargerThanBuffer {
+                device,
+                buffer_bytes,
+            } => write!(
+                f,
+                "the device has {}-byte sectors and the volume's buffer holds {} bytes",
+                device.bytes(),
+                buffer_bytes
+            ),
         }
     }
 }
@@ -68,7 +78,7 @@ impl<E: Error + 'static> Error for ReadError<E> {
         match self {
             ReadError::Device(error) => Some(error),
             ReadError::Refused(error) => Some(error),
-            ReadError::SectorSizeMismatch { .. } => None,
+            ReadError::SectorSizeMismatch { .. } | ReadError::SectorLargerThanBuffer { .. } => None,
         }
     }
 }
@@ -78,7 +88,11 @@ impl<E> fmt::Display for ChainError<E> {
         match self {
             ChainError::Device(_) => f.write_str("the device refused a sector read or write"),
             ChainError::NotADataCluster(cluster) => {
-                write!(f, "cluster {cluster} is not a data cluster of this volume")
+                write!(
+                    f,
+                    "cluster {} is not a data cluster of this volume",
+                    cluster.0
+                )
             }
             ChainError::Broken { cluster, entry } => {
                 let entry = match entry {
@@ -90,7 +104,8 @@ impl<E> fmt::Display for ChainError<E> {
                 };
                 write!(
                     f,
-                    "the chain is broken at cluster {cluster}, whose table entry is {entry}"
+                    "the chain is broken at cluster {}, whose table entry is {entry}",
+                    cluster.0
                 )
             }
             ChainError::TooLong => {
@@ -189,6 +204,7 @@ impl fmt::Display for FormatError {
             }
             FormatError::LabelRefused => "the volume label is not a legal short name",
             FormatError::TimeOutOfRange => "the clock reported a time FAT cannot store",
+            FormatError::TooLarge => "the volume is larger than the boot sector can record",
             FormatError::ClusterSizeRefused => {
                 "the cluster size is not a power of two from 1 to 128 sectors"
             }
@@ -197,6 +213,17 @@ impl fmt::Display for FormatError {
 }
 
 impl Error for FormatError {}
+
+impl fmt::Display for FillError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            FillError::PastMetadata => "the sector is past the metadata the builder fills",
+            FillError::WrongLength => "the buffer is not one sector long",
+        })
+    }
+}
+
+impl Error for FillError {}
 
 impl fmt::Display for LongFileNameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
