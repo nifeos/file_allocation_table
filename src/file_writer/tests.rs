@@ -409,7 +409,8 @@ fn setting_the_length_it_already_has_keeps_a_chain_longer_than_the_size() {
     writer.set_len(512).unwrap();
     assert_eq!(writer.size_bytes(), 512);
     assert_eq!(volume.get_mut().count_free_clusters().unwrap(), free);
-    assert_eq!(volume.get_mut().chain(Cluster::new(5)).count(), 2);
+    // One step more than the chain holds, so a walk that never ends fails here instead of spinning.
+    assert_eq!(volume.get_mut().chain(Cluster::new(5)).take(3).count(), 2);
 }
 
 #[test]

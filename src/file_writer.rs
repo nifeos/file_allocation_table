@@ -196,16 +196,17 @@ impl<D: WritableSectorDevice, const BUFFER_BYTES: usize> Volume<D, BUFFER_BYTES>
             (0, RootDirectory::Cluster(root)) => root.get(),
             (other, _) => other,
         };
+        // A directory holds at most `MOST_SLOTS` entries, so it never needs more clusters than
+        // this, and the walk stops there whatever the table holds.
+        let slots_per_cluster = u64::from(self.boot.bytes_per_cluster()) / SLOT_BYTES as u64;
         let mut last = first;
         let mut clusters = 0u64;
         for cluster in self.chain(Cluster(first)) {
             last = cluster?.0;
             clusters += 1;
-        }
-        // A directory holds at most `MOST_SLOTS` entries, so it never needs more than this.
-        let slots_per_cluster = u64::from(self.boot.bytes_per_cluster()) / SLOT_BYTES as u64;
-        if clusters * slots_per_cluster >= u64::from(MOST_SLOTS) {
-            return Ok(false);
+            if clusters * slots_per_cluster >= u64::from(MOST_SLOTS) {
+                return Ok(false);
+            }
         }
         self.begin_change()?;
         // The cluster is taken as a chain of its own, zeroed, and only then linked: a reader
