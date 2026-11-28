@@ -21,7 +21,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: partsfoundry/crate-workflows/.github/workflows/release.yml@11d6d6bbf760462fa1e45275d34b55b88dcde44a
+    uses: partsfoundry/crate-workflows/.github/workflows/release.yml@d4cebb418a29be33a71ba0b4506ccf4ec0092d8e
     with:
       version: ${{ inputs.version }}
       dry-run: ${{ inputs.dry-run }}
